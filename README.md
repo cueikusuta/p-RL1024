@@ -21,4 +21,10 @@ node scripts/run-experiment.mjs
 
 環境変数 `RL_MATCHES` と `RL_SEED` で試合数と seed を指定できます。出力先は `artifacts/i975/` です。比較結果にはモデルのファイル hash と、評価結果を正規化した digest を記録します。元コードが出力する outcome digest と、正規化 digest は別の値です。
 
-`provenance/manifest.json` は元の private リポジトリのコミットと、取り込んだファイルの SHA-256 を記録します。実験結果を別環境と比較するときは、同じモデルの bytes、seed、引数、対戦相手を使ってください。Windows と Linux の一致はまだ確認されていません。
+中断した実験をローカルで再開するには、artifact 内の checkpoint を取得し、元と同じ snapshot、予定試合数、seed、学習設定を指定します。次は予定9試合、seed 975020、8試合目からの例です。
+
+```sh
+node scripts/dev/simulator/pure-rl-sarsa-train.mjs --all-phases true --matches 9 --seed 975020 --checkpoint-every 8 --resume artifacts/i975/training-m8.json --out artifacts/i975/resumed.json
+```
+
+`provenance/manifest.json` は元の private リポジトリのコミットと、取り込んだファイルの SHA-256 を記録します。実験結果を別環境と比較するときは、同じモデルの bytes、seed、引数、対戦相手を使ってください。2026-11-14 に元コミットの Windows 実行と公開 snapshot の Windows・GitHub-hosted Linux 実行で、9試合学習後のモデルと frozen smoke の結果 digest が一致しました。これは smoke 条件の検証です。
