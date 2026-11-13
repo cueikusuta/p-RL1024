@@ -1,9 +1,19 @@
-name: I975 frozen smoke and training
+name: RL model smoke and training
 on:
   push:
     branches: [main, 'research/**']
   workflow_dispatch:
     inputs:
+      model:
+        description: 'Model family'
+        type: choice
+        options: [RL-Linear, RL-Deep]
+        default: RL-Linear
+      opponent:
+        description: 'Evaluation opponent'
+        type: choice
+        options: [V2E, RL-Deep]
+        default: V2E
       matches:
         description: 'Training matches (9–256)'
         type: string
@@ -33,9 +43,11 @@ jobs:
       - name: Verify source snapshot
         run: node scripts/verify-snapshot.mjs
       - name: Verify contracts
-        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js
+        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js
       - name: Train and evaluate
         env:
+          RL_MODEL: ${{ inputs.model || 'RL-Linear' }}
+          RL_OPPONENT: ${{ inputs.opponent || 'V2E' }}
           RL_MATCHES: ${{ inputs.matches || '9' }}
           RL_SEED: ${{ inputs.seed || '975020' }}
         run: node scripts/run-experiment.mjs
@@ -44,6 +56,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: i975-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/i975/
+          path: artifacts/
           if-no-files-found: warn
           retention-days: 14

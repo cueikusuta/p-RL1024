@@ -1,0 +1,32 @@
+[
+  {
+    "id": "RL-Linear",
+    "family": "https://github.com/cueikusuta/pokemon-battle-factory/issues/975",
+    "featureVersion": "pure-rl-sparse-public",
+    "runtime": "node/cpu",
+    "trainingEntry": "scripts/train-linear.mjs",
+    "opponent": true,
+    "provenance": {"repository": "cueikusuta/pokemon-battle-factory", "commit": "ea81165993110ee9fb3a09dcb97c6708c0d7397b", "teacher": "none"},
+    "status": "trainable"
+  },
+  {
+    "id": "RL-Deep",
+    "family": "https://github.com/cueikusuta/pokemon-battle-factory/issues/976",
+    "featureVersion": "pure-rl-sparse-public",
+    "runtime": "node/cpu",
+    "trainingEntry": "scripts/train-deep.mjs",
+    "opponent": true,
+    "provenance": {"repository": "cueikusuta/p-RL1024", "commit": null, "teacher": "none; new independent implementation"},
+    "status": "trainable"
+  },
+  {
+    "id": "V2E",
+    "family": "https://github.com/cueikusuta/pokemon-battle-factory/issues/871",
+    "featureVersion": "v2e-rules",
+    "runtime": "node/cpu",
+    "trainingEntry": null,
+    "opponent": true,
+    "provenance": {"repository": "cueikusuta/pokemon-battle-factory", "commit": "ea81165993110ee9fb3a09dcb97c6708c0d7397b", "teacher": "not-applicable"},
+    "status": "frozen"
+  }
+]
