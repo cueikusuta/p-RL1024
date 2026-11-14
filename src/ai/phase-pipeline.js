@@ -50,7 +50,7 @@ function publicFoe(view){
   if(!isObject(foe))return null;
   // Do not forward arbitrary future engine fields into cross-AI memory.
   return Object.fromEntries(['speciesId','types','hpPercent','status','remaining',
-    'boosts','revealedMoves','revealedItemId','revealedAbilityId']
+    'stages','publicObservation']
     .filter(key=>hasOwn(foe,key)).map(key=>[key,clone(foe[key])]));
 }
 const cleanAction=action=>clone(action);
