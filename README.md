@@ -46,3 +46,38 @@ AQ-Base 対戦を再開する場合は、元と同じ `--model`・試合数・se
 AQ-Base-001 の凍結重みは本体台帳の SHA-256 と照合しています。AQ 対戦には別の固定エンジンスナップショット `aq-runtime/` を使います。これは従来の I975 smoke に用いる snapshot とは別のため、異なる条件の結果を直接比較しないでください。
 
 `provenance/manifest.json` は元の private リポジトリのコミットと、取り込んだファイルの SHA-256 を記録します。実験結果を別環境と比較するときは、同じモデルの bytes、seed、引数、対戦相手を使ってください。2026-11-14 に元コミットの Windows 実行と公開 snapshot の Windows・GitHub-hosted Linux 実行で、9試合学習後のモデルと frozen smoke の結果 digest が一致しました。これは smoke 条件の検証です。
+
+## フェーズごとに異なるAIを使う（opt-in）
+
+元の I975/I976 の学習・評価経路と `provenance/manifest.json` によるスナップショット固定は変更しません。新しい `scripts/dev/simulator/phase-match.js` の `runPhaseMatch` を呼んだ場合だけ、両座席のドラフト・選出・戦闘AIを独立に指定できます。
+
+```js
+import {runPhaseMatch} from './scripts/dev/simulator/phase-match.js';
+import {createBuiltinPhaseAgents,sessionPhaseAgent}
+  from './scripts/dev/simulator/phase-agents.js';
+import {createModel,createSession} from './models/deep.mjs';
+
+const deep=createSession(createModel(975020),{train:false});
+const result=runPhaseMatch({seed:975020,agents:[
+  createBuiltinPhaseAgents({
+    draft:'strategy',selection:'tactical',
+    battle:sessionPhaseAgent('rl-deep',deep)
+  }),
+  createBuiltinPhaseAgents({
+    draft:'basic',selection:'strategy',battle:'intermediate'
+  }),
+]});
+console.log(result.winner,result.score,result.agentIds);
+```
+
+上記の `createModel` は初期値モデルのデモであり、学習済みRL-Deepの性能を示すものではありません。利用可能な内蔵アダプタはドラフト `basic / strategy`、選出 `basic / strategy / tactical`、戦闘 `basic / intermediate` です。ほかのAI（RL-Linear、RL-Deep、V2E、AQ-Baseなど）は適切な同期セッションや独自ハンドラを指定して接続します。すべてが内蔵選択肢に登録済みという意味ではありません。
+
+各フェーズのハンドラは `{id, select({view,context,rng,seat,round}), accepted?, finish?}` を実装します。`select` は既存のアクションを直接返すか、`{action,handoff}` を返します。後者の `handoff` は最大4096文字のJSONオブジェクトで、ドラフト／選出／戦闘にそれぞれ独立して記録されます。直前のフェーズの `context.current`、過去ラウンドの `context.completed`、モデルが残した `context.handoff` を別のAIから参照できます。`context.schema` は `p-rl1024-phase-pipeline-v1` です。
+
+共通コンテキストは座席ごとに分離され、権威Matchが受理した自軍のドラフト・選出・戦闘アクションのみ記録します。自軍の確認済みセットと相手の公開種族・観測可能なHP割合等は共有しますが、相手の未公開セット、未公開技、真の内部状態は扱いません。AIが返した不正アクションはMatch/Battle側で拒否され、`accepted` や学習の `commit` は呼ばれません。非同期AIは現状未対応です。
+
+検証：
+
+```sh
+node --test test/phase-pipeline-contract.test.js test/phase-pipeline-integration.test.js
+```
