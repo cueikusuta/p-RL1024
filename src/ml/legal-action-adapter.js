@@ -6,6 +6,9 @@ import {legalPureRlActions} from '../ai/pure-rl-linear.js';
 
 export const RNAD_OBSERVATION_SCHEMA='rnad-actor-observation-v1';
 const phases=new Set(['draft','selection','battle']);
+// The real Battle uses phase='turn'/'pivot'/'replacement', not 'battle'.
+const phaseOf=view=>['draft','selection'].includes(view?.phase)
+  ?view.phase:(typeof view?.requestType==='string'?'battle':null);
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const clone=x=>structuredClone(x);
 const fields=(src,keys)=>object(src)?Object.fromEntries(keys
@@ -14,25 +17,27 @@ const fields=(src,keys)=>object(src)?Object.fromEntries(keys
 const ownKeys=['instanceId','setId','speciesId','speciesClauseId','speciesName',
   'types','baseStats','stats','cost','moves','itemId','abilityId','mega',
   'megaPreview','hp','maxHP','status','stages','statPoints','nature','pp',
-  'gender','alive','canMega'];
+  'gender','alive','canMega','megaCandidate','boosts'];
 const ownPokemon=p=>fields(p,ownKeys);
 const opponentBattleKeys=['speciesId','types','hpPercent','status','remaining',
   'stages','publicObservation'];
 const publicObservationKeys=['appearanceId','usedMoves','observedItemIds',
   'observedAbilityIds','moves','itemIds','abilityIds'];
-const fieldKeys=['weather','terrain','trickRoomTurns','hazards','screens',
-  'tailwind','gravity','room'];
+const fieldKeys=['weather','terrain','trickRoomTurns','sideEffects'];
 const ownBattleKeys=['team','active','canSwitch','canMega','needsSwitch',
   'confirmed','remaining','side','hazards','screens'];
 
 export function rnadLegalActions(view){
   if(!object(view))throw new TypeError('Expected phase observation');
-  const phase=view.phase??(view.requestType?'battle':null);
+  const phase=phaseOf(view);
   if(!phases.has(phase))throw new TypeError('Unsupported RNAD phase');
   const actions=phase==='draft'?legalPureRlTeams(view):
     phase==='selection'?legalPureRlSelections(view):legalPureRlActions(view);
   // Empty lists are legal only when the authority explicitly declares no decision.
-  const inactive=phase==='battle'&&(['wait','finished','confirmed'].includes(view.requestType)||view.self?.confirmed===true);
+  const active=view.self?.team?.[view.self?.active];
+  const inactive=phase==='battle'&&(
+    ['wait','finished'].includes(view.requestType)||view.self?.confirmed===true||
+    (view.requestType==='replacement'&&active?.hp>0&&view.self?.needsSwitch!==true));
   return validateRnadLegalActions(actions,{allowEmpty:inactive});
 }
 export function validateRnadLegalActions(actions,{allowEmpty=false}={}){
@@ -52,7 +57,7 @@ export function validateRnadLegalActions(actions,{allowEmpty=false}={}){
 export function projectRnadObservation(view,{seat,context=null}={}){
   if(![0,1].includes(seat)||!object(view))
     throw new TypeError('Expected public view and own seat');
-  const phase=view.phase??(view.requestType?'battle':null);
+  const phase=phaseOf(view);
   if(!phases.has(phase))throw new TypeError('Unsupported RNAD phase');
   if(!object(view.self))throw new TypeError('Missing own view');
   const result={schema:RNAD_OBSERVATION_SCHEMA,phase,seat};
