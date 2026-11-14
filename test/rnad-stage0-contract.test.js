@@ -96,3 +96,32 @@ test('opponent seat receives negative terminal reward and cannot cross seats',()
   assert.equal(c.finish({completed:true,winner:0,score:[4,3]})
     .decisions[0].terminal_reward,-1);
 });
+
+test('untrusted cross-round handoff and draft history cannot reach actor',()=>{
+  const view={phase:'draft',self:{fresh:team,carry:[],credits:12},
+    history:[{opponent:{setId:'SECRET',itemId:'SECRET',moves:['SECRET']}}]};
+  const context={schema:'p-rl1024-phase-pipeline-v1',seat:0,round:2,
+    current:{opponent:{moves:['SECRET']}},
+    completed:[{battle:{lastPublicOpponent:{hiddenSet:{moves:['SECRET']}}}}],
+    handoff:{battle:{opponentItem:'SECRET'}}};
+  const projected=projectRnadObservation(view,{seat:0,context});
+  assert.ok(!JSON.stringify(projected).includes('SECRET'));
+  assert.deepEqual(projected.context,{round:2});
+  assert.ok(!Object.hasOwn(projected,'history'));
+  const changed=structuredClone(view);
+  changed.history[0].opponent.moves=['DIFFERENT'];
+  const changedContext=structuredClone(context);
+  changedContext.handoff.battle.opponentItem='DIFFERENT';
+  assert.deepEqual(projected,projectRnadObservation(changed,{seat:0,context:changedContext}));
+});
+test('battle decisions fail closed on empty legal set',()=>{
+  const view={requestType:'turn',self:{team:[],active:0,confirmed:false,
+    canSwitch:false,canMega:false}};
+  assert.throws(()=>rnadLegalActions(view),/length/);
+});
+test('contradictory completed Match score cannot finish',()=>{
+  const c=collector();
+  assert.throws(()=>c.finish({completed:true,winner:0,score:[4,5]}),/four-win/);
+  assert.throws(()=>c.finish({completed:true,winner:0,score:[4,4]}),/four-win/);
+  assert.throws(()=>c.finish({completed:true,winner:0,score:[4,-1]}),/four-win/);
+});
