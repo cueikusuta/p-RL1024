@@ -2,6 +2,8 @@
 
 Pokémon の対戦を題材にした、ファンメイドの機械学習実験です。作品に関する権利とデータの権利は、それぞれの権利者に帰属します。公式とは関係ありません。
 
+Pokémon Showdown 参照 commit のデータや、参照して実装したコードに関する MIT の著作権表示とライセンス本文は [LICENSES/pokemon-showdown-MIT.txt](LICENSES/pokemon-showdown-MIT.txt) を参照してください。第三者のデータや名称に関する権利は別途あります。出典と未確認事項は [provenance の調査記録](provenance/catalog-usage-audit-2026-11-14.md) を参照してください。
+
 RL-Linear（I975、SARSA）と RL-Deep（I976、Battle Action のみの小型 MLP Actor-Critic）を収録しています。どちらも smoke 評価であり、モデルの強さを正式に評価するものではありません。画面、通信、サーバー、画像、音声は収録していません。
 
 ## Actions で実行する

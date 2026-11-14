@@ -2,13 +2,23 @@
 
 調査日: 2026-11-14。対象: p-RL1024 commit `9924a9f3e28bd90800ee297a242b447660cd7c70` の `data/catalog/`。この文書は利用許諾や法的適合性を認定するものではない。
 
-## 作業の停止条件
+## 2026-11-14 の続行判断と残る停止条件
+
+所有者は、Pokémon Showdown や PokeAPI の公開事例を踏まえ、非商用のファンメイド実験としてデータと自作実験コードで続行すると決定した。この決定は、権利者の許諾取得や利用条件の確認を意味しない。画像・音声などの素材、遊べるゲーム本体は含めない。個別の文章・表現の転載が具体的に見つかった場合、そのデータの利用拡大を止め、削除または置換を先に行う。新しい出所を追加する前には出所と条件を記録する。
+
+以下は、この判断以前の調査で確認した根拠であり、未確認事項として引き続き保持する。
 
 - Pokémon Support は、キャラクター・名称などの Pokémon 知的財産をプロジェクトに使用または関連付けしないよう求めている。[公式サポート](https://support.pokemon.com/hc/en-us/articles/360000634094-Can-I-use-Pok%C3%A9mon-images-or-materials)
 - Game8 の利用規約第7条は、サービスコンテンツについて、サービスが予定する態様を超える複製や公衆送信などを制限している。[Game8 利用規約](https://game8.jp/terms)
 - `production-sets.json` は Game8 の記事を `build-source` 等として記録する。URL があることだけでは、その記事からどの表現を複製したか、規約が各値にどう適用されるか、許可の有無は判定できない。
 
-上記は、対象データの追加コピーや新たな実験利用を広げる前に確認が必要な根拠であり、違反の確定ではない。依頼の停止条件に従い、該当データの利用拡大を停止する。既存の公開状態の変更・削除は行っていない。許諾・独立に作成したデータ・利用条件に適合する代替の確認は未実施。
+上記の適用範囲は未確認であり、違反は確定していない。許諾・独立に作成したデータ・利用条件に適合する代替の確認は未実施。2026-11-14 の所有者判断に従い、個別の転載が具体的に判明した場合の停止条件を適用する。
+
+## 再開前の手当て
+
+- Showdown の参照 commit `b8f23c99629132611ba59e99480cb148ea8c5d3d` の MIT 本文・著作権表示を [LICENSES/pokemon-showdown-MIT.txt](../LICENSES/pokemon-showdown-MIT.txt) に保存し、README から参照する。対象にはカタログデータの参照に加え、同 commit を機構の参照として記載する `src/battle.js` と `src/champions-stats.js` を含む。コード全体の由来調査や第三者の Pokémon 権利の確認は未完了。
+- `production-sets.json` の各709件には構造化データのほか `strategy`、`costRationale` などの文章がある。Game8、GameWith、Altema、Pokémon Zone の各1件について、登録済みの短い `strategy` 文字列を参照先ページの取得テキストと照合し、完全一致は見つからなかった。これは4件の限定的な文字列検索であり、過去のページ版、残りの文章、翻案・類似表現、Smogon、Bulbapedia を含めた全文照合は未実施。具体的な転載を確認した箇所はこの範囲ではないため、文章の削除や書き換えはしていない。[Game8 の例](https://game8.jp/pokemon-champions/812736)、[GameWith の例](https://gamewith.jp/pokemon-champions/575742)、[Altema の例](https://altema.jp/pokemonchampions/shandera-ikuseiron)、[Pokémon Zone の例](https://www.pokemon-zone.com/champions/ranked-seasons/singles/)。
+- Private 本体 URL 70件は `research.source.url` 69件、`research.priorProposal.source.url` 1件に存在する。実験コードでこれらのプロパティを直接参照する箇所は検索範囲で見つからなかったが、カタログ全体は実行時に読み込まれ、学習・評価の source fingerprint と checkpoint の互換性に含まれる。実行への影響がありうるため、指定どおり URL を変更せず残す。除去後の digest 再検証も行っていない。
 
 ## ファイル単位
 
