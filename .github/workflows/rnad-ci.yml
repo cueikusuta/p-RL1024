@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'src/ml/**'
+      - 'scripts/dev/simulator/rnad-match.js'
       - 'test/rnad-*.test.js'
       - '.github/workflows/rnad-ci.yml'
       - 'docs/research/rnad/**'
@@ -29,4 +30,4 @@ jobs:
       - name: Verify frozen source snapshot
         run: node scripts/verify-snapshot.mjs
       - name: Verify RNAD Stage 0 and phase pipeline contracts
-        run: node --test test/rnad-stage0-contract.test.js test/phase-pipeline-contract.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js
+        run: node --test test/rnad-stage0-contract.test.js test/rnad-authority-match.test.js test/phase-pipeline-contract.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js
