@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runStrategyMatch} from '../scripts/dev/simulator/strategy-match.js';
+import {runPhaseMatch} from '../scripts/dev/simulator/phase-match.js';
 import {createBuiltinPhaseAgents,sessionPhaseAgent,BUILTIN_PHASE_AGENTS}
   from '../scripts/dev/simulator/phase-agents.js';
 import {createModel,createSession} from '../models/deep.mjs';
@@ -15,11 +15,10 @@ test('mixed AIs finish authoritative four-win Match deterministically',()=>{
   const sample=()=>{
     const left=createBuiltinPhaseAgents({draft:'strategy',selection:'tactical',battle:'basic'});
     const right=createBuiltinPhaseAgents({draft:'basic',selection:'strategy',battle:'intermediate'});
-    const result=runStrategyMatch({seed:22002,policies:['basic','basic'],
-      phaseAgents:[left,right],maxRounds:64});
+    const result=runPhaseMatch({seed:22002,agents:[left,right],maxRounds:64});
     assert.equal(result.completed,true);
     assert.equal(result.score[result.winner],4);
-    assert.deepEqual(result.phaseAgentIds,[{draft:'strategy',selection:'tactical',battle:'basic'},
+    assert.deepEqual(result.agentIds,[{draft:'strategy',selection:'tactical',battle:'basic'},
       {draft:'basic',selection:'strategy',battle:'intermediate'}]);
     return {score:result.score,winner:result.winner,rounds:result.rounds,
       actionCounts:result.actionCounts,roundWinners:result.roundWinners};
@@ -30,12 +29,12 @@ test('frozen RL-Deep session can independently replace only battle phase',()=>{
   const session=createSession(createModel(22002),{train:false});
   const left=createBuiltinPhaseAgents({draft:'basic',selection:'tactical',
     battle:sessionPhaseAgent('rl-deep',session)});
-  const result=runStrategyMatch({seed:22003,policies:['basic','basic'],maxRounds:1,
-    phaseAgents:[left,createBuiltinPhaseAgents({draft:'strategy',selection:'basic',battle:'basic'})]});
+  const result=runPhaseMatch({seed:22003,maxRounds:1,
+    agents:[left,createBuiltinPhaseAgents({draft:'strategy',selection:'basic',battle:'basic'})]});
   assert.equal(result.rounds,1);
-  assert.equal(result.phaseAgentIds[0].battle,'rl-deep');
-  assert.equal(result.phasePipelineStats[0].battle.decisions,result.actionCounts[0]);
-  assert.equal(result.phasePipelineStats[0].battle.updates,0);
+  assert.equal(result.agentIds[0].battle,'rl-deep');
+  assert.equal(result.agentStats[0].battle.decisions,result.actionCounts[0]);
+  assert.equal(result.agentStats[0].battle.updates,0);
 });
 test('custom distinct agents see earlier accepted decisions and own seat only',()=>{
   const base=createBuiltinPhaseAgents({draft:'basic',selection:'basic',battle:'basic'});
@@ -56,8 +55,8 @@ test('custom distinct agents see earlier accepted decisions and own seat only',(
     observed.battle=true;
     return b.select(args);
   }};
-  const result=runStrategyMatch({seed:22004,maxRounds:1,
-    policies:['basic','basic'],phaseAgents:[base,null]});
+  const result=runPhaseMatch({seed:22004,maxRounds:1,
+    agents:[base,createBuiltinPhaseAgents()]});
   assert.equal(result.rounds,1);
   assert.equal(observed.selection,true);
   assert.equal(observed.battle,true);
