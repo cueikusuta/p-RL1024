@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {availableParallelism} from 'node:os';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {resolve,dirname} from 'node:path';
 import {mixSeed} from './dev/simulator/runner.js';
@@ -9,7 +10,7 @@ const args=new Map(),argv=process.argv.slice(2);
 if(argv.length%2)throw new Error('Expected option/value pairs');
 for(let i=0;i<argv.length;i+=2){if(!['--model','--out','--purpose','--blocks','--workers'].includes(argv[i])||args.has(argv[i]))throw new Error('Invalid option');args.set(argv[i],argv[i+1]);}
 const purpose=args.get('--purpose'),blocks=Number(args.get('--blocks'));
-const workers=Number(args.get('--workers')??(blocks>=8?4:1));
+const workers=Number(args.get('--workers')??(blocks>=8?Math.min(4,availableParallelism()):1));
 if(!args.get('--model')||!args.get('--out')||
   !((purpose==='smoke'&&blocks===2)||(purpose==='throughput'&&Number.isSafeInteger(blocks)&&blocks>=8&&blocks<=128))||
   !Number.isSafeInteger(workers)||workers<1||workers>16)
