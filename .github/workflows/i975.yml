@@ -55,7 +55,11 @@ jobs:
       - name: Verify source snapshot
         run: node scripts/verify-snapshot.mjs
       - name: Verify contracts
-        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js test/hosted-shards.test.js
+        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js test/hosted-shards.test.js test/parallel-frozen-deep.test.js test/fast-deep-features.test.js
+      - name: Compare original and optimized online training
+        run: node scripts/benchmark-training.mjs
+      - name: Profile frozen full-Match engine
+        run: node scripts/benchmark-engine.mjs
       - name: Calculate training shard ranges
         id: shards
         run: echo "matrix=$(node scripts/hosted-shard-plan.mjs --mode training --total "$RL_MATCHES" --shards "$RL_SHARDS" --seed "$RL_SEED")" >> "$GITHUB_OUTPUT"
@@ -65,7 +69,7 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: 20
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     permissions:
       contents: read
