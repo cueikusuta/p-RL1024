@@ -12,7 +12,7 @@ on:
       opponent:
         description: 'Evaluation opponent'
         type: choice
-        options: [V2E, RL-Deep]
+        options: [V2E, RL-Deep, AQ-Base-001]
         default: V2E
       matches:
         description: 'Training matches (9–256)'
@@ -43,7 +43,7 @@ jobs:
       - name: Verify source snapshot
         run: node scripts/verify-snapshot.mjs
       - name: Verify contracts
-        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js
+        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js
       - name: Train and evaluate
         env:
           RL_MODEL: ${{ inputs.model || 'RL-Linear' }}

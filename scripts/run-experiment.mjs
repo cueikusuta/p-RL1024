@@ -16,11 +16,11 @@ for (let i=0;i<args.length;i+=2) {
 const modelId=options.get('--model')||process.env.RL_MODEL||'RL-Linear';
 const opponentId=options.get('--opponent')||process.env.RL_OPPONENT||'V2E';
 const selected=getModel(modelId),opponent=getModel(opponentId);
-if (selected.status!=='trainable' || !opponent.opponent || !((selected.id==='RL-Linear' && opponent.id==='V2E')||(selected.id==='RL-Deep' && opponent.id==='RL-Deep'))) throw new Error('Unsupported model/opponent combination');
+if (selected.status!=='trainable' || !opponent.opponent || !((selected.id==='RL-Linear' && opponent.id==='V2E')||(selected.id==='RL-Deep' && opponent.id==='RL-Deep')||(['RL-Linear','RL-Deep'].includes(selected.id)&&opponent.id==='AQ-Base-001'))) throw new Error('Unsupported model/opponent combination');
 const matches = Number(process.env.RL_MATCHES || '9');
 const seed = Number(process.env.RL_SEED || '975020');
 if (!Number.isSafeInteger(matches) || matches < 9 || matches > 256 || !Number.isSafeInteger(seed) || seed < 1 || seed > 0xffffffff) throw new Error('RL_MATCHES must be 9–256 and RL_SEED must be 1–4294967295');
-const dir = selected.id==='RL-Linear'?'artifacts/i975':'artifacts/rl-deep';
+const dir = opponent.id==='AQ-Base-001'?`artifacts/${selected.id}-vs-aq`:selected.id==='RL-Linear'?'artifacts/i975':'artifacts/rl-deep';
 mkdirSync(dir,{recursive:true});
 function run(script,args) {
   const result=spawnSync(process.execPath,[script,...args],{stdio:'inherit',timeout:290*60*1000});
@@ -28,14 +28,15 @@ function run(script,args) {
 }
 const model=`${dir}/training.json`;
 const trainArgs=['--matches',String(matches),'--seed',String(seed),'--checkpoint-every','8','--out',model];
-if(selected.id==='RL-Linear')trainArgs.unshift('--all-phases','true');
-run(selected.trainingEntry,trainArgs);
+if(opponent.id==='AQ-Base-001')trainArgs.unshift('--model',selected.id);
+else if(selected.id==='RL-Linear')trainArgs.unshift('--all-phases','true');
+run(opponent.id==='AQ-Base-001'?'scripts/train-vs-aq.mjs':selected.trainingEntry,trainArgs);
 (selected.id==='RL-Linear'?loadModel:loadDeepModel)(JSON.stringify(JSON.parse(readFileSync(model,'utf8')).model));
-const evaluator=selected.id==='RL-Linear'?'scripts/evaluate-linear.mjs':'scripts/evaluate-deep.mjs';
+const evaluator=opponent.id==='AQ-Base-001'?'scripts/evaluate-vs-aq.mjs':selected.id==='RL-Linear'?'scripts/evaluate-linear.mjs':'scripts/evaluate-deep.mjs';
 for (const name of ['a','b']) run(evaluator,['--model',model,'--purpose','smoke','--blocks','2','--out',`${dir}/eval-${name}.json`]);
 const read = name => JSON.parse(readFileSync(`${dir}/${name}`,'utf8'));
 const proof=compare(read('eval-a.json'),read('eval-b.json'));
-if(modelId==='RL-Linear'&&matches===9&&seed===975020 &&
+if(modelId==='RL-Linear'&&opponentId==='V2E'&&matches===9&&seed===975020 &&
   (proof.modelSha256!=='47fe72475fff8a5a56de730d3b67d02df6c15a0ec710b9b1145541a874aa4fab'||
    proof.normalizedOutcomeSha256!=='a3fec0779dbd833cb68919f0bb5243057610607e5ceb729f114a1cfd15575466'))
   throw new Error('I975 pre-migration gate mismatch');

@@ -17,7 +17,7 @@ const canonical = value => {
 };
 
 export function normalize(report) {
-  if (!['i975-frozen-paired-four-win-evaluation-v1','p-rl1024-deep-frozen-paired-v1'].includes(report.schema) || report.purpose !== 'smoke' || report.blocks !== 2 || report.completedMatches !== 4 || report.formalEligible !== false || !Array.isArray(report.records) || report.records.length !== 4) throw new Error('Invalid smoke evaluation');
+  if (!['i975-frozen-paired-four-win-evaluation-v1','p-rl1024-deep-frozen-paired-v1','p-rl1024-aq-paired-v1'].includes(report.schema) || report.purpose !== 'smoke' || report.blocks !== 2 || report.completedMatches !== 4 || report.formalEligible !== false || !Array.isArray(report.records) || report.records.length !== 4) throw new Error('Invalid smoke evaluation');
   const records = report.records.map(row => {
     if (!fields.every(k => Object.hasOwn(row,k))) throw new Error('Missing result field');
     if (!Number.isSafeInteger(row.block) || row.block < 0 || row.block > 1 || !Number.isSafeInteger(row.seed) || row.seed < 0 || ![0,1].includes(row.rlSeat) || ![0,1].includes(row.winner) || row.won !== Number(row.winner === row.rlSeat) || !Number.isSafeInteger(row.rounds) || row.rounds < 4 || !Array.isArray(row.score) || row.score.length !== 2 || row.score[row.winner] !== 4) throw new Error('Invalid Match record');
@@ -31,7 +31,7 @@ export function compare(a,b) {
   if (![a.modelSha256,b.modelSha256,a.seedDigestSha256,b.seedDigestSha256,a.outcomeDigestSha256,b.outcomeDigestSha256].every(x => typeof x === 'string' && /^[a-f0-9]{64}$/.test(x))) throw new Error('Invalid provenance digest');
   const left = JSON.stringify(normalize(a));
   const right = JSON.stringify(normalize(b));
-  if (a.schema !== b.schema || a.comparison !== b.comparison || a.modelSha256 !== b.modelSha256 || a.seedDigestSha256 !== b.seedDigestSha256 || left !== right) throw new Error('Model, conditions, seeds, or results differ');
+  if (a.schema !== b.schema || a.comparison !== b.comparison || a.opponentModelSha256 !== b.opponentModelSha256 || a.modelSha256 !== b.modelSha256 || a.seedDigestSha256 !== b.seedDigestSha256 || left !== right) throw new Error('Model, conditions, seeds, or results differ');
   return {schema:'p-rl1024-normalized-outcome-v1',modelSha256:a.modelSha256,seedDigestSha256:a.seedDigestSha256,normalizedOutcomeSha256:createHash('sha256').update(left,'utf8').digest('hex'),originalOutcomeDigests:[a.outcomeDigestSha256,b.outcomeDigestSha256]};
 }
 

@@ -19,6 +19,7 @@
 - Showdown の参照 commit `b8f23c99629132611ba59e99480cb148ea8c5d3d` の MIT 本文・著作権表示を [LICENSES/pokemon-showdown-MIT.txt](../LICENSES/pokemon-showdown-MIT.txt) に保存し、README から参照する。対象にはカタログデータの参照に加え、同 commit を機構の参照として記載する `src/battle.js` と `src/champions-stats.js` を含む。コード全体の由来調査や第三者の Pokémon 権利の確認は未完了。
 - `production-sets.json` の各709件には構造化データのほか `strategy`、`costRationale` などの文章がある。Game8、GameWith、Altema、Pokémon Zone の各1件について、登録済みの短い `strategy` 文字列を参照先ページの取得テキストと照合し、完全一致は見つからなかった。これは4件の限定的な文字列検索であり、過去のページ版、残りの文章、翻案・類似表現、Smogon、Bulbapedia を含めた全文照合は未実施。具体的な転載を確認した箇所はこの範囲ではないため、文章の削除や書き換えはしていない。[Game8 の例](https://game8.jp/pokemon-champions/812736)、[GameWith の例](https://gamewith.jp/pokemon-champions/575742)、[Altema の例](https://altema.jp/pokemonchampions/shandera-ikuseiron)、[Pokémon Zone の例](https://www.pokemon-zone.com/champions/ranked-seasons/singles/)。
 - Private 本体 URL 70件は `research.source.url` 69件、`research.priorProposal.source.url` 1件に存在する。実験コードでこれらのプロパティを直接参照する箇所は検索範囲で見つからなかったが、カタログ全体は実行時に読み込まれ、学習・評価の source fingerprint と checkpoint の互換性に含まれる。実行への影響がありうるため、指定どおり URL を変更せず残す。除去後の digest 再検証も行っていない。
+- AQ-Base 対戦の分離 snapshot は本体研究 commit `300b4450969b65c146fe1c9e911d3e9bc9f615dd` の対戦コードを参照する。含まれる6件の catalog ファイルは、上記の既存 `data/catalog/` と SHA-256 がすべて一致し、新たなカタログの出所は追加していない。対戦コード自体は本体研究ブランチの自作コードで、各ファイルの元 Git blob と SHA-256 を `provenance/manifest.json` に記録する。
 
 ## ファイル単位
 

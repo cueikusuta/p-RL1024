@@ -1,0 +1,1703 @@
+{
+  "schemaVersion": 1,
+  "status": "cpu-only",
+  "description": "Lv4 CPU専用の8Cr伝説・準伝説候補。メガラティアス/メガラティオスはラティアスナイト/ラティオスナイトの例外許可により追加。PvPや他難易度の候補には混入させない。",
+  "species": {
+    "zapdos": {
+      "name": "Zapdos",
+      "types": [
+        "Electric",
+        "Flying"
+      ],
+      "baseStats": {
+        "hp": 90,
+        "atk": 90,
+        "def": 85,
+        "spa": 125,
+        "spd": 90,
+        "spe": 100
+      },
+      "weightkg": 52.6,
+      "gender": "N"
+    },
+    "suicune": {
+      "name": "Suicune",
+      "types": [
+        "Water"
+      ],
+      "baseStats": {
+        "hp": 100,
+        "atk": 75,
+        "def": 115,
+        "spa": 90,
+        "spd": 115,
+        "spe": 85
+      },
+      "weightkg": 187,
+      "gender": "N"
+    },
+    "mewtwo": {
+      "name": "Mewtwo",
+      "types": [
+        "Psychic"
+      ],
+      "baseStats": {
+        "hp": 106,
+        "atk": 110,
+        "def": 90,
+        "spa": 154,
+        "spd": 90,
+        "spe": 130
+      },
+      "weightkg": 122,
+      "gender": "N"
+    },
+    "lugia": {
+      "name": "Lugia",
+      "types": [
+        "Psychic",
+        "Flying"
+      ],
+      "baseStats": {
+        "hp": 106,
+        "atk": 90,
+        "def": 130,
+        "spa": 90,
+        "spd": 154,
+        "spe": 110
+      },
+      "weightkg": 216,
+      "gender": "N"
+    },
+    "latias": {
+      "name": "Latias",
+      "types": [
+        "Dragon",
+        "Psychic"
+      ],
+      "baseStats": {
+        "hp": 80,
+        "atk": 80,
+        "def": 90,
+        "spa": 110,
+        "spd": 130,
+        "spe": 110
+      },
+      "weightkg": 40,
+      "gender": "F"
+    },
+    "latiasmega": {
+      "name": "Latias-Mega",
+      "types": [
+        "Dragon",
+        "Psychic"
+      ],
+      "baseStats": {
+        "hp": 80,
+        "atk": 100,
+        "def": 120,
+        "spa": 140,
+        "spd": 150,
+        "spe": 110
+      },
+      "weightkg": 52,
+      "gender": "F"
+    },
+    "latios": {
+      "name": "Latios",
+      "types": [
+        "Dragon",
+        "Psychic"
+      ],
+      "baseStats": {
+        "hp": 80,
+        "atk": 90,
+        "def": 80,
+        "spa": 130,
+        "spd": 110,
+        "spe": 110
+      },
+      "weightkg": 60,
+      "gender": "M"
+    },
+    "latiosmega": {
+      "name": "Latios-Mega",
+      "types": [
+        "Dragon",
+        "Psychic"
+      ],
+      "baseStats": {
+        "hp": 80,
+        "atk": 130,
+        "def": 100,
+        "spa": 160,
+        "spd": 120,
+        "spe": 110
+      },
+      "weightkg": 70,
+      "gender": "M"
+    },
+    "entei": {
+      "name": "Entei",
+      "types": [
+        "Fire"
+      ],
+      "baseStats": {
+        "hp": 115,
+        "atk": 115,
+        "def": 85,
+        "spa": 90,
+        "spd": 75,
+        "spe": 100
+      },
+      "weightkg": 198,
+      "gender": "N"
+    },
+    "cresselia": {
+      "name": "Cresselia",
+      "types": [
+        "Psychic"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 70,
+        "def": 110,
+        "spa": 75,
+        "spd": 120,
+        "spe": 85
+      },
+      "weightkg": 85.6,
+      "gender": "F"
+    },
+    "heatran": {
+      "name": "Heatran",
+      "types": [
+        "Fire",
+        "Steel"
+      ],
+      "baseStats": {
+        "hp": 91,
+        "atk": 90,
+        "def": 106,
+        "spa": 130,
+        "spd": 106,
+        "spe": 77
+      },
+      "weightkg": 430
+    },
+    "landorustherian": {
+      "name": "Landorus-Therian",
+      "types": [
+        "Ground",
+        "Flying"
+      ],
+      "baseStats": {
+        "hp": 89,
+        "atk": 145,
+        "def": 90,
+        "spa": 105,
+        "spd": 80,
+        "spe": 91
+      },
+      "weightkg": 68,
+      "gender": "M"
+    },
+    "tapulele": {
+      "name": "Tapu Lele",
+      "types": [
+        "Psychic",
+        "Fairy"
+      ],
+      "baseStats": {
+        "hp": 70,
+        "atk": 85,
+        "def": 75,
+        "spa": 130,
+        "spd": 115,
+        "spe": 95
+      },
+      "weightkg": 18.6,
+      "gender": "N"
+    },
+    "tapufini": {
+      "name": "Tapu Fini",
+      "types": [
+        "Water",
+        "Fairy"
+      ],
+      "baseStats": {
+        "hp": 70,
+        "atk": 75,
+        "def": 115,
+        "spa": 95,
+        "spd": 130,
+        "spe": 85
+      },
+      "weightkg": 21.2,
+      "gender": "N"
+    },
+    "calyrexshadow": {
+      "name": "Calyrex-Shadow",
+      "types": [
+        "Psychic",
+        "Ghost"
+      ],
+      "baseStats": {
+        "hp": 100,
+        "atk": 85,
+        "def": 80,
+        "spa": 165,
+        "spd": 100,
+        "spe": 150
+      },
+      "weightkg": 53.6,
+      "gender": "N"
+    },
+    "urshifurapidstrike": {
+      "name": "Urshifu-Rapid-Strike",
+      "types": [
+        "Fighting",
+        "Water"
+      ],
+      "baseStats": {
+        "hp": 100,
+        "atk": 130,
+        "def": 100,
+        "spa": 63,
+        "spd": 60,
+        "spe": 97
+      },
+      "weightkg": 105
+    },
+    "urshifu": {
+      "name": "Urshifu",
+      "types": [
+        "Fighting",
+        "Dark"
+      ],
+      "baseStats": {
+        "hp": 100,
+        "atk": 130,
+        "def": 100,
+        "spa": 63,
+        "spd": 60,
+        "spe": 97
+      },
+      "weightkg": 105
+    },
+    "moltresgalar": {
+      "name": "Moltres-Galar",
+      "types": [
+        "Dark",
+        "Flying"
+      ],
+      "baseStats": {
+        "hp": 90,
+        "atk": 85,
+        "def": 90,
+        "spa": 100,
+        "spd": 125,
+        "spe": 90
+      },
+      "weightkg": 66,
+      "gender": "N"
+    },
+    "tinglu": {
+      "name": "Ting-Lu",
+      "types": [
+        "Dark",
+        "Ground"
+      ],
+      "baseStats": {
+        "hp": 155,
+        "atk": 110,
+        "def": 125,
+        "spa": 55,
+        "spd": 80,
+        "spe": 45
+      },
+      "weightkg": 699.7,
+      "gender": "N"
+    },
+    "chienpao": {
+      "name": "Chien-Pao",
+      "types": [
+        "Dark",
+        "Ice"
+      ],
+      "baseStats": {
+        "hp": 80,
+        "atk": 120,
+        "def": 80,
+        "spa": 90,
+        "spd": 65,
+        "spe": 135
+      },
+      "weightkg": 152.2,
+      "gender": "N"
+    }
+  },
+  "sets": [
+    {
+      "setId": "cpu-legendary-zapdos-fast-pivot",
+      "speciesId": "zapdos",
+      "speciesClauseId": "zapdos",
+      "speciesNameJa": "サンダー",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "pressure",
+      "itemId": "sharpbeak",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "thunderbolt",
+        "hurricane",
+        "roost",
+        "voltswitch"
+      ],
+      "strategy": "高い特攻と素早さを利用し、電気・飛行技で圧力をかける。苦手な対面ではボルトチェンジで交代する。",
+      "weaknesses": [
+        "地面技は無効だが岩・氷技に弱く、継続回復の隙や命中不安のある暴風を狙われる。"
+      ],
+      "adoptionReason": "特殊高速アタッカー兼交代役として既存の一般候補より高い総合種族値を持つ専用特別枠を追加する。",
+      "costRationale": "8コストのCPU専用候補。汎用性と高種族値を加点し、相手の人間側に出現しない制限でバランスを管理する。"
+    },
+    {
+      "setId": "cpu-legendary-suicune-calm-defender",
+      "speciesId": "suicune",
+      "speciesClauseId": "suicune",
+      "speciesNameJa": "スイクン",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "pressure",
+      "itemId": "mysticwater",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 2,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "surf",
+        "icebeam",
+        "calmmind",
+        "protect"
+      ],
+      "strategy": "高耐久で攻撃を受け、めいそうから波乗り・冷凍ビームで押し返す。まもるで相手の選択を観察する。",
+      "weaknesses": [
+        "電気・草の強力な特殊技、挑発や積み競争に不利。即座に火力を出せないターンがある。"
+      ],
+      "adoptionReason": "サンダーとは異なる長期戦・耐久寄りの準伝説候補とし、8コスト帯の型の戦術を分ける。",
+      "costRationale": "8コストのCPU専用候補。高い両耐久と瞑想による勝ち筋がある一方、即効性に欠けるため比較試験が必要。"
+    },
+    {
+      "setId": "cpu-legendary-mewtwo-special-sweeper",
+      "speciesId": "mewtwo",
+      "speciesClauseId": "mewtwo",
+      "speciesNameJa": "ミュウツー",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "pressure",
+      "itemId": "lifeorb",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "psychic",
+        "aurasphere",
+        "flamethrower",
+        "recover"
+      ],
+      "strategy": "非常に高い特攻と素早さで先手の広範囲攻撃を狙い、耐久が残った局面では自己再生で立て直す。",
+      "weaknesses": [
+        "悪・ゴースト・虫による攻撃を受けやすく、命の珠の反動と回復ターンを読まれる弱点を持つ。"
+      ],
+      "adoptionReason": "準伝説型では届かない高速特殊決定力を持つ伝説枠。回復と広範囲攻撃で独立した戦術を付与する。",
+      "costRationale": "8コストのCPU専用伝説候補。高い特殊火力・素早さ・回復による強力さを上限コストで抑える。"
+    },
+    {
+      "setId": "cpu-legendary-lugia-multiscale-wall",
+      "speciesId": "lugia",
+      "speciesClauseId": "lugia",
+      "speciesNameJa": "ルギア",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multiscale",
+      "itemId": "leftovers",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 0,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "psychic",
+        "hurricane",
+        "roost",
+        "calmmind"
+      ],
+      "strategy": "マルチスケイルと高耐久を活かして受けながらめいそうを積み、回復後にサイコキネシスと暴風で削る。",
+      "weaknesses": [
+        "先に定数ダメージや設置技で削られるとマルチスケイルを活かせず、悪・岩・電気技に押されやすい。"
+      ],
+      "adoptionReason": "ミュウツーの速攻型と対照的な耐久伝説型。選出段階で攻めと守りの違う判断が可能になる。",
+      "costRationale": "8コストのCPU専用伝説候補。マルチスケイル・両耐久・回復で高い戦闘持続力を提供する。"
+    },
+    {
+      "setId": "cpu-mega-latias-calm-stored",
+      "speciesId": "latias",
+      "speciesClauseId": "latias",
+      "speciesNameJa": "メガラティアス",
+      "baseSpeciesNameJa": "ラティアス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "levitate",
+      "itemId": "latiasite",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 0,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "calmmind",
+        "storedpower",
+        "recover",
+        "drainingkiss"
+      ],
+      "mega": {
+        "speciesId": "latiasmega",
+        "abilityId": "levitate"
+      },
+      "nameJa": "瞑想アシストパワー耐久",
+      "role": "瞑想アシストパワー耐久",
+      "strategy": "耐久の高い対面でめいそうを積み、能力上昇後のアシストパワーとドレインキッスで切り返す。HP減少時はじこさいせいで立て直す。",
+      "weaknesses": [
+        "あくタイプにはエスパー技を無効化され、積み切る前に強い物理技・ちょうはつ・急所で崩されやすい。"
+      ],
+      "adoptionReason": "メガラティアスの高い両耐久を最も生かせる積み耐久型として採用する。",
+      "costRationale": "Lv4 CPU専用8Cr。高いメガシンカ後の能力値と耐久・特殊火力に価値があり、通常PvPには流通させない制限で調整する。"
+    },
+    {
+      "setId": "cpu-mega-latias-calm-coverage",
+      "speciesId": "latias",
+      "speciesClauseId": "latias",
+      "speciesNameJa": "メガラティアス",
+      "baseSpeciesNameJa": "ラティアス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "levitate",
+      "itemId": "latiasite",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "calmmind",
+        "psychic",
+        "icebeam",
+        "recover"
+      ],
+      "mega": {
+        "speciesId": "latiasmega",
+        "abilityId": "levitate"
+      },
+      "nameJa": "高速めいそう特殊",
+      "role": "高速めいそう特殊",
+      "strategy": "有利対面でめいそうを使用し、サイコキネシスとれいとうビームの二つの攻撃範囲で対処する。回復可能なターンは自己再生で維持する。",
+      "weaknesses": [
+        "はがねやあくタイプで受けられやすく、積む機会を得られない高速高火力相手との殴り合いには不利。"
+      ],
+      "adoptionReason": "積み耐久アシストパワー型と異なり即時火力とこおり技の範囲を持つため、異なる対面を扱える。",
+      "costRationale": "Lv4 CPU専用8Cr。高いメガシンカ後の能力値と耐久・特殊火力に価値があり、通常PvPには流通させない制限で調整する。"
+    },
+    {
+      "setId": "cpu-mega-latios-luster-attacker",
+      "speciesId": "latios",
+      "speciesClauseId": "latios",
+      "speciesNameJa": "メガラティオス",
+      "baseSpeciesNameJa": "ラティオス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "levitate",
+      "itemId": "latiosite",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "dracometeor",
+        "lusterpurge",
+        "aurasphere",
+        "roost"
+      ],
+      "mega": {
+        "speciesId": "latiosmega",
+        "abilityId": "levitate"
+      },
+      "nameJa": "高速特殊フルアタック",
+      "role": "高速特殊フルアタック",
+      "strategy": "高い特攻と素早さを使い、りゅうせいぐんで高負荷をかけ、ラスターパージと波動弾で等倍や弱点を突く。はねやすめで次の対面へ備える。",
+      "weaknesses": [
+        "フェアリー相手にはりゅうせいぐんが無効で、鋼・あくの複合タイプや特防の高い受けへの突破力は限定される。"
+      ],
+      "adoptionReason": "ラティオスの特殊火力と高い素早さを最優先し、広い攻撃範囲を持つメガ型として採用する。",
+      "costRationale": "Lv4 CPU専用8Cr。高いメガシンカ後の能力値と耐久・特殊火力に価値があり、通常PvPには流通させない制限で調整する。"
+    },
+    {
+      "setId": "cpu-mega-latios-calm-mixed-coverage",
+      "speciesId": "latios",
+      "speciesClauseId": "latios",
+      "speciesNameJa": "メガラティオス",
+      "baseSpeciesNameJa": "ラティオス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "levitate",
+      "itemId": "latiosite",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 0,
+        "spa": 2,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "calmmind",
+        "lusterpurge",
+        "aurasphere",
+        "recover"
+      ],
+      "mega": {
+        "speciesId": "latiosmega",
+        "abilityId": "levitate"
+      },
+      "nameJa": "高速めいそう抜き",
+      "role": "高速めいそう抜き",
+      "strategy": "相手が交代や回復を選ぶ隙にめいそうを積み、ラスターパージの特防下降で受けを崩しながら波動弾で悪・鋼に対応する。",
+      "weaknesses": [
+        "ゴーストの強打やフェアリーの圧力を受けると積みにくく、サイコフィールドや天候などの補助もない。"
+      ],
+      "adoptionReason": "即時火力型と役割を分け、積みと回復から長期的に抜きを狙える別の勝ち筋として採用する。",
+      "costRationale": "Lv4 CPU専用8Cr。高いメガシンカ後の能力値と耐久・特殊火力に価値があり、通常PvPには流通させない制限で調整する。"
+    },
+    {
+      "setId": "cpu-legendary-entei-offense",
+      "speciesId": "entei",
+      "speciesClauseId": "entei",
+      "speciesNameJa": "エンテイ",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "pressure",
+      "itemId": "lifeorb",
+      "nature": "adamant",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "sacredfire",
+        "extremespeed",
+        "stoneedge",
+        "trailblaze"
+      ],
+      "role": "高速せいなるほのお",
+      "strategy": "せいなるほのおの高火力と火傷を軸に、優先度の高いしんそくで削れた相手を掃討。くさわけを後半の抜き筋に使う。",
+      "weaknesses": [
+        "水・岩・地面への打点が通りにくく、いのちのたまの自傷で消耗する。"
+      ],
+      "adoptionReason": "高火力せいなるほのお＋しんそくを軸にした実戦的な攻撃型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/entei/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-entei-charcoal",
+      "speciesId": "entei",
+      "speciesClauseId": "entei",
+      "speciesNameJa": "エンテイ",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "pressure",
+      "itemId": "charcoal",
+      "nature": "adamant",
+      "statPoints": {
+        "hp": 32,
+        "atk": 32,
+        "def": 2,
+        "spa": 0,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "sacredfire",
+        "extremespeed",
+        "stoneedge",
+        "crunch"
+      ],
+      "role": "耐久寄りほのお打点",
+      "strategy": "受けに対してせいなるほのおの火傷を狙い、範囲技としんそくで圧力をかける。",
+      "weaknesses": [
+        "ほのおを半減する耐久水に弱く、補助回復を持たない。"
+      ],
+      "adoptionReason": "命の珠による消耗を避け、受け出しと優先技を両立",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/entei/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-cresselia-calm-stored",
+      "speciesId": "cresselia",
+      "speciesClauseId": "cresselia",
+      "speciesNameJa": "クレセリア",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "levitate",
+      "itemId": "leftovers",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 0,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "calmmind",
+        "storedpower",
+        "moonblast",
+        "moonlight"
+      ],
+      "role": "めいそうアシストパワー",
+      "strategy": "厚い物理耐久でめいそうを重ね、アシストパワーの威力を上げて突破する。",
+      "weaknesses": [
+        "あく無効・ちょうはつ・急所に弱く、回復が天候の影響を受ける。"
+      ],
+      "adoptionReason": "クレセリアの高耐久を活用した積みエース",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/cresselia/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-cresselia-helmet",
+      "speciesId": "cresselia",
+      "speciesClauseId": "cresselia",
+      "speciesNameJa": "クレセリア",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "levitate",
+      "itemId": "rockyhelmet",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 0,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "psychic",
+        "icebeam",
+        "thunderwave",
+        "moonlight"
+      ],
+      "role": "接触対策サポート",
+      "strategy": "ゴツゴツメットとでんじはで攻撃的な相手を妨害しつつ、氷・エスパーで削る。",
+      "weaknesses": [
+        "ちょうはつ、悪やゴーストの特殊火力に弱い。"
+      ],
+      "adoptionReason": "麻痺と接触ダメージによる役割圧縮",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/cresselia/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-heatran-trap",
+      "speciesId": "heatran",
+      "speciesClauseId": "heatran",
+      "speciesNameJa": "ヒードラン",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "flashfire",
+      "itemId": "leftovers",
+      "nature": "calm",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "magmastorm",
+        "earthpower",
+        "taunt",
+        "protect"
+      ],
+      "role": "マグマストーム拘束",
+      "strategy": "マグマストームによる拘束からちょうはつで回復・交代を制限し、まもるで残留ダメージを稼ぐ。",
+      "weaknesses": [
+        "地面4倍、命中率75%に依存する。"
+      ],
+      "adoptionReason": "拘束と妨害の定番耐久型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/heatran/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-heatran-balloon",
+      "speciesId": "heatran",
+      "speciesClauseId": "heatran",
+      "speciesNameJa": "ヒードラン",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "flashfire",
+      "itemId": "airballoon",
+      "nature": "modest",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "flamethrower",
+        "earthpower",
+        "flashcannon",
+        "stealthrock"
+      ],
+      "role": "ふうせん特殊アタッカー",
+      "strategy": "風船で地面攻撃の一度の回避を作り、ステルスロックを設置してから広い技範囲を使う。",
+      "weaknesses": [
+        "風船を割られた後は地面技に極端に弱い。"
+      ],
+      "adoptionReason": "ふうせんで弱点を一時的に補う汎用型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/heatran/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-landorustherian-scarf",
+      "speciesId": "landorustherian",
+      "speciesClauseId": "landorus",
+      "speciesNameJa": "霊獣ランドロス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "intimidate",
+      "itemId": "choicescarf",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "earthquake",
+        "uturn",
+        "stoneedge",
+        "knockoff"
+      ],
+      "role": "こだわりスカーフ対面操作",
+      "strategy": "いかくとスカーフを利用して上からとんぼがえりで対面操作し、じしんで制圧する。",
+      "weaknesses": [
+        "氷4倍と行動固定に弱い。"
+      ],
+      "adoptionReason": "高い攻撃力と威嚇の高速スカーフ型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/landorus-therian/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-landorustherian-helmet",
+      "speciesId": "landorustherian",
+      "speciesClauseId": "landorus",
+      "speciesNameJa": "霊獣ランドロス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "intimidate",
+      "itemId": "rockyhelmet",
+      "nature": "impish",
+      "statPoints": {
+        "hp": 32,
+        "atk": 2,
+        "def": 32,
+        "spa": 0,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "earthquake",
+        "uturn",
+        "stealthrock",
+        "rocktomb"
+      ],
+      "role": "ステルスロック威嚇サイクル",
+      "strategy": "いかくで物理を受け、ステルスロックとがんせきふうじで速度制御。とんぼがえりで交代する。",
+      "weaknesses": [
+        "氷4倍と特殊氷技に弱い。"
+      ],
+      "adoptionReason": "ステロ・威嚇・対面操作をまとめた補助型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/landorus-therian/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-tapulele-orb",
+      "speciesId": "tapulele",
+      "speciesClauseId": "tapulele",
+      "speciesNameJa": "カプ・テテフ",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "psychicsurge",
+      "itemId": "lifeorb",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "psychic",
+        "moonblast",
+        "focusblast",
+        "psyshock"
+      ],
+      "role": "サイコフィールド高火力",
+      "strategy": "サイコフィールドの補正を受けるサイコキネシスを軸に、鋼・悪へのきあいだまとムーンフォースで攻める。",
+      "weaknesses": [
+        "鋼・毒・ゴーストへ強くないほか、命の珠の消耗がある。"
+      ],
+      "adoptionReason": "高特攻とフィールドによる火力補正",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/tapu-lele/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-tapulele-scarf",
+      "speciesId": "tapulele",
+      "speciesClauseId": "tapulele",
+      "speciesNameJa": "カプ・テテフ",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "psychicsurge",
+      "itemId": "choicescarf",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "psychic",
+        "moonblast",
+        "thunderbolt",
+        "psyshock"
+      ],
+      "role": "スカーフ奇襲",
+      "strategy": "フィールドで先制技を封じ、こだわりスカーフで上から幅広く制圧する。",
+      "weaknesses": [
+        "技固定が読まれると鋼や特殊受けに止められやすい。"
+      ],
+      "adoptionReason": "高速帯への奇襲ができる実戦型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/tapu-lele/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-tapufini-calm",
+      "speciesId": "tapufini",
+      "speciesClauseId": "tapufini",
+      "speciesNameJa": "カプ・レヒレ",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "mistysurge",
+      "itemId": "leftovers",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 0,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "calmmind",
+        "surf",
+        "moonblast",
+        "taunt"
+      ],
+      "role": "ミストフィールドめいそう",
+      "strategy": "フィールドで地上の状態異常を防ぎ、めいそうを積み、ちょうはつで受けを妨害する。",
+      "weaknesses": [
+        "高い特殊火力と回復手段の乏しさに弱い。"
+      ],
+      "adoptionReason": "状態異常耐性と積み技の噛み合わせ",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/tapu-fini/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-tapufini-haze",
+      "speciesId": "tapufini",
+      "speciesClauseId": "tapufini",
+      "speciesNameJa": "カプ・レヒレ",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "mistysurge",
+      "itemId": "sitrusberry",
+      "nature": "calm",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 2,
+        "spa": 0,
+        "spd": 32,
+        "spe": 0
+      },
+      "moves": [
+        "surf",
+        "moonblast",
+        "haze",
+        "taunt"
+      ],
+      "role": "黒い霧による展開対策",
+      "strategy": "くろいきりで能力上昇を解除し、ちょうはつで展開を防ぎながら耐久を活かす。",
+      "weaknesses": [
+        "特効の高い電気・草技に弱い。"
+      ],
+      "adoptionReason": "積み対策と受け妨害を両立",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/tapu-fini/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-calyrexshadow-scarf",
+      "speciesId": "calyrexshadow",
+      "speciesClauseId": "calyrex",
+      "speciesNameJa": "黒バドレックス",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "asonespectrier",
+      "itemId": "choicescarf",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "astralbarrage",
+        "grassknot",
+        "psychic",
+        "trick"
+      ],
+      "role": "こだわりスカーフアストラル",
+      "strategy": "高速アストラルビットで掃討し、トリックで耐久型の持ち物を固定して崩す。",
+      "weaknesses": [
+        "悪・ノーマルによる無効化、ふいうち・かげうちに弱い。"
+      ],
+      "adoptionReason": "アストラルビットとじんばいったいによる雪だるま式の制圧",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/calyrex-shadow/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-calyrexshadow-plot",
+      "speciesId": "calyrexshadow",
+      "speciesClauseId": "calyrex",
+      "speciesNameJa": "黒バドレックス",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "asonespectrier",
+      "itemId": "lifeorb",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "nastyplot",
+        "astralbarrage",
+        "grassknot",
+        "encore"
+      ],
+      "role": "わるだくみ全抜き",
+      "strategy": "補助技をアンコールで拘束し、わるだくみを使って広い相手をアストラルビットで倒す。",
+      "weaknesses": [
+        "悪の先制技とノーマル無効に弱い。"
+      ],
+      "adoptionReason": "高速積みアタッカーとしての勝ち筋",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/calyrex-shadow/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-urshifurapidstrike-water",
+      "speciesId": "urshifurapidstrike",
+      "speciesClauseId": "urshifu",
+      "speciesNameJa": "連撃ウーラオス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "unseenfist",
+      "itemId": "mysticwater",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "surgingstrikes",
+        "closecombat",
+        "aquajet",
+        "uturn"
+      ],
+      "role": "しんぴのしずく連撃",
+      "strategy": "水流連打の確定急所で防御上昇を突破し、アクアジェットととんぼがえりで対面を選ぶ。",
+      "weaknesses": [
+        "草・電気・フェアリー技、ゴツゴツメットに注意。"
+      ],
+      "adoptionReason": "専用3連撃と高速対面操作",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/urshifu-rapid-strike/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-urshifurapidstrike-sash",
+      "speciesId": "urshifurapidstrike",
+      "speciesClauseId": "urshifu",
+      "speciesNameJa": "連撃ウーラオス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "unseenfist",
+      "itemId": "focussash",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "surgingstrikes",
+        "closecombat",
+        "aquajet",
+        "swordsdance"
+      ],
+      "role": "タスキ剣舞連撃",
+      "strategy": "タスキで一撃を受けて剣舞を通し、確定急所の水流連打とアクアジェットで抜く。",
+      "weaknesses": [
+        "先制技や連続技でタスキが無効になる。"
+      ],
+      "adoptionReason": "剣舞を活かす攻めの別軸",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/urshifu-rapid-strike/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-urshifu-glasses",
+      "speciesId": "urshifu",
+      "speciesClauseId": "urshifu",
+      "speciesNameJa": "一撃ウーラオス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "unseenfist",
+      "itemId": "blackglasses",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "wickedblow",
+        "closecombat",
+        "suckerpunch",
+        "uturn"
+      ],
+      "role": "一撃悪技アタッカー",
+      "strategy": "あんこくきょうだの確定急所とふいうちで相手の能力上昇を貫き、交代をとんぼがえりで誘導する。",
+      "weaknesses": [
+        "フェアリー4倍、ふいうちを変化技で空かされる。"
+      ],
+      "adoptionReason": "確定急所の悪打点を活かす標準型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/urshifu/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-urshifu-sash",
+      "speciesId": "urshifu",
+      "speciesClauseId": "urshifu",
+      "speciesNameJa": "一撃ウーラオス",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "unseenfist",
+      "itemId": "focussash",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "wickedblow",
+        "closecombat",
+        "suckerpunch",
+        "swordsdance"
+      ],
+      "role": "タスキ剣舞一撃",
+      "strategy": "一撃を耐えて剣舞を積み、あんこくきょうだ＋ふいうちで終盤の掃討を狙う。",
+      "weaknesses": [
+        "フェアリー4倍、連続技・状態異常・高優先技に弱い。"
+      ],
+      "adoptionReason": "強力な優先技と剣舞の組合せ",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/urshifu/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-moltresgalar-rest",
+      "speciesId": "moltresgalar",
+      "speciesClauseId": "moltres",
+      "speciesNameJa": "ガラルファイヤー",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "berserk",
+      "itemId": "leftovers",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "fierywrath",
+        "hurricane",
+        "nastyplot",
+        "substitute"
+      ],
+      "role": "身代わり悪巧み",
+      "strategy": "みがわりで状態異常を避けてわるだくみを積み、もえあがるいかりの怯みも活かす。",
+      "weaknesses": [
+        "岩・電気・氷・妖への弱点が多い。"
+      ],
+      "adoptionReason": "高い特防とぎゃくじょうにより積み機会を作る",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/moltres-galar/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-moltresgalar-sitrus",
+      "speciesId": "moltresgalar",
+      "speciesClauseId": "moltres",
+      "speciesNameJa": "ガラルファイヤー",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "berserk",
+      "itemId": "sitrusberry",
+      "nature": "modest",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "fierywrath",
+        "hurricane",
+        "nastyplot",
+        "agility"
+      ],
+      "role": "オボン高速全抜き",
+      "strategy": "オボンでぎゃくじょうの発動を支援し、わるだくみとこうそくいどうから抜きを狙う。",
+      "weaknesses": [
+        "積み切る前の高火力や岩の先制技に弱い。"
+      ],
+      "adoptionReason": "高速化と火力上昇を併用する抜き型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/moltres-galar/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-tinglu-spikes",
+      "speciesId": "tinglu",
+      "speciesClauseId": "tinglu",
+      "speciesNameJa": "ディンルー",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "vesselofruin",
+      "itemId": "leftovers",
+      "nature": "careful",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 2,
+        "spa": 0,
+        "spd": 32,
+        "spe": 0
+      },
+      "moves": [
+        "ruination",
+        "earthquake",
+        "spikes",
+        "whirlwind"
+      ],
+      "role": "カタストロフィまきびし",
+      "strategy": "高耐久でまきびしを複数展開し、カタストロフィとふきとばしで交代ダメージを稼ぐ。",
+      "weaknesses": [
+        "挑発や身代わり、回復持ちには負担がかけにくい。"
+      ],
+      "adoptionReason": "特殊耐久補正と設置・強制交代を両立",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/ting-lu/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-tinglu-rock",
+      "speciesId": "tinglu",
+      "speciesClauseId": "tinglu",
+      "speciesNameJa": "ディンルー",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "vesselofruin",
+      "itemId": "rockyhelmet",
+      "nature": "impish",
+      "statPoints": {
+        "hp": 32,
+        "atk": 2,
+        "def": 32,
+        "spa": 0,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "ruination",
+        "earthquake",
+        "stealthrock",
+        "whirlwind"
+      ],
+      "role": "ステロ耐久サイクル",
+      "strategy": "ステルスロックを置き、カタストロフィによる割合ダメージと強制交代で受けの負荷を蓄積する。",
+      "weaknesses": [
+        "草・水・氷・格闘に弱く、ちょうはつに行動制限される。"
+      ],
+      "adoptionReason": "高耐久で物理にも対応する撒き菱以外の型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/ting-lu/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-chienpao-sash",
+      "speciesId": "chienpao",
+      "speciesClauseId": "chienpao",
+      "speciesNameJa": "パオジアン",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "swordofruin",
+      "itemId": "focussash",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "swordsdance",
+        "iciclecrash",
+        "crunch",
+        "suckerpunch"
+      ],
+      "role": "タスキ剣舞",
+      "strategy": "タスキで耐えて剣舞し、つららおとしとふいうちで高速相手を仕留める。",
+      "weaknesses": [
+        "ステルスロックと連撃でタスキが剥がれる。"
+      ],
+      "adoptionReason": "物理火力を高めるわざわいのつるぎとタスキの全抜き型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/chien-pao/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    },
+    {
+      "setId": "cpu-legendary-chienpao-orb",
+      "speciesId": "chienpao",
+      "speciesClauseId": "chienpao",
+      "speciesNameJa": "パオジアン",
+      "legendClass": "sublegendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "swordofruin",
+      "itemId": "lifeorb",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "iciclecrash",
+        "iceshard",
+        "sacredsword",
+        "crunch"
+      ],
+      "role": "いのちのたま4攻撃",
+      "strategy": "高素早さから命の珠で高火力を出し、こおりのつぶてで先制して削り切る。",
+      "weaknesses": [
+        "格闘・岩・鋼・炎の先制打点と珠の消耗に弱い。"
+      ],
+      "adoptionReason": "対面性能と技範囲を優先する4攻撃型",
+      "costRationale": "Lv4 CPU専用の8Cr。上位準伝説・伝説として優れた種族値、専用技・特性を持ち、一般PvP/他難度へは流通させない。",
+      "setReference": "https://www.smogon.com/dex/sv/pokemon/chien-pao/",
+      "referenceCommit": "b8f23c99629132611ba59e99480cb148ea8c5d3d"
+    }
+  ],
+  "items": {
+    "latiasite": {
+      "name": "Latiasite",
+      "megaStone": "Latias",
+      "itemUser": [
+        "Latias"
+      ],
+      "referenceHandlers": []
+    },
+    "latiosite": {
+      "name": "Latiosite",
+      "megaStone": "Latios",
+      "itemUser": [
+        "Latios"
+      ],
+      "referenceHandlers": []
+    }
+  },
+  "megaStones": {
+    "latiasite": {
+      "speciesId": "latias",
+      "targetSpeciesId": "latiasmega",
+      "abilityId": "levitate",
+      "nameJa": "メガラティアス"
+    },
+    "latiosite": {
+      "speciesId": "latios",
+      "targetSpeciesId": "latiosmega",
+      "abilityId": "levitate",
+      "nameJa": "メガラティオス"
+    }
+  },
+  "moves": {
+    "lusterpurge": {
+      "name": "Luster Purge",
+      "type": "Psychic",
+      "category": "Special",
+      "basePower": 95,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1,
+        "metronome": 1
+      },
+      "secondary": {
+        "chance": 50,
+        "boosts": {
+          "spd": -1
+        }
+      },
+      "referenceHandlers": []
+    },
+    "sacredfire": {
+      "name": "Sacred Fire",
+      "type": "Fire",
+      "category": "Physical",
+      "basePower": 100,
+      "accuracy": 95,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1,
+        "defrost": 1,
+        "metronome": 1
+      },
+      "referenceHandlers": [],
+      "secondary": {
+        "chance": 50,
+        "status": "brn"
+      }
+    },
+    "magmastorm": {
+      "name": "Magma Storm",
+      "type": "Fire",
+      "category": "Special",
+      "basePower": 100,
+      "accuracy": 75,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1,
+        "metronome": 1
+      },
+      "referenceHandlers": [],
+      "volatileStatus": "partiallytrapped"
+    },
+    "astralbarrage": {
+      "name": "Astral Barrage",
+      "type": "Ghost",
+      "category": "Special",
+      "basePower": 110,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1
+      },
+      "referenceHandlers": []
+    },
+    "surgingstrikes": {
+      "name": "Surging Strikes",
+      "type": "Water",
+      "category": "Physical",
+      "basePower": 25,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "contact": 1,
+        "protect": 1,
+        "mirror": 1,
+        "punch": 1
+      },
+      "referenceHandlers": [],
+      "willCrit": true,
+      "multihit": 3
+    },
+    "wickedblow": {
+      "name": "Wicked Blow",
+      "type": "Dark",
+      "category": "Physical",
+      "basePower": 75,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "contact": 1,
+        "protect": 1,
+        "mirror": 1,
+        "punch": 1
+      },
+      "referenceHandlers": [],
+      "willCrit": true
+    },
+    "fierywrath": {
+      "name": "Fiery Wrath",
+      "type": "Dark",
+      "category": "Special",
+      "basePower": 90,
+      "accuracy": 100,
+      "pp": 10,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1
+      },
+      "referenceHandlers": [],
+      "secondary": {
+        "chance": 20,
+        "volatileStatus": "flinch"
+      }
+    },
+    "ruination": {
+      "name": "Ruination",
+      "type": "Dark",
+      "category": "Special",
+      "basePower": 0,
+      "accuracy": 90,
+      "pp": 10,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1
+      },
+      "referenceHandlers": [],
+      "fixedDamage": "halfTargetHP"
+    }
+  },
+  "abilities": {
+    "mistysurge": {
+      "name": "Misty Surge",
+      "rating": 3.5,
+      "referenceHandlers": [
+        "onStart"
+      ],
+      "flags": {}
+    },
+    "asonespectrier": {
+      "name": "As One (Spectrier)",
+      "rating": 5,
+      "referenceHandlers": [
+        "onStart",
+        "onFoeTryEatItem",
+        "onSourceAfterFaint"
+      ],
+      "flags": {
+        "cantsuppress": 1,
+        "failroleplay": 1,
+        "failentrainment": 1,
+        "failskillswap": 1,
+        "notrace": 1
+      }
+    },
+    "vesselofruin": {
+      "name": "Vessel of Ruin",
+      "rating": 4.5,
+      "referenceHandlers": [
+        "onStart",
+        "onAnyModifySpA"
+      ],
+      "flags": {
+        "cantsuppress": 1,
+        "failroleplay": 1,
+        "failentrainment": 1,
+        "failskillswap": 1,
+        "notrace": 1
+      }
+    },
+    "swordofruin": {
+      "name": "Sword of Ruin",
+      "rating": 5,
+      "referenceHandlers": [
+        "onStart",
+        "onAnyModifyDef"
+      ],
+      "flags": {
+        "cantsuppress": 1,
+        "failroleplay": 1,
+        "failentrainment": 1,
+        "failskillswap": 1,
+        "notrace": 1
+      }
+    }
+  }
+}

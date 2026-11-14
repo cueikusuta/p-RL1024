@@ -8,7 +8,7 @@ RL-Linear（I975、SARSA）と RL-Deep（I976、Battle Action のみの小型 ML
 
 ## Actions で実行する
 
-**Actions → RL model smoke and training → Run workflow** を選びます。`model` と `opponent` の組合せに **RL-Linear / V2E** または **RL-Deep / RL-Deep** を指定します。`matches` は 9〜256、`seed` は 1〜4294967295 です。RL-Deep は公開観測と自軍情報から合法な Battle Action を選び、Basic のドラフト・選出と凍結自己対戦で学習します。AQ-Base の重みは含まれておらず、AQ-Base 対戦は実装していません。
+**Actions → RL model smoke and training → Run workflow** を選びます。`model` と `opponent` の組合せは **RL-Linear / V2E**、**RL-Deep / RL-Deep**、または **RL-Linear / AQ-Base-001**、**RL-Deep / AQ-Base-001** を指定します。`matches` は 9〜256、`seed` は 1〜4294967295 です。AQ-Base-001 指定時は学習と評価の両方で同じ凍結 AQ-Base を相手とします。RL-Deep は公開観測と自軍情報から合法な Battle Action を選び、ドラフト・選出は Basic です。
 
 完了後、run の `i975-…` artifact に学習モデル、評価2回分、結果照合と8試合ごとの checkpoint が保存されます。artifact の保持期間は14日です。必要なモデルと評価結果は期限前にダウンロードしてください。
 
@@ -22,9 +22,10 @@ Node.js 22.14.0 が必要です。追加の npm パッケージは不要です�
 node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js
 node scripts/run-experiment.mjs
 node scripts/run-experiment.mjs --model RL-Deep --opponent RL-Deep
+node scripts/run-experiment.mjs --model RL-Deep --opponent AQ-Base-001
 ```
 
-環境変数 `RL_MATCHES` と `RL_SEED` で試合数と seed を指定できます。出力先は `artifacts/i975/` または `artifacts/rl-deep/` です。比較結果にはモデルのファイル hash と、評価結果を正規化した digest を記録します。元コードが出力する outcome digest と、正規化 digest は別の値です。
+環境変数 `RL_MATCHES` と `RL_SEED` で試合数と seed を指定できます。出力先は `artifacts/i975/`、`artifacts/rl-deep/` または `artifacts/<モデル>-vs-aq/` です。比較結果にはモデルのファイル hash と、評価結果を正規化した digest を記録します。元コードが出力する outcome digest と、正規化 digest は別の値です。
 
 中断した実験をローカルで再開するには、artifact 内の checkpoint を取得し、元と同じ snapshot、予定試合数、seed、学習設定を指定します。次は予定9試合、seed 975020、8試合目からの例です。
 
@@ -38,6 +39,10 @@ RL-Deep の同条件の再開には `scripts/train-deep.mjs` を使います。
 node scripts/train-deep.mjs --matches 9 --seed 975020 --checkpoint-every 8 --resume artifacts/rl-deep/training-m8.json --out artifacts/rl-deep/resumed.json
 ```
 
+AQ-Base 対戦を再開する場合は、元と同じ `--model`・試合数・seed と snapshot で `scripts/train-vs-aq.mjs` の `--resume` に checkpoint を指定します。
+
 技術系統と特徴量の対応は `models/registry.json` にあります。RL-Deep は Node.js の新規実装で、v2-E 教師や #877 の学習コードを使用していません。正式な強さの比較やドラフト・選出の深層RL化は含みません。
+
+AQ-Base-001 の凍結重みは本体台帳の SHA-256 と照合しています。AQ 対戦には別の固定エンジンスナップショット `aq-runtime/` を使います。これは従来の I975 smoke に用いる snapshot とは別のため、異なる条件の結果を直接比較しないでください。
 
 `provenance/manifest.json` は元の private リポジトリのコミットと、取り込んだファイルの SHA-256 を記録します。実験結果を別環境と比較するときは、同じモデルの bytes、seed、引数、対戦相手を使ってください。2026-11-14 に元コミットの Windows 実行と公開 snapshot の Windows・GitHub-hosted Linux 実行で、9試合学習後のモデルと frozen smoke の結果 digest が一致しました。これは smoke 条件の検証です。

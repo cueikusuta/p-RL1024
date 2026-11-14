@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "status": "approved",
+  "difficultyRange": {
+    "min": 1,
+    "max": 4
+  },
+  "base": {
+    "initialCreditBonus": 0,
+    "perRoundCreditBonus": 0,
+    "extraNormalCandidates": 0,
+    "candidatePoolDraws": 1,
+    "strongSetBias": 0,
+    "costOneWeightMultiplier": 1,
+    "extraMegaCandidates": 0,
+    "specialLegendaryCandidates": 0
+  },
+  "ascensions": [
+    {
+      "level": 1,
+      "changes": {
+        "extraNormalCandidates": 10,
+        "candidatePoolDraws": 6
+      }
+    },
+    {
+      "level": 2,
+      "changes": {
+        "initialCreditBonus": 10,
+        "perRoundCreditBonus": 5
+      }
+    },
+    {
+      "level": 3,
+      "changes": {
+        "strongSetBias": 1.25,
+        "costOneWeightMultiplier": 0.1
+      }
+    },
+    {
+      "level": 4,
+      "changes": {
+        "extraMegaCandidates": 3,
+        "specialLegendaryCandidates": 1
+      }
+    }
+  ],
+  "description": "CPU戦は難易度1〜4の累積ハンデ。Lv1通常候補+10/計6回抽選、Lv2初期Cr+10/各R+5、Lv3強い型重み+1.25とコスト1重み×0.1、Lv4メガ候補+3とCPU専用8Cr準伝説・伝説候補1。内部Lv0は後方互換でUI非表示。"
+}

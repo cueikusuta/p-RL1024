@@ -1,0 +1,1998 @@
+{
+  "schemaVersion": 1,
+  "status": "cpu-only",
+  "description": "Lv4 CPU限定の38型。通常カタログとは別に定義し、既存4型と合流。Arceusは18タイプのうち通常3型＋プレート17型。",
+  "species": {
+    "arceus": {
+      "name": "Arceus",
+      "types": [
+        "Normal"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusdragon": {
+      "name": "Arceus-Dragon",
+      "types": [
+        "Dragon"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusdark": {
+      "name": "Arceus-Dark",
+      "types": [
+        "Dark"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusflying": {
+      "name": "Arceus-Flying",
+      "types": [
+        "Flying"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusgrass": {
+      "name": "Arceus-Grass",
+      "types": [
+        "Grass"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceuspsychic": {
+      "name": "Arceus-Psychic",
+      "types": [
+        "Psychic"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceussteel": {
+      "name": "Arceus-Steel",
+      "types": [
+        "Steel"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusfairy": {
+      "name": "Arceus-Fairy",
+      "types": [
+        "Fairy"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceuselectric": {
+      "name": "Arceus-Electric",
+      "types": [
+        "Electric"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusbug": {
+      "name": "Arceus-Bug",
+      "types": [
+        "Bug"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusground": {
+      "name": "Arceus-Ground",
+      "types": [
+        "Ground"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusfighting": {
+      "name": "Arceus-Fighting",
+      "types": [
+        "Fighting"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceuswater": {
+      "name": "Arceus-Water",
+      "types": [
+        "Water"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusfire": {
+      "name": "Arceus-Fire",
+      "types": [
+        "Fire"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusghost": {
+      "name": "Arceus-Ghost",
+      "types": [
+        "Ghost"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusrock": {
+      "name": "Arceus-Rock",
+      "types": [
+        "Rock"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceuspoison": {
+      "name": "Arceus-Poison",
+      "types": [
+        "Poison"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "arceusice": {
+      "name": "Arceus-Ice",
+      "types": [
+        "Ice"
+      ],
+      "baseStats": {
+        "hp": 120,
+        "atk": 120,
+        "def": 120,
+        "spa": 120,
+        "spd": 120,
+        "spe": 120
+      },
+      "weightkg": 320,
+      "gender": "N"
+    },
+    "koraidon": {
+      "name": "Koraidon",
+      "types": [
+        "Fighting",
+        "Dragon"
+      ],
+      "baseStats": {
+        "hp": 100,
+        "atk": 135,
+        "def": 115,
+        "spa": 85,
+        "spd": 100,
+        "spe": 135
+      },
+      "weightkg": 303,
+      "gender": "N"
+    },
+    "miraidon": {
+      "name": "Miraidon",
+      "types": [
+        "Electric",
+        "Dragon"
+      ],
+      "baseStats": {
+        "hp": 100,
+        "atk": 85,
+        "def": 100,
+        "spa": 135,
+        "spd": 115,
+        "spe": 135
+      },
+      "weightkg": 240,
+      "gender": "N"
+    },
+    "kyogre": {
+      "name": "Kyogre",
+      "types": [
+        "Water"
+      ],
+      "baseStats": {
+        "hp": 100,
+        "atk": 100,
+        "def": 90,
+        "spa": 150,
+        "spd": 140,
+        "spe": 90
+      },
+      "weightkg": 352,
+      "gender": "N"
+    },
+    "zaciancrowned": {
+      "name": "Zacian-Crowned",
+      "types": [
+        "Fairy",
+        "Steel"
+      ],
+      "baseStats": {
+        "hp": 92,
+        "atk": 150,
+        "def": 115,
+        "spa": 80,
+        "spd": 115,
+        "spe": 148
+      },
+      "weightkg": 355,
+      "gender": "N"
+    },
+    "calyrexice": {
+      "name": "Calyrex-Ice",
+      "types": [
+        "Psychic",
+        "Ice"
+      ],
+      "baseStats": {
+        "hp": 100,
+        "atk": 165,
+        "def": 150,
+        "spa": 85,
+        "spd": 130,
+        "spe": 50
+      },
+      "weightkg": 809.1,
+      "gender": "N"
+    },
+    "kyuremblack": {
+      "name": "Kyurem-Black",
+      "types": [
+        "Dragon",
+        "Ice"
+      ],
+      "baseStats": {
+        "hp": 125,
+        "atk": 170,
+        "def": 100,
+        "spa": 120,
+        "spd": 90,
+        "spe": 95
+      },
+      "weightkg": 325,
+      "gender": "N"
+    },
+    "kyuremwhite": {
+      "name": "Kyurem-White",
+      "types": [
+        "Dragon",
+        "Ice"
+      ],
+      "baseStats": {
+        "hp": 125,
+        "atk": 120,
+        "def": 90,
+        "spa": 170,
+        "spd": 100,
+        "spe": 95
+      },
+      "weightkg": 325,
+      "gender": "N"
+    },
+    "eternatus": {
+      "name": "Eternatus",
+      "types": [
+        "Poison",
+        "Dragon"
+      ],
+      "baseStats": {
+        "hp": 140,
+        "atk": 85,
+        "def": 95,
+        "spa": 145,
+        "spd": 95,
+        "spe": 130
+      },
+      "weightkg": 950,
+      "gender": "N"
+    },
+    "necrozmaduskmane": {
+      "name": "Necrozma-Dusk-Mane",
+      "types": [
+        "Psychic",
+        "Steel"
+      ],
+      "baseStats": {
+        "hp": 97,
+        "atk": 157,
+        "def": 127,
+        "spa": 113,
+        "spd": 109,
+        "spe": 77
+      },
+      "weightkg": 460,
+      "gender": "N"
+    }
+  },
+  "sets": [
+    {
+      "setId": "cpu-legendary-arceus-normal-extreme",
+      "speciesId": "arceus",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "silkscarf",
+      "nature": "adamant",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "swordsdance",
+        "extremespeed",
+        "shadowclaw",
+        "earthquake"
+      ],
+      "strategy": "つるぎのまいで物理攻撃を強化し、神速の先制火力で終盤の一掃を狙う。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウスは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウスのnormal-extreme型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceus-normal-orb",
+      "speciesId": "arceus",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "lifeorb",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "swordsdance",
+        "extremespeed",
+        "shadowclaw",
+        "recover"
+      ],
+      "strategy": "いのちのたまの火力と自己再生を組み合わせ、先制技で攻めつつ相手の消耗を誘う。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウスは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウスのnormal-orb型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceus-normal-bulky",
+      "speciesId": "arceus",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "lumberry",
+      "nature": "adamant",
+      "statPoints": {
+        "hp": 32,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 2
+      },
+      "moves": [
+        "swordsdance",
+        "extremespeed",
+        "recover",
+        "shadowclaw"
+      ],
+      "strategy": "ラムのみを生かして状態異常への対抗手段を持ち、耐久と剣舞を両立する。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウスは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウスのnormal-bulky型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusdragon-dragon-calm",
+      "speciesId": "arceusdragon",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（ドラゴン）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "dracoplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "earthpower"
+      ],
+      "strategy": "ドラゴンプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（ドラゴン）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（ドラゴン）のdragon-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusdark-dark-calm",
+      "speciesId": "arceusdark",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（あく）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "dreadplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "focusblast"
+      ],
+      "strategy": "あくプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（あく）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（あく）のdark-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusflying-flying-calm",
+      "speciesId": "arceusflying",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（ひこう）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "skyplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "airslash"
+      ],
+      "strategy": "ひこうプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（ひこう）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（ひこう）のflying-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusgrass-grass-calm",
+      "speciesId": "arceusgrass",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（くさ）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "meadowplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "energyball"
+      ],
+      "strategy": "くさプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（くさ）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（くさ）のgrass-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceuspsychic-psychic-calm",
+      "speciesId": "arceuspsychic",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（エスパー）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "mindplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "psychic"
+      ],
+      "strategy": "エスパープレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（エスパー）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（エスパー）のpsychic-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceussteel-steel-calm",
+      "speciesId": "arceussteel",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（はがね）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "ironplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "flamethrower"
+      ],
+      "strategy": "はがねプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（はがね）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（はがね）のsteel-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusfairy-fairy-defense",
+      "speciesId": "arceusfairy",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（フェアリー）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "pixieplate",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 2,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "judgment",
+        "recover",
+        "willowisp",
+        "stealthrock"
+      ],
+      "strategy": "フェアリープレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（フェアリー）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（フェアリー）のfairy-defense型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceuselectric-electric-calm",
+      "speciesId": "arceuselectric",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（でんき）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "zapplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "icebeam"
+      ],
+      "strategy": "でんきプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（でんき）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（でんき）のelectric-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusbug-bug-calm",
+      "speciesId": "arceusbug",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（むし）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "insectplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "bugbuzz"
+      ],
+      "strategy": "むしプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（むし）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（むし）のbug-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusground-ground-calm",
+      "speciesId": "arceusground",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（じめん）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "earthplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "icebeam"
+      ],
+      "strategy": "じめんプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（じめん）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（じめん）のground-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusfighting-fighting-calm",
+      "speciesId": "arceusfighting",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（かくとう）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "fistplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "aurasphere"
+      ],
+      "strategy": "かくとうプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（かくとう）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（かくとう）のfighting-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceuswater-water-defense",
+      "speciesId": "arceuswater",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（みず）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "splashplate",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 2,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "judgment",
+        "recover",
+        "willowisp",
+        "icebeam"
+      ],
+      "strategy": "みずプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（みず）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（みず）のwater-defense型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusfire-fire-calm",
+      "speciesId": "arceusfire",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（ほのお）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "flameplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "earthpower"
+      ],
+      "strategy": "ほのおプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（ほのお）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（ほのお）のfire-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusghost-ghost-defense",
+      "speciesId": "arceusghost",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（ゴースト）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "spookyplate",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 2,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "judgment",
+        "recover",
+        "willowisp",
+        "focusblast"
+      ],
+      "strategy": "ゴーストプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（ゴースト）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（ゴースト）のghost-defense型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusrock-rock-calm",
+      "speciesId": "arceusrock",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（いわ）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "stoneplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "earthpower"
+      ],
+      "strategy": "いわプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（いわ）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（いわ）のrock-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceuspoison-poison-defense",
+      "speciesId": "arceuspoison",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（どく）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "toxicplate",
+      "nature": "bold",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 32,
+        "spa": 2,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "judgment",
+        "recover",
+        "willowisp",
+        "earthpower"
+      ],
+      "strategy": "どくプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（どく）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（どく）のpoison-defense型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-arceusice-ice-calm",
+      "speciesId": "arceusice",
+      "speciesClauseId": "arceus",
+      "speciesNameJa": "アルセウス（こおり）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "multitype",
+      "itemId": "icicleplate",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "judgment",
+        "calmmind",
+        "recover",
+        "earthpower"
+      ],
+      "strategy": "こおりプレートでタイプとさばきのつぶてを変え、耐性と攻撃範囲を活かして詰める。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "アルセウス（こおり）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "アルセウス（こおり）のice-calm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-koraidon-scarf",
+      "speciesId": "koraidon",
+      "speciesClauseId": "koraidon",
+      "speciesNameJa": "コライドン",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "orichalcumpulse",
+      "itemId": "choicescarf",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "collisioncourse",
+        "flareblitz",
+        "dragonclaw",
+        "uturn"
+      ],
+      "strategy": "晴れと高い攻撃を活かした高速物理制圧。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "コライドンは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "コライドンのscarf型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-koraidon-swords",
+      "speciesId": "koraidon",
+      "speciesClauseId": "koraidon",
+      "speciesNameJa": "コライドン",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "orichalcumpulse",
+      "itemId": "lifeorb",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "swordsdance",
+        "collisioncourse",
+        "flareblitz",
+        "dragonclaw"
+      ],
+      "strategy": "剣舞で決定力を上げて押し切る積みアタッカー。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "コライドンは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "コライドンのswords型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-miraidon-scarf",
+      "speciesId": "miraidon",
+      "speciesClauseId": "miraidon",
+      "speciesNameJa": "ミライドン",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "hadronengine",
+      "itemId": "choicescarf",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "electrodrift",
+        "dracometeor",
+        "voltswitch",
+        "overheat"
+      ],
+      "strategy": "エレキフィールドと高速特殊火力で交代戦を有利にする。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ミライドンは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ミライドンのscarf型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-miraidon-calm",
+      "speciesId": "miraidon",
+      "speciesClauseId": "miraidon",
+      "speciesNameJa": "ミライドン",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "hadronengine",
+      "itemId": "lifeorb",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "calmmind",
+        "electrodrift",
+        "dracometeor",
+        "voltswitch"
+      ],
+      "strategy": "瞑想で特殊面を強化して一掃を狙う攻撃的な構成。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ミライドンは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ミライドンのcalm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-kyogre-scarf",
+      "speciesId": "kyogre",
+      "speciesClauseId": "kyogre",
+      "speciesNameJa": "カイオーガ",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "drizzle",
+      "itemId": "choicescarf",
+      "nature": "modest",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "waterspout",
+        "originpulse",
+        "icebeam",
+        "thunder"
+      ],
+      "strategy": "雨下の潮吹きと雷を軸にした高速高火力アタッカー。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "カイオーガは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "カイオーガのscarf型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-kyogre-calm",
+      "speciesId": "kyogre",
+      "speciesClauseId": "kyogre",
+      "speciesNameJa": "カイオーガ",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "drizzle",
+      "itemId": "lifeorb",
+      "nature": "modest",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 2
+      },
+      "moves": [
+        "calmmind",
+        "originpulse",
+        "icebeam",
+        "thunder"
+      ],
+      "strategy": "雨と瞑想を組み合わせ水技で長期戦を押し切る。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "カイオーガは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "カイオーガのcalm型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-zaciancrowned-fast",
+      "speciesId": "zaciancrowned",
+      "speciesClauseId": "zacian",
+      "speciesNameJa": "ザシアン（けんのおう）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "intrepidsword",
+      "itemId": "rustedsword",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "swordsdance",
+        "behemothblade",
+        "closecombat",
+        "playrough"
+      ],
+      "strategy": "朽ちた剣による剣王フォルムと高い素早さで全抜きを狙う。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ザシアン（けんのおう）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ザシアン（けんのおう）のfast型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-zaciancrowned-coverage",
+      "speciesId": "zaciancrowned",
+      "speciesClauseId": "zacian",
+      "speciesNameJa": "ザシアン（けんのおう）",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "intrepidsword",
+      "itemId": "rustedsword",
+      "nature": "adamant",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "behemothblade",
+        "sacredsword",
+        "playrough",
+        "swordsdance"
+      ],
+      "strategy": "タイプ一致の鋼妖攻撃と聖なる剣で防御上昇に対応する。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ザシアン（けんのおう）は弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ザシアン（けんのおう）のcoverage型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-calyrexice-trickroom",
+      "speciesId": "calyrexice",
+      "speciesClauseId": "calyrex",
+      "speciesNameJa": "白バドレックス",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "asoneglastrier",
+      "itemId": "lifeorb",
+      "nature": "brave",
+      "statPoints": {
+        "hp": 32,
+        "atk": 32,
+        "def": 2,
+        "spa": 0,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "glaciallance",
+        "swordsdance",
+        "trickroom",
+        "closecombat"
+      ],
+      "strategy": "トリックルーム下の遅さを有効活用し、氷の槍で突破する。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "白バドレックスは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "白バドレックスのtrickroom型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-calyrexice-bulky",
+      "speciesId": "calyrexice",
+      "speciesClauseId": "calyrex",
+      "speciesNameJa": "白バドレックス",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "asoneglastrier",
+      "itemId": "leftovers",
+      "nature": "adamant",
+      "statPoints": {
+        "hp": 32,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 2,
+        "spe": 0
+      },
+      "moves": [
+        "glaciallance",
+        "swordsdance",
+        "highhorsepower",
+        "trickroom"
+      ],
+      "strategy": "高耐久からトリックルームと剣舞で反撃を狙う。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "白バドレックスは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "白バドレックスのbulky型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-kyuremblack-dragon-dance",
+      "speciesId": "kyuremblack",
+      "speciesClauseId": "kyurem",
+      "speciesNameJa": "ブラックキュレム",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "teravolt",
+      "itemId": "lifeorb",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "dragondance",
+        "iciclecrash",
+        "boltstrike",
+        "dragonclaw"
+      ],
+      "strategy": "竜舞から氷と電気の広範囲攻撃で制圧する。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ブラックキュレムは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ブラックキュレムのdragon-dance型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-kyuremblack-lumberry",
+      "speciesId": "kyuremblack",
+      "speciesClauseId": "kyurem",
+      "speciesNameJa": "ブラックキュレム",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "teravolt",
+      "itemId": "lumberry",
+      "nature": "adamant",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "dragondance",
+        "iciclecrash",
+        "boltstrike",
+        "earthquake"
+      ],
+      "strategy": "ラムのみで状態異常を一度受けながら竜舞する。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ブラックキュレムは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ブラックキュレムのlumberry型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-kyuremwhite-scarf",
+      "speciesId": "kyuremwhite",
+      "speciesClauseId": "kyurem",
+      "speciesNameJa": "ホワイトキュレム",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "turboblaze",
+      "itemId": "choicescarf",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "dracometeor",
+        "fusionflare",
+        "freezedry",
+        "earthpower"
+      ],
+      "strategy": "高い特攻から竜星群と冷凍乾燥を高速で打ち分ける。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ホワイトキュレムは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ホワイトキュレムのscarf型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-kyuremwhite-wallbreak",
+      "speciesId": "kyuremwhite",
+      "speciesClauseId": "kyurem",
+      "speciesNameJa": "ホワイトキュレム",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "turboblaze",
+      "itemId": "lifeorb",
+      "nature": "modest",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "dracometeor",
+        "fusionflare",
+        "icebeam",
+        "earthpower"
+      ],
+      "strategy": "命の珠で高火力特殊技を打ち分け受けを崩す。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ホワイトキュレムは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ホワイトキュレムのwallbreak型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-eternatus-durable",
+      "speciesId": "eternatus",
+      "speciesClauseId": "eternatus",
+      "speciesNameJa": "ムゲンダイナ",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "pressure",
+      "itemId": "leftovers",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 32,
+        "atk": 0,
+        "def": 0,
+        "spa": 2,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "dynamaxcannon",
+        "sludgebomb",
+        "recover",
+        "flamethrower"
+      ],
+      "strategy": "自己再生で消耗を抑えつつ竜毒技で戦う。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ムゲンダイナは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ムゲンダイナのdurable型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-eternatus-attacker",
+      "speciesId": "eternatus",
+      "speciesClauseId": "eternatus",
+      "speciesNameJa": "ムゲンダイナ",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "pressure",
+      "itemId": "lifeorb",
+      "nature": "timid",
+      "statPoints": {
+        "hp": 2,
+        "atk": 0,
+        "def": 0,
+        "spa": 32,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "dynamaxcannon",
+        "sludgebomb",
+        "flamethrower",
+        "toxicspikes"
+      ],
+      "strategy": "特攻と素早さを最大化し毒菱と火力で圧力をかける。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "ムゲンダイナは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "ムゲンダイナのattacker型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-necrozmaduskmane-defense",
+      "speciesId": "necrozmaduskmane",
+      "speciesClauseId": "necrozma",
+      "speciesNameJa": "日食ネクロズマ",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "prismarmor",
+      "itemId": "leftovers",
+      "nature": "impish",
+      "statPoints": {
+        "hp": 32,
+        "atk": 2,
+        "def": 32,
+        "spa": 0,
+        "spd": 0,
+        "spe": 0
+      },
+      "moves": [
+        "sunsteelstrike",
+        "stealthrock",
+        "morningsun",
+        "earthquake"
+      ],
+      "strategy": "鋼の高耐久と回復でステルスロックを維持する。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "日食ネクロズマは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "日食ネクロズマのdefense型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    },
+    {
+      "setId": "cpu-legendary-necrozmaduskmane-dragon-dance",
+      "speciesId": "necrozmaduskmane",
+      "speciesClauseId": "necrozma",
+      "speciesNameJa": "日食ネクロズマ",
+      "legendClass": "legendary",
+      "cost": 8,
+      "level": 50,
+      "abilityId": "prismarmor",
+      "itemId": "lifeorb",
+      "nature": "jolly",
+      "statPoints": {
+        "hp": 2,
+        "atk": 32,
+        "def": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 32
+      },
+      "moves": [
+        "dragondance",
+        "sunsteelstrike",
+        "earthquake",
+        "knockoff"
+      ],
+      "strategy": "竜舞で速度と攻撃を上げ鋼地面技で抜きを狙う。 相手の交代と防御行動を見極めながら、CPUが有利対面を積極的に選ぶ強力な構成。",
+      "weaknesses": [
+        "日食ネクロズマは弱点を突く高速アタッカーや行動制限、状態異常に注意が必要で、無理な積み技は逆転の隙となる。"
+      ],
+      "adoptionReason": "日食ネクロズマのdragon-dance型は過去の競技対戦で見られる基本戦術を参考にし、同種族の他の型とは役割と技範囲を区別した。",
+      "costRationale": "伝説級の高い種族値と強力な技・特性を持ち、Lv4 CPU専用の特別な8Cr枠として一般型より高く評価する。"
+    }
+  ],
+  "moves": {
+    "judgment": {
+      "name": "Judgment",
+      "type": "Normal",
+      "category": "Special",
+      "basePower": 100,
+      "accuracy": 100,
+      "pp": 10,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1
+      },
+      "referenceHandlers": []
+    },
+    "collisioncourse": {
+      "name": "Collision Course",
+      "type": "Fighting",
+      "category": "Physical",
+      "basePower": 100,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1,
+        "contact": 1
+      },
+      "referenceHandlers": []
+    },
+    "electrodrift": {
+      "name": "Electro Drift",
+      "type": "Electric",
+      "category": "Special",
+      "basePower": 100,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "mirror": 1
+      },
+      "referenceHandlers": []
+    },
+    "waterspout": {
+      "name": "Water Spout",
+      "type": "Water",
+      "category": "Special",
+      "basePower": 150,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "allAdjacentFoes",
+      "flags": {
+        "protect": 1
+      },
+      "referenceHandlers": []
+    },
+    "originpulse": {
+      "name": "Origin Pulse",
+      "type": "Water",
+      "category": "Special",
+      "basePower": 110,
+      "accuracy": 85,
+      "pp": 10,
+      "priority": 0,
+      "target": "allAdjacentFoes",
+      "flags": {
+        "protect": 1,
+        "pulse": 1
+      },
+      "referenceHandlers": []
+    },
+    "behemothblade": {
+      "name": "Behemoth Blade",
+      "type": "Steel",
+      "category": "Physical",
+      "basePower": 100,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "contact": 1
+      },
+      "referenceHandlers": []
+    },
+    "glaciallance": {
+      "name": "Glacial Lance",
+      "type": "Ice",
+      "category": "Physical",
+      "basePower": 120,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "allAdjacentFoes",
+      "flags": {
+        "protect": 1
+      },
+      "referenceHandlers": []
+    },
+    "boltstrike": {
+      "name": "Bolt Strike",
+      "type": "Electric",
+      "category": "Physical",
+      "basePower": 130,
+      "accuracy": 85,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "contact": 1
+      },
+      "secondary": {
+        "chance": 20,
+        "status": "par"
+      },
+      "referenceHandlers": []
+    },
+    "fusionflare": {
+      "name": "Fusion Flare",
+      "type": "Fire",
+      "category": "Special",
+      "basePower": 100,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1
+      },
+      "referenceHandlers": []
+    },
+    "dynamaxcannon": {
+      "name": "Dynamax Cannon",
+      "type": "Dragon",
+      "category": "Special",
+      "basePower": 100,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1
+      },
+      "referenceHandlers": []
+    },
+    "sunsteelstrike": {
+      "name": "Sunsteel Strike",
+      "type": "Steel",
+      "category": "Physical",
+      "basePower": 100,
+      "accuracy": 100,
+      "pp": 5,
+      "priority": 0,
+      "target": "normal",
+      "flags": {
+        "protect": 1,
+        "contact": 1
+      },
+      "referenceHandlers": []
+    }
+  },
+  "abilities": {
+    "multitype": {
+      "name": "Multitype",
+      "flags": {
+        "cantsuppress": 1,
+        "notrace": 1,
+        "cantcopy": 1
+      },
+      "referenceHandlers": []
+    },
+    "orichalcumpulse": {
+      "name": "Orichalcum Pulse",
+      "flags": {},
+      "referenceHandlers": []
+    },
+    "hadronengine": {
+      "name": "Hadron Engine",
+      "flags": {},
+      "referenceHandlers": []
+    },
+    "intrepidsword": {
+      "name": "Intrepid Sword",
+      "flags": {},
+      "referenceHandlers": []
+    },
+    "asoneglastrier": {
+      "name": "As One (Glastrier)",
+      "flags": {
+        "cantsuppress": 1,
+        "notrace": 1,
+        "cantcopy": 1
+      },
+      "referenceHandlers": []
+    },
+    "teravolt": {
+      "name": "Teravolt",
+      "flags": {},
+      "referenceHandlers": []
+    },
+    "turboblaze": {
+      "name": "Turboblaze",
+      "flags": {},
+      "referenceHandlers": []
+    },
+    "prismarmor": {
+      "name": "Prism Armor",
+      "flags": {},
+      "referenceHandlers": []
+    }
+  },
+  "items": {
+    "dracoplate": {
+      "name": "Draco Plate",
+      "nameJa": "りゅうのプレート",
+      "plateType": "Dragon",
+      "referenceHandlers": []
+    },
+    "dreadplate": {
+      "name": "Dread Plate",
+      "nameJa": "こわもてプレート",
+      "plateType": "Dark",
+      "referenceHandlers": []
+    },
+    "skyplate": {
+      "name": "Sky Plate",
+      "nameJa": "あおぞらプレート",
+      "plateType": "Flying",
+      "referenceHandlers": []
+    },
+    "meadowplate": {
+      "name": "Meadow Plate",
+      "nameJa": "みどりのプレート",
+      "plateType": "Grass",
+      "referenceHandlers": []
+    },
+    "mindplate": {
+      "name": "Mind Plate",
+      "nameJa": "ふしぎのプレート",
+      "plateType": "Psychic",
+      "referenceHandlers": []
+    },
+    "ironplate": {
+      "name": "Iron Plate",
+      "nameJa": "こうてつプレート",
+      "plateType": "Steel",
+      "referenceHandlers": []
+    },
+    "pixieplate": {
+      "name": "Pixie Plate",
+      "nameJa": "せいれいプレート",
+      "plateType": "Fairy",
+      "referenceHandlers": []
+    },
+    "zapplate": {
+      "name": "Zap Plate",
+      "nameJa": "いかずちプレート",
+      "plateType": "Electric",
+      "referenceHandlers": []
+    },
+    "insectplate": {
+      "name": "Insect Plate",
+      "nameJa": "たまむしプレート",
+      "plateType": "Bug",
+      "referenceHandlers": []
+    },
+    "earthplate": {
+      "name": "Earth Plate",
+      "nameJa": "だいちのプレート",
+      "plateType": "Ground",
+      "referenceHandlers": []
+    },
+    "fistplate": {
+      "name": "Fist Plate",
+      "nameJa": "こぶしのプレート",
+      "plateType": "Fighting",
+      "referenceHandlers": []
+    },
+    "splashplate": {
+      "name": "Splash Plate",
+      "nameJa": "しずくプレート",
+      "plateType": "Water",
+      "referenceHandlers": []
+    },
+    "flameplate": {
+      "name": "Flame Plate",
+      "nameJa": "ひのたまプレート",
+      "plateType": "Fire",
+      "referenceHandlers": []
+    },
+    "spookyplate": {
+      "name": "Spooky Plate",
+      "nameJa": "もののけプレート",
+      "plateType": "Ghost",
+      "referenceHandlers": []
+    },
+    "stoneplate": {
+      "name": "Stone Plate",
+      "nameJa": "がんせきプレート",
+      "plateType": "Rock",
+      "referenceHandlers": []
+    },
+    "toxicplate": {
+      "name": "Toxic Plate",
+      "nameJa": "もうどくプレート",
+      "plateType": "Poison",
+      "referenceHandlers": []
+    },
+    "icicleplate": {
+      "name": "Icicle Plate",
+      "nameJa": "つららのプレート",
+      "plateType": "Ice",
+      "referenceHandlers": []
+    },
+    "rustedsword": {
+      "name": "Rusted Sword",
+      "nameJa": "くちたけん",
+      "signatureSpecies": "zacian",
+      "referenceHandlers": []
+    },
+    "silkscarf": {
+      "name": "Silk Scarf",
+      "nameJa": "シルクのスカーフ",
+      "referenceHandlers": []
+    }
+  }
+}

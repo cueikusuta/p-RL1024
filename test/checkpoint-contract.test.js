@@ -4,7 +4,7 @@ import {mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 
-for(const [id,script,extra] of [['RL-Linear','scripts/train-linear.mjs',['--all-phases','true']],['RL-Deep','scripts/train-deep.mjs',[]]]) {
+for(const [id,script,extra] of [['RL-Linear','scripts/train-linear.mjs',['--all-phases','true']],['RL-Deep','scripts/train-deep.mjs',[]],['RL-Linear vs AQ','scripts/train-vs-aq.mjs',['--model','RL-Linear']],['RL-Deep vs AQ','scripts/train-vs-aq.mjs',['--model','RL-Deep']]]) {
   test(`${id} resumes a validated checkpoint without changing training`,{timeout:120000},()=>{
     const temporaryRoot=resolve('tmp');mkdirSync(temporaryRoot,{recursive:true});
     const dir=mkdtempSync(join(temporaryRoot,'rl-checkpoint-'));
