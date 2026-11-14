@@ -49,12 +49,16 @@ AQ-Base-001 の凍結重みは本体台帳の SHA-256 と照合しています�
 
 ## 実行基盤の性能検証
 
-`node scripts/benchmark-engine.mjs` は同一の32個の seed、凍結 RL-Deep、完全4勝Matchを逐次実行した場合と、最大4ワーカーで並列実行した場合の**スループット**を比較します。先に各Matchのスコア・ラウンド履歴・アクション数の digest 一致を確認し、wall time と速度比を出力します。最初の8 Matchは移行前の既知 digest とも照合します。これは1試合の遅延が2倍速くなることや、学習の強さが改善することを意味しません。
+`node scripts/benchmark-engine.mjs` はRL-Deepモデルを9試合学習し（実際の重みを生成）、**変更前の推論・最適化後の逐次推論・最適化後の並列推論**を同じ64個の seed、完全4勝Matchで比較します。スコア・ラウンド履歴・アクション数の結果digestが全方式で一致しなければエラーとします。従来の初期モデル8試合のdigestは `test/parallel-frozen-deep.test.js` で別途保全します。
 
-学習時のモデル更新は試合順に依存するため、並列化せずに維持します。独立した凍結モデル評価のみ `scripts/batch-frozen-deep.mjs` の Worker Threads で並列化できます。従来の4 Match smoke は既定で逐次実行し、出力と検証契約を維持します。長い評価（正式な強さの証拠とは扱わない）を検証する例：
+`node scripts/benchmark-training.mjs` は、同じseed・同じ24試合で、元のActor-Criticと最適化版の**逐次オンライン学習**を比較します。事前の同条件ウォームアップ後、試合履歴と最終学習モデルのSHA-256まで一致しなければ失敗とします。**学習途中の勾配更新を並列化していません**。
+
+初回の学習済みモデルによる評価（GitHub-hosted Linux / Node 22.14.0、4ワーカー、64 Match）は、変更前逐次28.86秒、最適化後逐次4.93秒、最適化後並列3.47秒で、変更前比 **8.32倍** でした。実測の出典は [Actions run #43650315138](https://github.com/cueikusuta/p-RL1024/actions/runs/43650315138) です。これは特定モデル・環境における結果であり、他のモデル・マシンへの保証ではありません。
+
+独立した凍結モデル評価のみ `scripts/batch-frozen-deep.mjs` の Worker Threads で並列化できます。従来の4 Match smoke は既定で逐次実行し、出力と検証契約を維持します。長い評価（正式な強さの証拠とは扱わない）を検証する例：
 
 ```sh
 node scripts/evaluate-deep.mjs --model artifacts/rl-deep/training.json --purpose throughput --blocks 32 --workers 4 --out artifacts/rl-deep/throughput-32.json
 ```
 
-worker 数と wall time は CPU 構成・負荷に依存するため、同一ホスト・同一 seed・同一 Node バージョンで比較してください。凍結評価のスループット改善を、オンライン学習の更新速度改善と混同しないでください。
+worker 数と wall time は CPU 構成・負荷に依存するため、同一ホスト・同一 seed・同一 Node バージョンで比較してください。ベンチマークは強さ・汎化性能の証拠ではありません。
