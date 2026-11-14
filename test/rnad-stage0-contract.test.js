@@ -117,7 +117,9 @@ test('untrusted cross-round handoff and draft history cannot reach actor',()=>{
 test('battle decisions fail closed on empty legal set',()=>{
   const view={requestType:'turn',self:{team:[],active:0,confirmed:false,
     canSwitch:false,canMega:false}};
-  assert.throws(()=>rnadLegalActions(view),/length/);
+  assert.throws(()=>rnadLegalActions(view),/Invalid public battle decision view|length/);
+  const wait={requestType:'wait',phase:'wait',self:{team:[{hp:100}],active:0,confirmed:true}};
+  assert.deepEqual(rnadLegalActions(wait),[]);
 });
 test('contradictory completed Match score cannot finish',()=>{
   const c=collector();
