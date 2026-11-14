@@ -31,7 +31,9 @@ export function rnadLegalActions(view){
   if(!phases.has(phase))throw new TypeError('Unsupported RNAD phase');
   const actions=phase==='draft'?legalPureRlTeams(view):
     phase==='selection'?legalPureRlSelections(view):legalPureRlActions(view);
-  // Empty lists are legal only when the authority explicitly declares no decision.\n  const inactive=phase==='battle'&&(['wait','finished','confirmed'].includes(view.requestType)||view.self?.confirmed===true);\n  return validateRnadLegalActions(actions,{allowEmpty:inactive});
+  // Empty lists are legal only when the authority explicitly declares no decision.
+  const inactive=phase==='battle'&&(['wait','finished','confirmed'].includes(view.requestType)||view.self?.confirmed===true);
+  return validateRnadLegalActions(actions,{allowEmpty:inactive});
 }
 export function validateRnadLegalActions(actions,{allowEmpty=false}={}){
   if(!Array.isArray(actions)||actions.length>60000||
@@ -78,7 +80,9 @@ export function projectRnadObservation(view,{seat,context=null}={}){
   if(context!==null){
     if(!object(context)||context.schema!=='p-rl1024-phase-pipeline-v1'||
       context.seat!==seat)throw new TypeError('Invalid seat-scoped context');
-    // Pipeline handoff/completed/current are untrusted nested JSON; until a\n    // versioned recursive public schema exists, never expose them to actors.\n    result.context=fields(context,['round']);
+    // Pipeline handoff/completed/current are untrusted nested JSON; until a
+    // versioned recursive public schema exists, never expose them to actors.
+    result.context=fields(context,['round']);
   }
   return result;
 }
