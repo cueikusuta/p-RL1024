@@ -10,7 +10,7 @@ for(let i=0;i<argv.length;i+=2){if(!['--dir','--model','--opponent','--total','-
 const [root,model,opponent,total,shards,seed,out]=['--dir','--model','--opponent','--total','--shards','--seed','--out'].map(k=>arg.get(k));
 if(!root||!out||!['RL-Linear','RL-Deep'].includes(model)||!['AQ-Base-001','V2E','RL-Deep'].includes(opponent)||
    !Number.isInteger(Number(total))||!Number.isInteger(Number(shards))||!Number.isInteger(Number(seed)))throw new Error('Bad aggregate arguments');
-const m=Number(total),n=Number(shards),base=Number(seed),artifacts=readdirSync(root,{withFileTypes:true}).filter(x=>x.isDirectory()).map(x=>x.name).sort();
+const m=Number(total),n=Number(shards),base=Number(seed),artifacts=readdirSync(root,{withFileTypes:true}).filter(x=>x.isDirectory()).map(x=>x.name).sort((a,b)=>Number(a.match(/-shard-(\d+)$/)?.[1])-Number(b.match(/-shard-(\d+)$/)?.[1]));
 if(artifacts.length!==n||n<1||n>20||m<9||m>256)throw new Error('Missing per-shard artifacts');
 const sub=opponent==='AQ-Base-001'?model+'-vs-aq':model==='RL-Linear'?'i975':'rl-deep';
 const rows=[];
