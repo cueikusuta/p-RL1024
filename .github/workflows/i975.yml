@@ -43,7 +43,7 @@ jobs:
       - name: Verify source snapshot
         run: node scripts/verify-snapshot.mjs
       - name: Verify contracts
-        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js
+        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js test/parallel-frozen-deep.test.js
       - name: Profile frozen full-Match engine
         run: node scripts/benchmark-engine.mjs
       - name: Train and evaluate
