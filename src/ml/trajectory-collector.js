@@ -61,7 +61,7 @@ export function createRnadTrajectoryCollector({
   }
   function finish({completed,winner,score}={}){
     if(finished||pending||completed!==true||![0,1].includes(winner)||
-      !Array.isArray(score)||score.length!==2||score[winner]!==4)
+      !Array.isArray(score)||score.length!==2||score[winner]!==4||!score.every(x=>Number.isInteger(x)&&x>=0&&x<=4)||score[1-winner]>=4)
       throw new Error('Expected completed authoritative four-win Match');
     finished=true;
     const terminal=winner===seat?1:-1;
