@@ -6,7 +6,7 @@ import {runRnadAcceptanceSmoke,stage0FixedPolicy}
 const opts={
   seed:22003,matchId:'test-22003',experimentId:'contract',
   sourceSha:'0123456789abcdef0123456789abcdef01234567',
-  engineSnapshotSha:'ea81165993110ee9fb3a09dcb97c6708c0d7397'
+  engineSnapshotSha:'ea81165993110ee9fb3a09dcb97c6708c0d7397b'
 };
 test('authoritative Match records only post-accepted actions for BOTH seats',()=>{
   // A real Battle with simultaneous turn submissions, no fake engine stub.
