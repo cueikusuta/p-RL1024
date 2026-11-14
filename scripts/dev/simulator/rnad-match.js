@@ -5,6 +5,7 @@ import {runPhaseMatch} from './phase-match.js';
 import {createBuiltinPhaseAgents} from './phase-agents.js';
 import {rnadLegalActions,projectRnadObservation} from '../../../src/ml/legal-action-adapter.js';
 import {createRnadTrajectoryCollector} from '../../../src/ml/trajectory-collector.js';
+import battleData from '../../../data/catalog/battle-data.json' with {type:'json'};
 
 const hexSha=x=>typeof x==='string'&&/^[0-9a-f]{40,64}$/i.test(x);
 const positiveSeed=x=>Number.isSafeInteger(x)&&x>=1&&x<=0xffffffff;
@@ -13,9 +14,19 @@ const positiveSeed=x=>Number.isSafeInteger(x)&&x>=1&&x<=0xffffffff;
 // a trained R-NaD policy or a performance claim. Selection uses normal Basic.
 export function stage0FixedPolicy({observation,legalActions}){
   const active=observation.self.team?.[observation.self.active];
-  const damaging=legalActions.find(action=>action.kind==='move'&&
-    action.index!=='struggle'&&active?.moves?.[action.index]?.id==='tackle');
-  const attack=damaging??legalActions.find(action=>action.kind==='move');
+  const attacks=legalActions.filter(action=>action.kind==='move'&&
+    Number.isInteger(action.index));
+  // A deterministic nonlearning smoke policy: prefer a valid damaging move.
+  // Only own moves and static public catalog are inspected.
+  const power=action=>{
+    const moveId=active?.moves?.[action.index]?.id;
+    const def=battleData.moves?.[moveId];
+    return def&&def.category!=='Status'?
+      Math.max(0,def.basePower??0)*Math.max(.1,(def.accuracy??100)/100):0;
+  };
+  const attack=attacks.length?attacks.reduce((best,a)=>
+    power(a)>power(best)?a:best,attacks[0]):
+    legalActions.find(action=>action.kind==='move');
   return {action:attack??legalActions[0],
     behaviorLogProbability:0,
     referenceLogProbability:-Math.log(legalActions.length),
