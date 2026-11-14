@@ -84,9 +84,9 @@ node --test test/phase-pipeline-contract.test.js test/phase-pipeline-integration
 
 ## 実行基盤の性能検証
 
-`node scripts/benchmark-engine.mjs` はRL-Deepモデルを9試合学習し（実際の重みを生成）、**変更前の推論・最適化後の逐次推論・最適化後の並列推論**を同じ64個の seed、完全4勝Matchで比較します。スコア・ラウンド履歴・アクション数の結果digestが全方式で一致しなければエラーとします。従来の初期モデル8試合のdigestは `test/parallel-frozen-deep.test.js` で別途保全します。
+`node scripts/benchmark-engine.mjs` はRL-Deepモデルを9試合学習し（実際の重みを生成）、**変更前の推論・最適化後の逐次推論・最適化後の並列推論**を同じ64個の seed、完全4勝Matchで比較します。スコア・ラウンド履歴・アクション数の結果digestが全方式・各反復で一致しなければエラーとします。**3回の反復実測で旧逐次に対する最適化並列の速度比中央値が2.00未満ならCI失敗**にします。従来の初期モデル8試合のdigestは `test/parallel-frozen-deep.test.js` で別途保全します。
 
-`node scripts/benchmark-training.mjs` は、同じseed・同じ24試合で、元のActor-Criticと最適化版の**逐次オンライン学習**を比較します。事前の同条件ウォームアップ後、試合履歴と最終学習モデルのSHA-256まで一致しなければ失敗とします。**学習途中の勾配更新を並列化していません**。
+`node scripts/benchmark-training.mjs` は、同じseed・同じ24試合で、元のActor-Criticと最適化版の**逐次オンライン学習**を比較します。事前の同条件ウォームアップ後、**3回反復して速度比の中央値が2.00未満ならCI失敗**にします。各回の試合履歴と最終学習モデルのSHA-256は完全一致が必要です。**学習途中の勾配更新を並列化していません**。
 
 初回の学習済みモデルによる評価（GitHub-hosted Linux / Node 22.14.0、4ワーカー、64 Match）は、変更前逐次28.86秒、最適化後逐次4.93秒、最適化後並列3.47秒で、変更前比 **8.32倍** でした。実測の出典は [Actions run #43650315138](https://github.com/cueikusuta/p-RL1024/actions/runs/43650315138) です。これは特定モデル・環境における結果であり、他のモデル・マシンへの保証ではありません。
 
@@ -96,4 +96,4 @@ node --test test/phase-pipeline-contract.test.js test/phase-pipeline-integration
 node scripts/evaluate-deep.mjs --model artifacts/rl-deep/training.json --purpose throughput --blocks 32 --workers 4 --out artifacts/rl-deep/throughput-32.json
 ```
 
-worker 数と wall time は CPU 構成・負荷に依存するため、同一ホスト・同一 seed・同一 Node バージョンで比較してください。ベンチマークは強さ・汎化性能の証拠ではありません。
+worker 数は利用可能な論理CPU数以下かつ16以下に制限し、巨大モデルのworkerコピー用メモリの保守的上限も検証します。wall time は CPU 構成・負荷に依存するため、同一ホスト・同一 seed・同一 Node バージョンで比較してください。ベンチマークは強さ・汎化性能の証拠ではありません。
