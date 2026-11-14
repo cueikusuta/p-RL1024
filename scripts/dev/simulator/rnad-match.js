@@ -1,0 +1,84 @@
+// Opt-in RNAD-001 acceptance probe. This is NOT an R-NaD learner.
+// Only this trusted runner owns collectors; user-supplied policies receive
+// actor projections and legal candidates, never a commit/accepted callback.
+import {runPhaseMatch} from './phase-match.js';
+import {createBuiltinPhaseAgents} from './phase-agents.js';
+import {rnadLegalActions,projectRnadObservation} from '../../../src/ml/legal-action-adapter.js';
+import {createRnadTrajectoryCollector} from '../../../src/ml/trajectory-collector.js';
+
+const hexSha=x=>typeof x==='string'&&/^[0-9a-f]{40,64}$/i.test(x);
+const positiveSeed=x=>Number.isSafeInteger(x)&&x>=1&&x<=0xffffffff;
+
+// Deterministic untrained contract policy; never use these records as
+// a trained R-NaD policy or a performance claim. Selection uses normal Basic.
+export function stage0FixedPolicy({observation,legalActions}){
+  const active=observation.self.team?.[observation.self.active];
+  const damaging=legalActions.find(action=>action.kind==='move'&&
+    action.index!=='struggle'&&active?.moves?.[action.index]?.id==='tackle');
+  const attack=damaging??legalActions.find(action=>action.kind==='move');
+  return {action:attack??legalActions[0],
+    behaviorLogProbability:0,
+    referenceLogProbability:-Math.log(legalActions.length),
+    predictedValue:0};
+}
+
+// This function is the trustworthy integration boundary, not a generic
+// trajectoryCollector.commit() call supplied by the Actor.
+// Existing runPhaseMatch submits Match.confirmTeam/confirmSelection/battleAction
+// BEFORE invoking the agent's accepted callback.
+export function runRnadAcceptanceSmoke({
+  seed=22003,matchId='stage0-smoke',experimentId='rnad-stage0',
+  sourceSha,engineSnapshotSha,policy=stage0FixedPolicy,
+  maxRounds=64,maxDecisionsPerRound=3000
+}={}){
+  if(!positiveSeed(seed)||!hexSha(sourceSha)||!hexSha(engineSnapshotSha)||
+    typeof matchId!=='string'||!matchId||typeof experimentId!=='string'||
+    !experimentId||typeof policy!=='function')
+    throw new TypeError('Invalid RNAD smoke provenance or policy');
+  const collectors=[0,1].map(seat=>createRnadTrajectoryCollector({
+    experimentId,matchId,seed,seat,
+    policyVersion:'rnad-stage0-fixed-untrained',
+    opponentPolicyVersion:'rnad-stage0-fixed-untrained',
+    sourceSha,engineSnapshotSha
+  }));
+  const agents=[0,1].map(seat=>{
+    const collector=collectors[seat];
+    // Actor handlers never receive the collector, acceptance function,
+    // trusted raw Match, or the opposing Actor's pending action.
+    const battle={
+      id:'rnad-stage0-actor',
+      select({view,context,round,rng}){
+        const observation=projectRnadObservation(view,{seat,context});
+        const legalActions=rnadLegalActions(view);
+        const proposed=policy({
+          observation,legalActions,round,seat,rng
+        });
+        if(!proposed||typeof proposed!=='object'||
+          !Object.hasOwn(proposed,'action'))
+          throw new TypeError('Policy must return an action and logged probabilities');
+        collector.propose({
+          phase:'battle',round,observation,legalActions,
+          action:proposed.action,
+          behaviorLogProbability:proposed.behaviorLogProbability,
+          referenceLogProbability:proposed.referenceLogProbability,
+          predictedValue:proposed.predictedValue
+        });
+        return proposed.action;
+      },
+      accepted({action}){collector.commit(action);},
+      finish({result}){
+        if(!result.completed)return collector.stats();
+        return collector.finish(result);
+      }
+    };
+    return createBuiltinPhaseAgents({
+      draft:'basic',selection:'basic',battle
+    });
+  });
+  const result=runPhaseMatch({seed,agents,maxRounds,maxDecisionsPerRound});
+  // Only completed runs produce complete trajectories. Aborted / rejected
+  // proposals cannot yield a publishable learned dataset.
+  return {...result,
+    trajectories:result.completed?
+      result.agentStats.map(agent=>agent.battle):null};
+}
