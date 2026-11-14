@@ -1,0 +1,52 @@
+name: I975 hosted CPU baseline 256
+on:
+  push:
+    branches: ['research/gha-cpu-shards-20261115']
+    paths: ['.github/workflows/i975-cpu-baseline.yml']
+permissions: {}
+jobs:
+  baseline:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [RL-Linear, RL-Deep]
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify source snapshot
+        run: node scripts/verify-snapshot.mjs
+      - name: Verify contracts
+        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js
+      - name: Baseline train and evaluate (unmodified runner)
+        shell: bash
+        env:
+          RL_MODEL: ${{ matrix.model }}
+          RL_OPPONENT: AQ-Base-001
+          RL_MATCHES: '256'
+          RL_SEED: '975020'
+        run: |
+          started=$(date -u +%s)
+          set +e
+          node scripts/run-experiment.mjs
+          code=$?
+          finished=$(date -u +%s)
+          mkdir -p artifacts
+          printf '{"schema":"p-rl1024-wallclock-v1","kind":"baseline","model":"%s","opponent":"AQ-Base-001","matches":256,"seed":975020,"startedUnix":%s,"finishedUnix":%s,"durationSeconds":%s,"exitCode":%s,"runId":"%s","sha":"%s"}\n' "$RL_MODEL" "$started" "$finished" "$((finished-started))" "$code" "$GITHUB_RUN_ID" "$GITHUB_SHA" > "artifacts/wallclock-${RL_MODEL}.json"
+          exit "$code"
+      - name: Save baseline and checkpoints
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: baseline-${{ matrix.model }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
