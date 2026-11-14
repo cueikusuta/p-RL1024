@@ -10,6 +10,16 @@
     "status": "trainable"
   },
   {
+    "id": "RL-Deep-001",
+    "family": "https://github.com/cueikusuta/pokemon-battle-factory/issues/976",
+    "featureVersion": "rl-deep-hashed-public-256",
+    "runtime": "node/cpu",
+    "trainingEntry": null,
+    "opponent": false,
+    "provenance": {"repository": "cueikusuta/pokemon-battle-factory", "commit": "daafd0ed9442f79f0b72a68b6deb5046cda1fad9", "teacher": "none; frozen historical PPO"},
+    "status": "frozen"
+  },
+  {
     "id": "AQ-Base-001",
     "family": "https://github.com/cueikusuta/pokemon-battle-factory/issues/877",
     "featureVersion": "aq-base-61d",

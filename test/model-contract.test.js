@@ -5,6 +5,7 @@ import * as linear from '../models/linear.mjs';
 import * as deep from '../models/deep.mjs';
 import * as v2e from '../models/v2e.mjs';
 import * as aq from '../models/aq-base.mjs';
+import * as deep001 from '../models/deep001.mjs';
 import aqData from '../aq-runtime/data/catalog/battle-data.json' with {type:'json'};
 import {legalPureRlActions} from '../src/ai/pure-rl-linear.js';
 
@@ -12,14 +13,25 @@ const view=()=>({requestType:'turn',turn:2,field:{weather:null,terrain:null,tric
 
 test('registry IDs and runtime contract are unambiguous',()=>{
   assert.equal(new Set(models.map(m=>m.id)).size,models.length);
-  assert.deepEqual(models.map(m=>m.id).sort(),['AQ-Base-001','RL-Deep','RL-Linear','V2E']);
+  assert.deepEqual(models.map(m=>m.id).sort(),['AQ-Base-001','RL-Deep','RL-Deep-001','RL-Linear','V2E']);
   assert.equal(getModel('RL-Linear').featureVersion,linear.featureVersion);
   assert.equal(getModel('RL-Deep').featureVersion,deep.featureVersion);
   assert.equal(getModel('V2E').featureVersion,v2e.featureVersion);
   assert.equal(getModel('AQ-Base-001').featureVersion,aq.featureVersion);
+  assert.equal(getModel('RL-Deep-001').featureVersion,deep001.featureVersion);
+  assert.equal(getModel('RL-Deep-001').trainingEntry,null);
   assert.equal(getModel('V2E').status,'frozen');
   assert.equal(getModel('V2E').trainingEntry,null);
   assert.throws(()=>getModel('AQ-Base'),/Unknown model/);
+});
+test('RL-Deep-001 uses verified frozen weights and public, legal features',()=>{
+  const model=deep001.createModel(),a=view(),b=structuredClone(a),legal=legalPureRlActions(a).slice(1);
+  b.opponent.hiddenMoves=['secret'];b.opponent.hiddenItem='secret';b.opponent.hiddenAbility='secret';b.opponent.hiddenSelection=['secret'];b.futureWinner=0;
+  const rows=deep001.rankActions(model,a,legal,{seat:0});
+  assert.ok(rows.length);assert.ok(rows.every(r=>legal.some(x=>JSON.stringify(x)===JSON.stringify(r.action))));
+  assert.deepEqual(rows,deep001.rankActions(model,b,legal,{seat:0}));
+  assert.deepEqual(rows,deep001.rankActions(deep001.loadModel(deep001.saveModel(model)),a,legal,{seat:0}));
+  const changed=structuredClone(model);changed.w[0]+=1e-6;assert.throws(()=>deep001.loadModel(JSON.stringify(changed)),/SHA/);
 });
 test('AQ-Base-001 digest, legal mask, public input and save/load',()=>{
   const model=aq.createModel(),a=view(),b=structuredClone(a),legal=legalPureRlActions(a).slice(1);

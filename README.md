@@ -45,4 +45,6 @@ AQ-Base 対戦を再開する場合は、元と同じ `--model`・試合数・se
 
 AQ-Base-001 の凍結重みは本体台帳の SHA-256 と照合しています。AQ 対戦には別の固定エンジンスナップショット `aq-runtime/` を使います。これは従来の I975 smoke に用いる snapshot とは別のため、異なる条件の結果を直接比較しないでください。
 
+本体の既存個体 `RL-Deep-001` は、公開側で新規作成した `RL-Deep` とは異なる、256次元の凍結 PPO モデルです。共通 workflow では `RL-Deep-001 / AQ-Base-001` を選ぶと**評価のみ**実行します。`matches` は既定値9のままにし、`seed` は評価用 seed root に使います。評価は2 seed・両席の4 Match で、学習数を増やすものではありません。元の研究とはエンジン snapshot が異なるため、過去結果の再現・正式評価とは扱いません。
+
 `provenance/manifest.json` は元の private リポジトリのコミットと、取り込んだファイルの SHA-256 を記録します。実験結果を別環境と比較するときは、同じモデルの bytes、seed、引数、対戦相手を使ってください。2026-11-14 に元コミットの Windows 実行と公開 snapshot の Windows・GitHub-hosted Linux 実行で、9試合学習後のモデルと frozen smoke の結果 digest が一致しました。これは smoke 条件の検証です。

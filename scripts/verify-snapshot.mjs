@@ -25,3 +25,8 @@ if(data.aqBaseModel){
   if(createHash('sha256').update(bytes).digest('hex')!==data.aqBaseModel.weightsSha256)throw new Error('AQ-Base weights mismatch');
   console.log('Verified AQ-Base-001 weights');
 }
+if(data.rlDeep001Model){
+  const bytes=readFileSync(data.rlDeep001Model.path);
+  if(createHash('sha256').update(bytes).digest('hex')!==data.rlDeep001Model.weightsSha256)throw new Error('RL-Deep-001 weights mismatch');
+  console.log('Verified RL-Deep-001 weights');
+}

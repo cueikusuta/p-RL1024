@@ -693,6 +693,25 @@
           "gitBlob": "0f3bbaed99c8beaa34cd4272eb515642bba2d0c9"
         }
       }
+    },
+    {
+      "snapshotId": "rl-deep-001-daafd0ed9442",
+      "sourceRepository": "cueikusuta/pokemon-battle-factory",
+      "sourceCommit": "daafd0ed9442f79f0b72a68b6deb5046cda1fad9",
+      "files": {
+        "aq-runtime/src/ai/rl-deep.js": {
+          "sha256": "fcc42c581cb2544bb22f1aff43c963b64ddcd1ba82539a11f3c9d0a4b1524550",
+          "gitBlob": "8da54d367a3564b478b378a2f0369f30b8937aea"
+        },
+        "aq-runtime/src/ai/pure-rl-phases.js": {
+          "sha256": "c30d285f8a3d1544872ef8496e4b7ff4d10042359d1e33b7f3e3db08f5507129",
+          "gitBlob": "39e016b22f66e26bbe5e01624224f022c3bd67b5"
+        },
+        "aq-runtime/src/ai/pure-rl-linear.js": {
+          "sha256": "6d189e67bf4532a61ea43d13c4566728cfceaeed9a698e844feb0caf1e6f94cb",
+          "gitBlob": "24adb1c6b56641345d645e03f307e24f1d7df659"
+        }
+      }
     }
   ],
   "aqBaseModel": {
@@ -702,5 +721,13 @@
     "originalReportSha256": "ce616ec641f0986aa45065bdec257625235069953f0c759ef47856149aec5f67",
     "originalArtifactId": 13954388292,
     "originalRunId": 43241444403
+  },
+  "rlDeep001Model": {
+    "id": "RL-Deep-001",
+    "path": "aq-runtime/models/RL-Deep-001.json",
+    "weightsSha256": "55673679fe773e4489e1dec505fb434525322175af5cb2ee1c2bf919adaf5d41",
+    "originalArtifactId": 14061916993,
+    "originalRunId": 43469586604,
+    "originalSourceSha256": "bd5f6e9ed94ea8b0b35af24b49cf878f9b26688daa8ac204724c0abd4a5edfcf"
   }
 }

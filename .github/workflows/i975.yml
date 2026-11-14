@@ -7,7 +7,7 @@ on:
       model:
         description: 'Model family'
         type: choice
-        options: [RL-Linear, RL-Deep]
+        options: [RL-Linear, RL-Deep, RL-Deep-001]
         default: RL-Linear
       opponent:
         description: 'Evaluation opponent'
@@ -15,7 +15,7 @@ on:
         options: [V2E, RL-Deep, AQ-Base-001]
         default: V2E
       matches:
-        description: 'Training matches (9–256)'
+        description: 'Training matches (9–256); frozen RL-Deep-001 requires default 9 and runs evaluation only'
         type: string
         default: '9'
       seed:
@@ -43,7 +43,7 @@ jobs:
       - name: Verify source snapshot
         run: node scripts/verify-snapshot.mjs
       - name: Verify contracts
-        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js
+        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js test/deep001-eval.test.js
       - name: Train and evaluate
         env:
           RL_MODEL: ${{ inputs.model || 'RL-Linear' }}

@@ -17,7 +17,7 @@ const canonical = value => {
 };
 
 export function normalize(report) {
-  if (!['i975-frozen-paired-four-win-evaluation-v1','p-rl1024-deep-frozen-paired-v1','p-rl1024-aq-paired-v1'].includes(report.schema) || report.purpose !== 'smoke' || report.blocks !== 2 || report.completedMatches !== 4 || report.formalEligible !== false || !Array.isArray(report.records) || report.records.length !== 4) throw new Error('Invalid smoke evaluation');
+  if (!['i975-frozen-paired-four-win-evaluation-v1','p-rl1024-deep-frozen-paired-v1','p-rl1024-aq-paired-v1','p-rl1024-deep001-aq-paired-v1'].includes(report.schema) || report.purpose !== 'smoke' || report.blocks !== 2 || report.completedMatches !== 4 || report.formalEligible !== false || !Array.isArray(report.records) || report.records.length !== 4) throw new Error('Invalid smoke evaluation');
   const records = report.records.map(row => {
     if (!fields.every(k => Object.hasOwn(row,k))) throw new Error('Missing result field');
     if (!Number.isSafeInteger(row.block) || row.block < 0 || row.block > 1 || !Number.isSafeInteger(row.seed) || row.seed < 0 || ![0,1].includes(row.rlSeat) || ![0,1].includes(row.winner) || row.won !== Number(row.winner === row.rlSeat) || !Number.isSafeInteger(row.rounds) || row.rounds < 4 || !Array.isArray(row.score) || row.score.length !== 2 || row.score[row.winner] !== 4) throw new Error('Invalid Match record');
