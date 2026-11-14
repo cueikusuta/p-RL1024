@@ -15,22 +15,58 @@ on:
         options: [V2E, RL-Deep, AQ-Base-001]
         default: V2E
       matches:
-        description: 'Training matches (9–256)'
+        description: 'Total training matches (9-256)'
         type: string
         default: '9'
+      shards:
+        description: 'CPU job shards (1-20; each at least 9 matches)'
+        type: string
+        default: '1'
       seed:
-        description: 'Training seed (1–4294967295)'
+        description: 'Training seed root (1-4294967295)'
         type: string
         default: '975020'
 permissions: {}
+env:
+  RL_MODEL: ${{ inputs.model || (github.ref == 'refs/heads/research/gha-cpu-shards-20261115' && 'RL-Deep' || 'RL-Linear') }}
+  RL_OPPONENT: ${{ inputs.opponent || (github.ref == 'refs/heads/research/gha-cpu-shards-20261115' && 'AQ-Base-001' || 'V2E') }}
+  RL_MATCHES: ${{ inputs.matches || (github.ref == 'refs/heads/research/gha-cpu-shards-20261115' && '256' || '9') }}
+  RL_SHARDS: ${{ inputs.shards || (github.ref == 'refs/heads/research/gha-cpu-shards-20261115' && '12' || '1') }}
+  RL_SEED: ${{ inputs.seed || '975020' }}
 concurrency:
   group: i975-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  experiment:
+  prepare:
     if: github.repository == 'cueikusuta/p-RL1024'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.shards.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify source snapshot
+        run: node scripts/verify-snapshot.mjs
+      - name: Verify contracts
+        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js test/hosted-shards.test.js
+      - name: Calculate training shard ranges
+        id: shards
+        run: echo "matrix=$(node scripts/hosted-shard-plan.mjs --mode training --total "$RL_MATCHES" --shards "$RL_SHARDS" --seed "$RL_SEED")" >> "$GITHUB_OUTPUT"
+  experiment:
+    needs: prepare
+    runs-on: ubuntu-latest
     timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     permissions:
       contents: read
     steps:
@@ -42,20 +78,56 @@ jobs:
           node-version: '22.14.0'
       - name: Verify source snapshot
         run: node scripts/verify-snapshot.mjs
-      - name: Verify contracts
-        run: node --test test/pure-rl-linear.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js test/verify-evaluation.test.js test/model-contract.test.js test/checkpoint-contract.test.js test/aq-opponent.test.js
-      - name: Train and evaluate
+      - name: Train and evaluate shard with isolated model
         env:
-          RL_MODEL: ${{ inputs.model || 'RL-Linear' }}
-          RL_OPPONENT: ${{ inputs.opponent || 'V2E' }}
-          RL_MATCHES: ${{ inputs.matches || '9' }}
-          RL_SEED: ${{ inputs.seed || '975020' }}
-        run: node scripts/run-experiment.mjs
-      - name: Save results and any checkpoints
+          RL_MATCHES: ${{ matrix.count }}
+          RL_SEED: ${{ matrix.seedStart }}
+          SHARD_OFFSET: ${{ matrix.offset }}
+          SHARD_INDEX: ${{ matrix.index }}
+        shell: bash
+        run: |
+          started=$(date -u +%s)
+          set +e
+          node scripts/run-experiment.mjs
+          code=$?
+          finished=$(date -u +%s)
+          mkdir -p artifacts
+          printf '{"schema":"p-rl1024-hosted-shard-clock-v1","model":"%s","opponent":"%s","seed":%s,"offset":%s,"count":%s,"shardIndex":%s,"durationSeconds":%s,"startedUnix":%s,"finishedUnix":%s,"exitCode":%s,"runId":"%s"}\n' "$RL_MODEL" "$RL_OPPONENT" "$RL_SEED" "$SHARD_OFFSET" "$RL_MATCHES" "$SHARD_INDEX" "$((finished-started))" "$started" "$finished" "$code" "$GITHUB_RUN_ID" > artifacts/wallclock-shard.json
+          exit "$code"
+      - name: Save results and checkpoint per shard
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: i975-${{ github.run_id }}-${{ github.run_attempt }}
+          name: i975-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.index }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+  aggregate:
+    needs: [prepare,experiment]
+    if: always() && needs.experiment.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: i975-${{ github.run_id }}-${{ github.run_attempt }}-shard-*
+          path: shard-artifacts
+      - name: Verify shard weight SHA, paired evaluation digest and checkpoint integrity
+        run: node scripts/merge-hosted-training.mjs --dir shard-artifacts --model "$RL_MODEL" --opponent "$RL_OPPONENT" --total "$RL_MATCHES" --shards "$RL_SHARDS" --seed "$RL_SEED" --out artifacts/training-aggregate.json
+      - name: Save training aggregate
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i975-training-aggregate-${{ github.run_id }}
           path: artifacts/
           if-no-files-found: warn
           retention-days: 14
