@@ -1,42 +1,42 @@
-// Reproducible full-four-win engine benchmark. Never shortens the Match.
-// The policy and its opponent use the same fixed frozen model and public views.
+// Compare serial and parallel throughput for the SAME full-Match seeds.
+// Neither branch skips a round, a Battle, or a model decision.
 import {performance} from 'node:perf_hooks';
 import {createHash} from 'node:crypto';
-import {runStrategyMatch} from './dev/simulator/strategy-match.js';
-import {createModel,createSession} from '../models/deep.mjs';
+import {availableParallelism} from 'node:os';
+import {createModel} from '../models/deep.mjs';
 import {mixSeed} from './dev/simulator/runner.js';
+import {frozenDeepMatch,frozenDeepBatch} from './batch-frozen-deep.mjs';
 
 const model=createModel(975020);
-function play(index,profile=false) {
-  const seed=mixSeed(975020,index,0x2b10);
-  const begin=performance.now();
-  const result=runStrategyMatch({
-    seed,policies:['pure-rl-linear','pure-rl-linear'],
-    strategyMode:'p2',pureRlSessions:[createSession(model),createSession(model)],
-    pureRlAllPhases:false,capturePhaseTimings:profile,
-  });
-  if(!result.completed||result.score[result.winner]!==4)
-    throw new Error('Benchmark must complete an authentic four-win Match');
-  return {timeMs:performance.now()-begin,seed,score:result.score,
-    rounds:result.rounds,roundWinners:result.roundWinners,
-    actions:result.actionCounts,phaseProfile:result.phaseProfile};
-}
-// Warm-up is not included in timing, but executes a complete Match.
-play(-1);
-const records=[];
-for(let i=0;i<8;i++)records.push(play(i,true));
-const times=records.map(r=>r.timeMs).sort((a,b)=>a-b);
+const seeds=Array.from({length:32},(_,i)=>mixSeed(975020,i,0x2b10));
+const digest=rows=>createHash('sha256').update(JSON.stringify(rows.map(
+  ({seed,score,rounds,roundWinners,actionCounts})=>({
+    seed,score,rounds,roundWinners,actions:actionCounts,
+  })))).digest('hex');
+const totals=rows=>rows.reduce((sum,r)=>sum+(r.phaseProfile?.totalWallMs??0),0);
+// Same warm-up in the main isolate; workers warm up by their initial jobs.
+frozenDeepMatch(model,mixSeed(975020,-1,0x2b10));
+const t0=performance.now();
+const serial=seeds.map(seed=>frozenDeepMatch(model,seed,{profile:true}));
+const serialTotalMs=performance.now()-t0;
+const workers=Math.min(4,availableParallelism());
+const t1=performance.now();
+const parallel=await frozenDeepBatch(model,seeds,{workers,profile:true});
+const parallelTotalMs=performance.now()-t1;
+const serialSha256=digest(serial.map((result,i)=>({seed:seeds[i],...result})));
+const parallelSha256=digest(parallel.map((result,i)=>({seed:seeds[i],...result})));
+if(serialSha256!==parallelSha256)throw new Error('Frozen parallel result differs from serial');
+const originalEightDigest=digest(serial.slice(0,8).map((result,i)=>({seed:seeds[i],...result})));
+if(originalEightDigest!=='b7323a8441e0a518257452f2c14df61952ef7b5bca7b91838a92e0dc82a896c4')
+  throw new Error('Frozen baseline outcome digest changed');
 const phaseMs={};
-for(const r of records)for(const [key,entry] of Object.entries(r.phaseProfile.phases))
+for(const r of serial)for(const [key,entry] of Object.entries(r.phaseProfile.phases))
   phaseMs[key]=(phaseMs[key]??0)+entry.wallMs;
-const durationMs=records.reduce((sum,r)=>sum+r.timeMs,0);
-const digest=createHash('sha256').update(JSON.stringify(records.map(
-  ({seed,score,rounds,roundWinners,actions})=>({seed,score,rounds,roundWinners,actions})
-))).digest('hex');
 console.log('ENGINE_BENCHMARK '+JSON.stringify({
-  schema:'p-rl1024-engine-benchmark-v1',node:process.version,
-  cpu:process.env.RUNNER_NAME??null,fullMatches:8,
-  outcomeDigestSha256:digest,medianMatchMs:(times[3]+times[4])/2,
-  totalMs:durationMs,matchTimesMs:records.map(r=>r.timeMs),
+  schema:'p-rl1024-engine-throughput-v2',node:process.version,
+  runner:process.env.RUNNER_NAME??null,availableParallelism:availableParallelism(),
+  fullMatches:32,workers,outcomeDigestSha256:serialSha256,
+  serialTotalMs,parallelTotalMs,speedup:serialTotalMs/parallelTotalMs,
+  serialMatchWallMs:totals(serial),parallelMatchWallMs:totals(parallel),
   phaseMs:Object.fromEntries(Object.entries(phaseMs).sort((a,b)=>b[1]-a[1])),
 }));
