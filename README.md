@@ -46,3 +46,15 @@ AQ-Base 対戦を再開する場合は、元と同じ `--model`・試合数・se
 AQ-Base-001 の凍結重みは本体台帳の SHA-256 と照合しています。AQ 対戦には別の固定エンジンスナップショット `aq-runtime/` を使います。これは従来の I975 smoke に用いる snapshot とは別のため、異なる条件の結果を直接比較しないでください。
 
 `provenance/manifest.json` は元の private リポジトリのコミットと、取り込んだファイルの SHA-256 を記録します。実験結果を別環境と比較するときは、同じモデルの bytes、seed、引数、対戦相手を使ってください。2026-11-14 に元コミットの Windows 実行と公開 snapshot の Windows・GitHub-hosted Linux 実行で、9試合学習後のモデルと frozen smoke の結果 digest が一致しました。これは smoke 条件の検証です。
+
+## 実行基盤の性能検証
+
+`node scripts/benchmark-engine.mjs` は同一の32個の seed、凍結 RL-Deep、完全4勝Matchを逐次実行した場合と、最大4ワーカーで並列実行した場合の**スループット**を比較します。先に各Matchのスコア・ラウンド履歴・アクション数の digest 一致を確認し、wall time と速度比を出力します。最初の8 Matchは移行前の既知 digest とも照合します。これは1試合の遅延が2倍速くなることや、学習の強さが改善することを意味しません。
+
+学習時のモデル更新は試合順に依存するため、並列化せずに維持します。独立した凍結モデル評価のみ `scripts/batch-frozen-deep.mjs` の Worker Threads で並列化できます。従来の4 Match smoke は既定で逐次実行し、出力と検証契約を維持します。長い評価（正式な強さの証拠とは扱わない）を検証する例：
+
+```sh
+node scripts/evaluate-deep.mjs --model artifacts/rl-deep/training.json --purpose throughput --blocks 32 --workers 4 --out artifacts/rl-deep/throughput-32.json
+```
+
+worker 数と wall time は CPU 構成・負荷に依存するため、同一ホスト・同一 seed・同一 Node バージョンで比較してください。凍結評価のスループット改善を、オンライン学習の更新速度改善と混同しないでください。
