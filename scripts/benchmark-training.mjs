@@ -38,18 +38,30 @@ function training(createModel,createSession,matches=count) {
 // Use identical 9-Match warm-up for both paths, outside timed samples.
 training(createOriginalModel,createOriginalSession,9);
 training(createOptimizedModel,createOptimizedSession,9);
-const t1=performance.now();
-const original=training(createOriginalModel,createOriginalSession);
-const originalTotalMs=performance.now()-t1;
-const t2=performance.now();
-const optimized=training(createOptimizedModel,createOptimizedSession);
-const optimizedTotalMs=performance.now()-t2;
-if(JSON.stringify(original)!==JSON.stringify(optimized))
-  throw new Error('Optimized online learning changed model weights or Match history');
+const repeats=3,trials=[];
+let expected=null;
+for(let repeat=0;repeat<repeats;repeat++){
+  const t1=performance.now();
+  const original=training(createOriginalModel,createOriginalSession);
+  const originalTotalMs=performance.now()-t1;
+  const t2=performance.now();
+  const optimized=training(createOptimizedModel,createOptimizedSession);
+  const optimizedTotalMs=performance.now()-t2;
+  if(JSON.stringify(original)!==JSON.stringify(optimized))
+    throw new Error('Optimized online learning changed model weights or Match history');
+  if(expected&&JSON.stringify(expected)!==JSON.stringify(original))
+    throw new Error('Online learning outcome changed between repetitions');
+  expected=original;
+  trials.push({originalTotalMs,optimizedTotalMs,speedup:originalTotalMs/optimizedTotalMs});
+}
+const sorted=trials.map(t=>t.speedup).sort((a,b)=>a-b);
+const medianSpeedup=sorted[Math.floor(sorted.length/2)];
 console.log('TRAINING_BENCHMARK '+JSON.stringify({
-  schema:'p-rl1024-trained-actor-critic-v1',
-  node:process.version,runner:process.env.RUNNER_NAME??null,matches:count,
-  learnedKeys:original.learnedKeys,modelSha256:original.modelSha256,
-  outcomeSha256:original.outcomeSha256,
-  originalTotalMs,optimizedTotalMs,speedup:originalTotalMs/optimizedTotalMs,
+  schema:'p-rl1024-trained-actor-critic-v2',
+  node:process.version,runner:process.env.RUNNER_NAME??null,matches:count,repeats,
+  learnedKeys:expected.learnedKeys,modelSha256:expected.modelSha256,
+  outcomeSha256:expected.outcomeSha256,trials,medianSpeedup,
+  accepted:medianSpeedup>=2,
 }));
+if(medianSpeedup<2)throw new Error(
+  'Online training 3-repeat median speedup below 2.00: '+medianSpeedup);
