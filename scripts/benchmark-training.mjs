@@ -12,9 +12,9 @@ import {createModel as createOptimizedModel,createSession as createOptimizedSess
 
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const count=24,root=975020;
-function training(createModel,createSession) {
+function training(createModel,createSession,matches=count) {
   const model=createModel(root),past=[],records=[];
-  for(let i=0;i<count;i++) {
+  for(let i=0;i<matches;i++) {
     if(i%8===0)past.push(structuredClone(model));
     const seed=mixSeed(root,i,0x976),studentSeat=i%2;
     const opponent=past[Math.floor(i/8)];
@@ -35,7 +35,9 @@ function training(createModel,createSession) {
     learnedKeys:Object.keys(model.weights).length,
     outcomeSha256:hash(JSON.stringify(records))};
 }
-// Warm both old and new code once using the same real training mechanism.
+// Use identical 9-Match warm-up for both paths, outside timed samples.
+training(createOriginalModel,createOriginalSession,9);
+training(createOptimizedModel,createOptimizedSession,9);
 const t1=performance.now();
 const original=training(createOriginalModel,createOriginalSession);
 const originalTotalMs=performance.now()-t1;
