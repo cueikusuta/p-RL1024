@@ -34,10 +34,13 @@ function hidden(model,features) {
   return out.map(Math.tanh);
 }
 const dot=(a,b)=>a.reduce((s,x,j)=>s+x*b[j],0);
-function candidates(model,view,legal) {
-  validateModel(model);
-  const allowed=new Set(legal.map(a=>JSON.stringify(a)));
-  const rows=legalPureRlActions(view).filter(a=>allowed.has(JSON.stringify(a))).map(action=>{
+function candidates(model,view,legal,{validated=false,alreadyLegal=false}={}) {
+  if(!validated)validateModel(model);
+  const actions=alreadyLegal?legal:(()=>{
+    const allowed=new Set(legal.map(a=>JSON.stringify(a)));
+    return legalPureRlActions(view).filter(a=>allowed.has(JSON.stringify(a)));
+  })();
+  const rows=actions.map(action=>{
     const features=pureRlFeatures(view,action),h=hidden(model,features);
     return {action,features,h,logit:dot(model.actor,h)+model.actorBias};
   });
@@ -63,9 +66,23 @@ export function createSession(model,{train=false,rng=null,alpha=0.0005}={}) {
   return {
     select(view) {
       if(finished||proposed)throw new Error('Session is not ready');
-      const c=candidates(model,view,legalPureRlActions(view));
-      if(!c.rows.length)throw new Error('No legal action');
-      const index=train?sample(c.rows,rng):c.rows.reduce((best,row,i)=>row.logit>c.rows[best].logit+1e-12?i:best,0);
+      const legal=legalPureRlActions(view);
+      if(!legal.length)throw new Error('No legal action');
+      // Frozen inference needs only the winning logit. The full softmax,
+      // critic, mean value and per-action trajectories serve training only.
+      // This preserves candidate order and the original 1e-12 tie rule.
+      if(!train){
+        let index=0;
+        let bestLogit=dot(model.actor,hidden(model,pureRlFeatures(view,legal[0])))+model.actorBias;
+        for(let i=1;i<legal.length;i++){
+          const logit=dot(model.actor,hidden(model,pureRlFeatures(view,legal[i])))+model.actorBias;
+          if(logit>bestLogit+1e-12){index=i;bestLogit=logit;}
+        }
+        proposed={frozen:true};
+        return clone(legal[index]);
+      }
+      const c=candidates(model,view,legal,{validated:true,alreadyLegal:true});
+      const index=sample(c.rows,rng);
       proposed={...c,index};return clone(c.rows[index].action);
     },
     commit() { if(!proposed||finished)throw new Error('No accepted action');if(train)trajectory.push(proposed);proposed=null;decisions++; },
