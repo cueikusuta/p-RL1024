@@ -7,7 +7,7 @@ const team=Array.from({length:6},(_,i)=>({instanceId:'t'+i,
   itemId:'item'+i,stats:{hp:99}}));
 const draft=()=>({phase:'draft',self:{carry:[],fresh:team},opponent:{hidden:'SECRET'}});
 const selection=()=>({phase:'selection',self:{team},opponent:{species:['public-mon'],secret:'HIDDEN'}});
-const battle=()=>({requestType:'turn',self:{team},opponent:{speciesId:'public-mon',hpPercent:75,hiddenAbility:'SECRET'}});
+const battle=()=>({requestType:'turn',self:{team},opponent:{speciesId:'public-mon',hpPercent:75,publicObservation:{appearanceId:'appearance-1',usedMoves:['thunderbolt'],observedItemIds:['leftovers']},stages:{atk:1},hiddenAbility:'SECRET'}});
 function setup(observer){
   return createPhasePipeline({
     draft:{id:'draft-ai',select:({context})=>{observer.push(context);return {action:team.map(t=>t.instanceId),handoff:{goal:'defensive'}};}},
@@ -33,7 +33,8 @@ test('three distinct agents exchange only accepted own and opponent-public facts
   assert.equal(seen[2].handoff.selection.lead,'t0');
   p.accepted('battle',battle(),a);
   const state=p.snapshot();
-  assert.deepEqual(state.current.battle.lastPublicOpponent,{speciesId:'public-mon',hpPercent:75});
+  assert.deepEqual(state.current.battle.lastPublicOpponent,{speciesId:'public-mon',hpPercent:75,
+    stages:{atk:1},publicObservation:{appearanceId:'appearance-1',usedMoves:['thunderbolt'],observedItemIds:['leftovers']}});
   assert.ok(!JSON.stringify(state).includes('hiddenAbility'));
   p.roundEnd(1,0);
   assert.equal(p.snapshot().completed[0].result.winner,0);
