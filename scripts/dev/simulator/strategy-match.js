@@ -22,6 +22,7 @@ import {createTacticCapabilityFunnel,recordTacticCapabilityRound,
   recordTacticCapabilityAction} from './tactic-capability-funnel.js';
 import {createHumanQualityObserver,observeHumanQualityDecision,
   summarizeHumanQualityObservations} from './human-quality-observer.js';
+import {createPhasePipeline} from '../../../src/ai/phase-pipeline.js';
 
 const POLICY_IDS=new Set(['basic','intermediate','strategy','hybrid','strategy-hybrid','strategy-tactical','pure-rl-linear',...V2_POLICIES]);
 const v2Policy=p=>V2_POLICIES.includes(p);
@@ -72,7 +73,7 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
   captureHumanQuality=false,capturePhaseTimings=false,captureV2Diagnostics=false,
   fastDraftValidation=true,hybridWeights={},v2Weights=null,
   pureRlSessions=null,pureRlAllPhases=false,
-  capturePureRlPhaseTimings=false}={}) {
+  capturePureRlPhaseTimings=false,phaseAgents=null}={}) {
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff)
     throw new TypeError('Expected a positive 32-bit seed');
   if(!Array.isArray(policies)||policies.length!==2||
@@ -118,6 +119,14 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
      !Number.isSafeInteger(maxDecisionsPerRound)||maxDecisionsPerRound<1)
     throw new TypeError('Invalid bounded match settings');
 
+  if(phaseAgents!==null&&(!Array.isArray(phaseAgents)||
+    phaseAgents.length!==2||phaseAgents.every(value=>value===null)||
+    phaseAgents.some((agent,seat)=>agent!==null&&
+      policies[seat]==='pure-rl-linear')))
+    throw new TypeError('Phase agents must be a pair and cannot overlap pure RL policy');
+  const pipelines=phaseAgents===null?[null,null]:
+    phaseAgents.map((agent,seat)=>agent===null?null:createPhasePipeline(agent,{seat}));
+
   // Timing is an opt-in experiment, not part of game decisions or RNG.
   // Aggregate phase durations only: never record private views, sets or actions.
   const phaseBegin=capturePhaseTimings?performance.now():0;
@@ -159,13 +168,17 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
         policies[seat]==='pure-rl-linear';
       const draftStart=pureTiming?performance.now():0;
       const chosen=measure('draftChoice',()=>
-        pureRlAllPhases&&policies[seat]==='pure-rl-linear'
+        pipelines[seat]
+          ?pipelines[seat].select('draft',views[seat],{round,
+            rng:new SeededRandom(mixSeed(seed,0xd0,seat,round))})
+        :pureRlAllPhases&&policies[seat]==='pure-rl-linear'
           ?pureRlSessions[seat].select(views[seat])
           :strategyPolicy(policies[seat])
           ?chooseStrategyTeam(views[seat],{data,fastDraftValidation})
           :chooseTeam(views[seat],{data,rng:new SeededRandom(mixSeed(seed,0xd0,seat,round))}));
       if(pureTiming)pureRlPhaseTimes[seat].draft.push(performance.now()-draftStart);
       measure('draftCommit',()=>match.confirmTeam(seat,chosen));
+      if(pipelines[seat])pipelines[seat].accepted('draft',views[seat],chosen);
       if(pureRlAllPhases&&policies[seat]==='pure-rl-linear')
         pureRlSessions[seat].commit();
     }
@@ -176,7 +189,9 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
         rng:new SeededRandom(seedForSelection)};
       const start=performance.now();
       const chosen=measure('selectionChoice',()=>
-        pureRlAllPhases&&policy==='pure-rl-linear'
+        pipelines[seat]
+          ?pipelines[seat].select('selection',view,{round,rng:options.rng})
+        :pureRlAllPhases&&policy==='pure-rl-linear'
           ?pureRlSessions[seat].select(view)
           :(policy==='strategy-tactical'||v2Policy(policy))
           ?chooseTacticalSelection(view,{data,sets:playableSets})
@@ -219,6 +234,8 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
     }
     for(const seat of [0,1]){
       measure('selectionCommit',()=>match.confirmSelection(seat,selections[seat]));
+      if(pipelines[seat])
+        pipelines[seat].accepted('selection',selectionViews[seat],selections[seat]);
       if(pureRlAllPhases&&policies[seat]==='pure-rl-linear')
         pureRlSessions[seat].commit();
     }
@@ -240,7 +257,10 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
         const canDecide=!view.self.confirmed&&
           !['wait','finished'].includes(view.requestType)&&
           !(view.requestType==='replacement'&&active?.hp>0&&!view.self.needsSwitch);
-        if(policies[seat]==='pure-rl-linear'&&canDecide) {
+        if(pipelines[seat]&&canDecide) {
+          action=measure('phasePipelineDecision',()=>
+            pipelines[seat].select('battle',view,{round,rng:streams[seat]}));
+        } else if(policies[seat]==='pure-rl-linear'&&canDecide) {
           action=measure('pureRlDecision',()=>pureRlSessions[seat].select(view));
         } else if(strategyPolicy(policies[seat])&&canDecide) {
           // Resolve the caller's OWN selected set, never an opponent set.
@@ -309,6 +329,7 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
           // Match delegates legality to the authoritative Battle engine.
           measure('battleTransition',()=>
             match.battleAction(seat,action,round,view.request));
+          if(pipelines[seat])pipelines[seat].accepted('battle',view,action);
           // Only accepted actions enter the pure RL SARSA trajectory.
           if(policies[seat]==='pure-rl-linear')pureRlSessions[seat].commit();
           // Count ACCEPTED commands, not attempts: the authoritative Match
@@ -351,6 +372,8 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
     if(!last||![0,1].includes(last.winner))
       throw new Error('Expected a resolved non-draw battle');
     roundWinners.push(last.winner);
+    for(const seat of [0,1])if(pipelines[seat])
+      pipelines[seat].roundEnd(round,last.winner);
     if(after.phase==='complete') {
       rounds++;
       break;
@@ -370,11 +393,16 @@ export function runStrategyMatch({seed=737,policies=['strategy','intermediate'],
     ?completed?pureRlSessions[seat].finish(final.score.indexOf(4)===seat?1:-1)
       :pureRlSessions[seat].stats()
     :null);
+  const phasePipelineStats=pipelines.map((pipeline,seat)=>pipeline?
+    pipeline.finish({completed,winner:completed?final.score.indexOf(4):null,
+      score:[...final.score],rounds}):null);
   return {
     schemaVersion:1,kind:'i737-strategy-match-pilot',
     seed,policies:[...policies],strategyMode,completed,rounds,
     score:[...final.score],winner:completed?final.score.indexOf(4):null,
     roundWinners,actionCounts:actions,
+    ...(phaseAgents!==null?{phaseAgentIds:pipelines.map(p=>p?.ids??null),
+      phasePipelineStats}:{}),
     ...(policies.includes('pure-rl-linear')?{pureRlStats}:{}),
     ...(capturePureRlPhaseTimings?{
       pureRlPhaseTimeMs:pureRlPhaseTimes.map(stages=>Object.fromEntries(
