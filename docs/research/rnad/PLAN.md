@@ -35,3 +35,11 @@ The [Metamon repository](https://github.com/UT-Austin-RPL/metamon) is MIT licens
 ## Compute policy
 
 Training on the user's selected **self-hosted runner** once availability and isolation are verified. GitHub-hosted CPU may run short portability/contract CI. Each workflow must bound job duration, total job count, target matches, aggregate compute, retries and stop flags. One writer per model, immutable evaluation inputs, SHA-checked checkpoint compare-and-swap.
+
+## 2026-11-15 independent-review remediation checkpoint
+
+Independent review of HEAD `27b4f93` reported four P1 findings. The existing Stage 0 PR was reused. This increment removes untrusted `history` from draft/selection actor projection and all nested `current/completed/handoff` from pipeline context (only `round` remains), fails closed on empty action sets during a required battle decision, and rejects contradictory terminal scores. Regression tests cover these specific cases.
+
+**Still open (P1):** The trajectory collector's public `commit(acceptedAction)` is *not* authority-authenticated. A matching caller-provided action can still be committed without Match acceptance. Do not feed these records to learning or claim accepted-action integrity until wired to a trusted Match acceptance event and tested with rejection, silent fallback and simultaneous decisions. A recursive allowlist for useful public history, authoritative match integration, provenance SHA verification, R-NaD mathematics, toy-game exploitability, full checkpoint and actual training smoke remain unimplemented.
+
+No PPO+KL surrogate was added. No training was launched. This increment is not Stage 0 completion and must remain Draft pending fresh CI and independent re-review.
