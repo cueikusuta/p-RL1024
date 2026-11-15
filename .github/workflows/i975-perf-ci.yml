@@ -39,8 +39,8 @@ on:
   workflow_dispatch:
 permissions: {}
 concurrency:
-  group: i975-perf-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: i975-cpu-intensive-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
   benchmark:
     if: github.repository == 'cueikusuta/p-RL1024'

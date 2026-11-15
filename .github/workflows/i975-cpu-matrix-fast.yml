@@ -8,6 +8,9 @@ on:
       - 'scripts/wait-hosted-artifacts.mjs'
   workflow_dispatch:
 permissions: {}
+concurrency:
+  group: i975-cpu-intensive-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
   train:
     if: github.repository == 'cueikusuta/p-RL1024'
