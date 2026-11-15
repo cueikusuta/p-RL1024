@@ -98,9 +98,12 @@ export function runRnadAcceptanceSmoke({
           });
           return proposed.action;
         },
-        accepted({action,authorityReceipt}){
+        accepted({action,authorityReceipt,round}){
           const index=collector.commit(action,authorityReceipt)-1;
           timeline.push({seat,index});
+          // Optional trusted policy memory may update only after the
+          // one-use authoritative Match receipt has been consumed.
+          seatPhasePolicy?.accepted?.({seat,round,action});
         },
         ...(stage==='battle'?{
           finish({result,authorityReceipt}){
