@@ -15,7 +15,9 @@ from pathlib import Path
 
 import torch
 
-from scripts.rnad.neural import RNADNetwork, freeze_magnet, export_json, load_exported_json
+from scripts.rnad.neural import (RNADNetwork, freeze_magnet, export_json,
+                                 load_exported_json, BATTLE_FEATURE_SCHEMA,
+                                 THREE_PHASE_FEATURE_SCHEMA)
 from scripts.rnad.two_player import rnad_targets, neurd_policy_loss
 from scripts.rnad.checkpoint import save_checkpoint, restore_checkpoint
 
@@ -39,31 +41,46 @@ def state_hash(net):
     return digest.hexdigest()
 
 
-def run_match(seed, model, magnet, directory):
+def run_match(seed, model, magnet, directory, *, three_phase=False):
     directory.mkdir(parents=True,exist_ok=True)
     model_path=directory/'actor.json'
     magnet_path=directory/'magnet.json'
     output=directory/(f'accepted-seed{seed}.json')
-    export_json(model,model_path)
-    export_json(magnet,magnet_path)
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA if three_phase
+                    else BATTLE_FEATURE_SCHEMA)
+    export_json(model,model_path,feature_schema=feature_schema)
+    export_json(magnet,magnet_path,feature_schema=feature_schema)
     if output.exists():
         raise ValueError('Refusing to overwrite a prior authoritative Match')
-    subprocess.run(
-        ['node','scripts/rnad/export-trajectory.mjs',
-         '--model',str(model_path),'--magnet',str(magnet_path),
-         '--seed',str(seed),'--out',str(output)],
-        check=True,timeout=1800)
+    command=['node','scripts/rnad/export-trajectory.mjs',
+             '--model',str(model_path),'--magnet',str(magnet_path),
+             '--seed',str(seed),'--out',str(output)]
+    if three_phase:
+        command.extend(['--three-phase','true'])
+    subprocess.run(command,check=True,timeout=1800)
     row=json.loads(output.read_text())
-    if (row.get('schema')!='rnad-accepted-training-match-v1' or
-        row.get('feature_schema')!='rnad-battle-features-v1' or
+    if (row.get('schema')!=(
+        'rnad-accepted-three-phase-training-match-v1' if three_phase
+        else 'rnad-accepted-training-match-v1') or
+        row.get('feature_schema')!=feature_schema or
         row.get('completed') is not True or
         row.get('source_sha')!=current_git_sha() or
         row.get('engine_sha')!=frozen_engine_sha() or
         row.get('seed')!=seed or
         row.get('score',[0,0])[row['winner']]!=4 or
-        len(row.get('events',[]))!=sum(row.get('action_counts',[])) or
+        len(row.get('events',[]))!=sum(row.get('action_counts',[]))+
+        (4*row.get('rounds',0) if three_phase else 0) or
         not row.get('events')):
         raise ValueError('Untrusted, partial or mismatched Match training record')
+    if three_phase:
+        counts={phase:sum(e.get('phase')==phase for e in row['events'])
+                for phase in ('draft','selection','battle')}
+        if (counts['draft']!=2*row['rounds'] or
+            counts['selection']!=2*row['rounds'] or
+            counts['battle']!=sum(row['action_counts'])):
+            raise ValueError('Invalid three-phase accepted action coverage')
+    elif any(e.get('phase')!='battle' for e in row['events']):
+        raise ValueError('Unexpected non-battle decision in legacy learner')
     rewards=[entry['reward'] for entry in row['events']]
     if (any(any(abs(x)>1e-10 for x in r) for r in rewards[:-1]) or
         rewards[-1] not in ([1,-1],[-1,1])):
@@ -146,21 +163,26 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
 
 
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
-          eta=.2,magnet_period=4,initial_model=None):
+          eta=.2,magnet_period=4,initial_model=None,three_phase=False):
     if (not isinstance(seed,int) or not 1 <= seed <= 0xffffffff or
         not isinstance(matches,int) or not 1 <= matches <= 16 or
         not isinstance(eta,(float,int)) or not math.isfinite(float(eta)) or
         not 0 < eta <= 1 or
-        type(magnet_period) is not int or not 1 <= magnet_period <= 256):
+        type(magnet_period) is not int or not 1 <= magnet_period <= 256 or
+        type(three_phase) is not bool):
         raise ValueError('Training must bound seed, matches, eta and magnet period')
     torch.set_num_threads(1)
     path=Path(out)
     path.mkdir(parents=True,exist_ok=True)
     torch.manual_seed(seed);random.seed(seed)
     net=RNADNetwork()
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA if three_phase
+                    else BATTLE_FEATURE_SCHEMA)
+    model_id='RNAD-002-3phase' if three_phase else 'RNAD-001'
     initialization_sha256=(
-        load_exported_json(net,initial_model) if initial_model is not None
-        else "none")
+        load_exported_json(net,initial_model,
+                           expected_feature_schema=feature_schema)
+        if initial_model is not None else "none")
     target=copy.deepcopy(net)
     magnet=freeze_magnet(net)
     optimizer=torch.optim.Adam(net.parameters(),lr=3e-4)
@@ -174,14 +196,14 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         restored=restore_checkpoint(
             checkpoint_dir,policy=net,value=target,magnet=magnet,
             optimizer=optimizer,scheduler=scheduler,
-            expected={'model_id':'RNAD-001',
+            expected={'model_id':model_id,
                       'initialization_sha256':initialization_sha256,
                       'regularization_eta':float(eta),
                       'magnet_period':magnet_period,
                       'source_sha':current_git_sha(),
                       'engine_snapshot_sha':frozen_engine_sha(),
                       'training_code_sha':current_git_sha(),
-                      'observation_schema_version':'rnad-battle-features-v1'})
+                      'observation_schema_version':feature_schema})
         metadata=restored['metadata']
         if metadata.get('initial_seed')!=seed:
             raise ValueError('Initial seed differs from previous run')
@@ -192,7 +214,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         prior=restored['checkpoint_sha256']
     summaries=[]
     for _ in range(matches):
-        data=run_match(counter,net,magnet,path/'rollouts')
+        data=run_match(counter,net,magnet,path/'rollouts',
+                       three_phase=three_phase)
         summary=train_match(net,target,magnet,optimizer,scheduler,data,eta=eta)
         completed+=1
         ids.append(data['match_id'])
@@ -202,14 +225,14 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             checkpoint_dir,policy=net,value=target,magnet=magnet,
             optimizer=optimizer,scheduler=scheduler,expected_prior_sha=prior,
             metadata={
-                'model_id':'RNAD-001',
+                'model_id':model_id,
                 'initialization_sha256':initialization_sha256,
                 'regularization_eta':float(eta),
                 'magnet_period':magnet_period,
                 'source_sha':current_git_sha(),
                 'engine_snapshot_sha':frozen_engine_sha(),
                 'training_code_sha':current_git_sha(),
-                'observation_schema_version':'rnad-battle-features-v1',
+                'observation_schema_version':feature_schema,
                 'opponent_policy_version':'RNAD-001-selfplay',
                 'completed_matches':completed,
                 'accepted_decisions':summary['accepted_decisions']+
@@ -225,8 +248,10 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         counter=(counter%0xffffffff)+1
         summaries.append({'seed':data['seed'],'winner':data['winner'],
                           'rounds':data['rounds'],**summary})
-    export_json(net,path/'final-model.json')
-    report={'schema':'rnad-smoke-training-report-v1',
+    export_json(net,path/'final-model.json',feature_schema=feature_schema)
+    report={'schema':'rnad-three-phase-training-report-v1' if three_phase
+            else 'rnad-smoke-training-report-v1',
+            'feature_schema':feature_schema,'model_id':model_id,
             'initialization_sha256':initialization_sha256,
             'regularization_eta':float(eta),
             'magnet_period':magnet_period,
@@ -248,8 +273,10 @@ if __name__=='__main__':
     parser.add_argument('--out',default='artifacts/rnad-001')
     parser.add_argument('--resume',action='store_true')
     parser.add_argument('--initial-model',default=None)
+    parser.add_argument('--three-phase',action='store_true')
     args=parser.parse_args()
     print(json.dumps(train(seed=args.seed,matches=args.matches,
                            out=args.out,resume=args.resume,
-                           initial_model=args.initial_model),
+                           initial_model=args.initial_model,
+                           three_phase=args.three_phase),
                      indent=2))
