@@ -13,6 +13,8 @@ on:
       - 'requirements-rnad.txt'
       - 'scripts/rnad/compare_warmstart_eval.mjs'
       - 'test/rnad-warmstart-eval.test.js'
+      - 'scripts/rnad/evaluate-direct.mjs'
+      - 'test/rnad-direct-eval.test.js'
       - '.github/workflows/rnad-ci.yml'
       - 'docs/research/rnad/**'
   workflow_dispatch:
