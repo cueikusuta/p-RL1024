@@ -1,9 +1,7 @@
 name: RNAD-003 phase learning and independent population recheck
 on:
-  # Bounded one-time re-execution of the teacher job after a test fixture fix.
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-v2-research-next.yml']
+  # Only manual reruns after hosted teacher retry #43755359502.
+  # PR paths filters examine the whole Draft PR, so leave this manual-only.
   workflow_dispatch:
 permissions: {}
 concurrency:
