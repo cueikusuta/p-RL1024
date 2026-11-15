@@ -32,8 +32,8 @@ permissions: {}
 env:
   RL_MODEL: ${{ inputs.model || (github.ref == 'refs/heads/research/gha-cpu-shards-20261115' && 'RL-Deep' || 'RL-Linear') }}
   RL_OPPONENT: ${{ inputs.opponent || (github.ref == 'refs/heads/research/gha-cpu-shards-20261115' && 'AQ-Base-001' || 'V2E') }}
-  RL_MATCHES: ${{ inputs.matches || (github.ref == 'refs/heads/research/gha-cpu-shards-20261115' && '256' || '9') }}
-  RL_SHARDS: ${{ inputs.shards || (github.ref == 'refs/heads/research/gha-cpu-shards-20261115' && '12' || '1') }}
+  RL_MATCHES: ${{ inputs.matches || '9' }}
+  RL_SHARDS: ${{ inputs.shards || '1' }}
   RL_SEED: ${{ inputs.seed || '975020' }}
 concurrency:
   group: i975-${{ github.ref }}
