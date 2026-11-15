@@ -8,13 +8,13 @@ import {mixSeed} from '../models/aq-runner.mjs';
 import {verifyTrainingCheckpoints,verifyReportTiming} from '../scripts/hosted-proof.mjs';
 const sha=x=>createHash('sha256').update(x).digest('hex');
 const sourceSha256='a'.repeat(64),seed=975020;
-const options={model:'RL-Deep',opponent:'AQ-Base-001',count:17,seed,sourceSha256};
+const options={model:'RL-Deep',opponent:'AQ-Base-001',count:9,seed,sourceSha256};
 function fake(){
   const dir=mkdtempSync(join(tmpdir(),'hosted-proof-'));
   const history=Array.from({length:8},(_,i)=>({
     seed:mixSeed(seed,i,0xa975),studentSeat:i%2,winner:0,score:[4,2]
   }));
-  const state={schema:'p-rl1024-aq-checkpoint-v1',modelId:'RL-Deep',matches:17,
+  const state={schema:'p-rl1024-aq-checkpoint-v1',modelId:'RL-Deep',matches:9,
     seed,sourceSha256,history};
   const cp={...state,checkpointSha256:sha(JSON.stringify(state))};
   const file=join(dir,'training-m8.json');
@@ -47,7 +47,7 @@ test('tampered checkpoint fails',()=>{
 });
 test('resigned checkpoint cannot change expected match count',()=>{
   const f=fake();try{
-    f.cp.matches=18;const {checkpointSha256,...payload}=f.cp;
+    f.cp.matches=10;const {checkpointSha256,...payload}=f.cp;
     f.cp.checkpointSha256=sha(JSON.stringify(payload));writeFileSync(f.file,JSON.stringify(f.cp));
     assert.throws(()=>verifyTrainingCheckpoints(f.dir,options),/configuration mismatch/);
   }finally{rmSync(f.dir,{recursive:true,force:true});}
