@@ -7,6 +7,10 @@ import tempfile
 from pathlib import Path
 import subprocess
 import json
+import copy
+import math
+from scripts.rnad.train import train_match
+from scripts.rnad.neural import freeze_magnet
 
 
 def step(actor, reward=(0.0,0.0), pi=(.5,.5), magnet=(.5,.5),
@@ -141,6 +145,45 @@ class NeuralParityTest(unittest.TestCase):
             self.assertLess(abs(float(expected[1][0])-got['value']),1e-4)
             self.assertLess(max(abs(a-b) for a,b in zip(
                 expected[2][0].tolist(),got['memory'])),1e-4)
+
+
+class RnadNeuralTrainingUnitTest(unittest.TestCase):
+    def test_both_seat_accepted_update_changes_parameters_not_magnet(self):
+        torch.manual_seed(975021)
+        net=RNADNetwork()
+        target=copy.deepcopy(net)
+        magnet=freeze_magnet(net)
+        optim=torch.optim.Adam(net.parameters(),lr=3e-4)
+        scheduler=torch.optim.lr_scheduler.StepLR(
+            optim,step_size=100,gamma=.98)
+        before=[v.detach().clone() for v in net.parameters()]
+        reference=[v.detach().clone() for v in magnet.parameters()]
+        # A tiny accepted, two-player full Match-shaped record.
+        # This unit test checks the TRAINER's gradient flow, not authority.
+        events=[]
+        for seat in (0,1):
+            state=[.1]*32
+            candidates=[[.2]*16,[.5]*16]
+            with torch.no_grad():
+                x=torch.tensor([state],dtype=torch.float32)
+                a=torch.tensor([candidates],dtype=torch.float32)
+                logits,_,_=magnet(x,a,magnet.initial_memory())
+                p=torch.softmax(logits[0],dim=-1)
+            events.append({
+                'actor':seat,'state':state,'actions':candidates,
+                'action_index':0,
+                'behavior_prob':float(.98*p[0]+.02/len(candidates)),
+                'magnet_log_prob':float(torch.log(p[0])),
+                'reward':[0,0] if seat==0 else [-1,1]})
+        result=train_match(net,target,magnet,optim,scheduler,
+            {'events':events},eta=.2)
+        self.assertEqual(result['accepted_decisions'],2)
+        self.assertTrue(math.isfinite(result['loss']))
+        self.assertTrue(any(not torch.equal(x,y) for x,y in
+            zip(before,net.parameters())))
+        self.assertTrue(all(torch.equal(x,y) for x,y in
+            zip(reference,magnet.parameters())))
+        self.assertEqual(scheduler.last_epoch,1)
 
 
 if __name__=='__main__':
