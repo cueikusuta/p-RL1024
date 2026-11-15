@@ -36,6 +36,8 @@ export function evaluatePaired({modelPath,seed=987613,pairs=1}={}){
         engineSnapshotSha:provenance.sourceCommit,
         policyVersion:'RNAD-001-eval',
         opponentPolicyVersion:'fixed-stage0',
+        policyVersions:[0,1].map(seat=>seat===candidateSeat?
+          'RNAD-001-eval':'fixed-stage0'),
         policy:ctx=>ctx.seat===candidateSeat?net.choose(ctx):
           stage0FixedPolicy(ctx)
       });
