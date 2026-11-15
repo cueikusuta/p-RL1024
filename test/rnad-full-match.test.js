@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runRnadAcceptanceSmoke} from '../scripts/dev/simulator/rnad-match.js';
+import {runRnadAcceptanceSmoke,verifiedRunningSourceSha} from '../scripts/dev/simulator/rnad-match.js';
 const args={seed:22002,matchId:'full-match-22002',
-  sourceSha:'0123456789abcdef0123456789abcdef01234567',
+  sourceSha:verifiedRunningSourceSha(),
   engineSnapshotSha:'ea81165993110ee9fb3a09dcb97c6708c0d7397b'};
 test('full authoritative 4-win Match produces two seat-local accepted trajectories',()=>{
   const result=runRnadAcceptanceSmoke(args);
