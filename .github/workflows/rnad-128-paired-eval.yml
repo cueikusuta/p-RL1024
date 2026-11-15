@@ -25,14 +25,31 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: 22797c508bfc8004a7219a496bbaac5cd7714000
+          # The evaluation helper scripts were added AFTER the archived
+          # training commit, so check out the current PR HEAD and prove
+          # authority/model/evaluation code matches the archived run.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.14.0'
-      - name: Verify code provenance before using archived weights
+      - name: Verify archived model authority and inference code are unchanged
         run: |
-          test "$(git rev-parse HEAD)" = "$RNAD_SOURCE_SHA"
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          for path in \
+            src/battle.js src/match.js src/ml/legal-action-adapter.js \
+            src/ml/trajectory-collector.js src/ml/rnad-features.js \
+            scripts/dev/simulator/runner.js \
+            scripts/dev/simulator/phase-match.js \
+            scripts/dev/simulator/rnad-match.js \
+            scripts/dev/simulator/phase-agents.js \
+            scripts/rnad/infer.mjs scripts/rnad/evaluate.mjs \
+            scripts/rnad/neural.py provenance/manifest.json; do
+            test "$(git rev-parse "$RNAD_SOURCE_SHA:$path")" = \
+                 "$(git rev-parse "HEAD:$path")"
+          done
           node scripts/verify-snapshot.mjs
       - name: Download immutable hosted learning evidence (old run, exact artifact)
         run: |
