@@ -3,6 +3,22 @@
 import {createMatch,mixSeed} from './runner.js';
 import {SeededRandom} from '../../../src/battle.js';
 import {createPhasePipeline} from '../../../src/ai/phase-pipeline.js';
+// Nonforgeable, one-use receipts are minted only following Match acceptance.
+// No public receipt factory: generic collectors cannot self-certify proposals.
+const authorityReceipts=new WeakMap();
+function receipt(kind,seat,round,action){
+  const opaque=Object.freeze({});
+  authorityReceipts.set(opaque,{kind,seat,round,action:JSON.stringify(action)});
+  return opaque;
+}
+export function consumePhaseAuthorityReceipt(token,{kind,seat,round,action}){
+  const expected=authorityReceipts.get(token);
+  if(!expected||expected.kind!==kind||expected.seat!==seat||
+     expected.round!==round||expected.action!==JSON.stringify(action))
+    throw new Error('Missing authoritative Match acceptance receipt');
+  authorityReceipts.delete(token);
+  return true;
+}
 
 export function runPhaseMatch({seed=737,agents,maxRounds=64,
   maxDecisionsPerRound=3000}={}){
@@ -29,14 +45,16 @@ export function runPhaseMatch({seed=737,agents,maxRounds=64,
       const rng=new SeededRandom(mixSeed(seed,0xd0,seat,round));
       const decision=pipelines[seat].select('draft',drafts[seat],{round,rng});
       match.confirmTeam(seat,decision);
-      pipelines[seat].accepted('draft',drafts[seat],decision);
+      pipelines[seat].accepted('draft',drafts[seat],decision,
+        receipt('draft',seat,round,decision));
     }
     const selections=[view(0),view(1)];
     for(const seat of [0,1]){
       const rng=new SeededRandom(mixSeed(seed,0x50,seat,round));
       const decision=pipelines[seat].select('selection',selections[seat],{round,rng});
       match.confirmSelection(seat,decision);
-      pipelines[seat].accepted('selection',selections[seat],decision);
+      pipelines[seat].accepted('selection',selections[seat],decision,
+        receipt('selection',seat,round,decision));
     }
     const battle=getBattle();
     if(!battle)throw new Error('Battle not created');
@@ -59,7 +77,8 @@ export function runPhaseMatch({seed=737,agents,maxRounds=64,
         // Authoritative validation comes before either the cross-AI handoff
         // or a learning session's accepted-action commit.
         match.battleAction(seat,action,round,observation.request);
-        pipelines[seat].accepted('battle',observation,action);
+        pipelines[seat].accepted('battle',observation,action,
+          receipt('battle',seat,round,action));
         actionCounts[seat]++;
         decisions++;
         acted=true;
@@ -89,5 +108,6 @@ export function runPhaseMatch({seed=737,agents,maxRounds=64,
   return {schema:'p-rl1024-phase-match-v1',seed,...outcome,
     roundWinners,actionCounts,
     agentIds:pipelines.map(pipeline=>pipeline.ids),
-    agentStats:pipelines.map(pipeline=>pipeline.finish(outcome))};
+    agentStats:pipelines.map((pipeline,seat)=>pipeline.finish(outcome,
+      completed?receipt('finish',seat,rounds,{winner,score:outcome.score}):null))};
 }
