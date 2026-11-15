@@ -9,8 +9,10 @@ const sha=x=>createHash('sha256').update(x).digest('hex');
 const argv=process.argv.slice(2);
 if(argv.length!==4||argv[0]!=='--index'||argv[2]!=='--out')throw Error('Expected --index N --out file');
 const index=Number(argv[1]),out=argv[3];
-const plan=planShards({mode:'training',total:256,shards:18,seed:975020});
-if(!Number.isSafeInteger(index)||index<0||index>=18||!out||
+const n=Number(process.env.RL_SHARDS||18);
+if(!Number.isSafeInteger(n)||n<1||n>20)throw Error('Invalid witness shard count');
+const plan=planShards({mode:'training',total:256,shards:n,seed:975020});
+if(!Number.isSafeInteger(index)||index<0||index>=n||!out||
    !/^\d+$/.test(process.env.GITHUB_RUN_ID??'')||
    !/^\d+$/.test(process.env.GITHUB_RUN_ATTEMPT??'')||
    !/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA??''))
@@ -20,7 +22,7 @@ const verified=verifyHostedShard({root:'artifacts',artifact:'shard-'+index,
   index,offset:target.offset,model:'RL-Deep',opponent:'AQ-Base-001',base:975020});
 const body={schema:'p-rl1024-hosted-shard-witness-v1',runId:process.env.GITHUB_RUN_ID,
   runAttempt:process.env.GITHUB_RUN_ATTEMPT,commit:process.env.GITHUB_SHA,
-  model:'RL-Deep',opponent:'AQ-Base-001',seedRoot:975020,shards:18,totalMatches:256,
+  model:'RL-Deep',opponent:'AQ-Base-001',seedRoot:975020,shards:n,totalMatches:256,
   index,sourceFingerprint:verified.sourceFingerprint,sourceCommit:verified.sourceCommit,
   row:verified.row,fileDigests:verified.fileDigests};
 const report={...body,witnessSha256:sha(JSON.stringify(body))};

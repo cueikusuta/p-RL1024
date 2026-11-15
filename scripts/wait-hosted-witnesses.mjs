@@ -8,7 +8,8 @@ const repo=process.env.GITHUB_REPOSITORY,runId=process.env.GITHUB_RUN_ID,
 if(repo!=='cueikusuta/p-RL1024'||!/^\d+$/.test(runId??'')||
    !/^\d+$/.test(runAttempt??'')||!token||
    process.argv.length!==3||!process.argv[2])throw Error('Invalid witness collection context');
-const destination=process.argv[2],n=18;
+const destination=process.argv[2],n=Number(process.env.RL_SHARDS||18);
+if(!Number.isSafeInteger(n)||n<1||n>20)throw Error('Invalid witness shard count');
 const full=i=>`i1-fast-matrix-${runId}-${runAttempt}-shard-${i}`;
 const witness=i=>`i1-fast-witness-${runId}-${runAttempt}-shard-${i}`;
 const url=`https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`;
