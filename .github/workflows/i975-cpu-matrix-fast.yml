@@ -48,7 +48,6 @@ jobs:
       - name: Train one isolated 12-13 Match model
         env:
           JOB_INDEX: ${{ matrix.index }}
-          RL_FAST_WORKER: '1'
           RL_FAST_INLINE: '1'
         run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 18 --total 256 --seed 975020 --out artifacts
       - name: Pack complete shard evidence with fast lossless gzip
@@ -113,7 +112,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RL_SHARDS: '18'
           RL_FIRST_ARTIFACT_INDEX: '1'
-          RL_FAST_WORKER: '1'
           RL_FAST_INLINE: '1'
         shell: bash
         run: |
