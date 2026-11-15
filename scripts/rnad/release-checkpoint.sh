@@ -33,7 +33,87 @@ download)
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   gh release download "$tag" --repo "$GH_REPO" --pattern "$asset" --dir "$tmp"
-  tar -tzf "$tmp/$asset" | grep -Eq '^\./latest\.json$|^latest\.json$'
+  members="$(tar -tzf "$tmp/$asset")"
+  [[ "$(printf '%s\n' "$members" | wc -l)" -eq 2 ]] ||
+    { echo "Unexpected checkpoint archive members" >&2; exit 2; }
+  if printf '%s\n' "$members" | grep -Ev '^latest\.json$|^checkpoint-u[0-9]+-[0-9a-f]{64}\.pt
+  # Python checkpoint.restore_checkpoint independently verifies SHA256.
+  echo "RNAD_RELEASE_EMPTY=0" >> "${GITHUB_ENV:-/dev/null}"
+  echo "Downloaded immutable accepted checkpoint $asset"
+  ;;
+upload)
+  [[ -f "$folder/latest.json" ]] ||
+    { echo "No validated completed-Match checkpoint" >&2; exit 2; }
+  info="$(python -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$folder/latest.json")"
+  name="$(jq -r '.checkpoint_file' <<< "$info")"
+  sha="$(jq -r '.checkpoint_sha256' <<< "$info")"
+  updates="$(jq -r '.metadata.updates' <<< "$info")"
+  [[ "$name" =~ ^checkpoint-u[0-9]+-[0-9a-f]{64}\.pt$ &&
+     "$sha" =~ ^[0-9a-f]{64}$ && "$updates" =~ ^[0-9]+$ &&
+     -f "$folder/$name" ]] || { echo "Invalid checkpoint manifest" >&2; exit 2; }
+  test "$(sha256sum "$folder/$name" | cut -d' ' -f1)" = "$sha"
+  [[ "$updates" -le 2048 ]] || { echo "Unbounded RNAD scale attempt" >&2; exit 2; }
+  printf -v padded '%09d' "$updates"
+  asset="rnad-001-u${padded}-${sha:0:12}.tar.gz"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  tar -czf "$tmp/$asset" -C "$folder" latest.json "$name"
+  if ! gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+    : "${RNAD_SOURCE_SHA:?Pinned source SHA required}"
+    gh release create "$tag" --repo "$GH_REPO" --target "$RNAD_SOURCE_SHA" \
+      --prerelease --title "RNAD-001 research checkpoints $tag" \
+      --notes "Immutable unpromoted research checkpoints. NOT a Champion."
+  fi
+  # Never --clobber immutable assets. Concurrency is serialized at workflow level.
+  gh release upload "$tag" "$tmp/$asset" --repo "$GH_REPO"
+  echo "Published immutable completed-Match bundle $asset"
+  ;;
+*)
+  echo "Unknown checkpoint operation: $mode" >&2
+  exit 2
+  ;;
+esac
+; then
+    echo "Unsafe checkpoint archive entry" >&2; exit 2
+  fi
+  printf '%s\n' "$members" | grep -E '^latest\.json
+  # Python checkpoint.restore_checkpoint independently verifies SHA256.
+  echo "RNAD_RELEASE_EMPTY=0" >> "${GITHUB_ENV:-/dev/null}"
+  echo "Downloaded immutable accepted checkpoint $asset"
+  ;;
+upload)
+  [[ -f "$folder/latest.json" ]] ||
+    { echo "No validated completed-Match checkpoint" >&2; exit 2; }
+  info="$(python -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$folder/latest.json")"
+  name="$(jq -r '.checkpoint_file' <<< "$info")"
+  sha="$(jq -r '.checkpoint_sha256' <<< "$info")"
+  updates="$(jq -r '.metadata.updates' <<< "$info")"
+  [[ "$name" =~ ^checkpoint-u[0-9]+-[0-9a-f]{64}\.pt$ &&
+     "$sha" =~ ^[0-9a-f]{64}$ && "$updates" =~ ^[0-9]+$ &&
+     -f "$folder/$name" ]] || { echo "Invalid checkpoint manifest" >&2; exit 2; }
+  test "$(sha256sum "$folder/$name" | cut -d' ' -f1)" = "$sha"
+  [[ "$updates" -le 2048 ]] || { echo "Unbounded RNAD scale attempt" >&2; exit 2; }
+  printf -v padded '%09d' "$updates"
+  asset="rnad-001-u${padded}-${sha:0:12}.tar.gz"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  tar -czf "$tmp/$asset" -C "$folder" latest.json "$name"
+  if ! gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+    : "${RNAD_SOURCE_SHA:?Pinned source SHA required}"
+    gh release create "$tag" --repo "$GH_REPO" --target "$RNAD_SOURCE_SHA" \
+      --prerelease --title "RNAD-001 research checkpoints $tag" \
+      --notes "Immutable unpromoted research checkpoints. NOT a Champion."
+  fi
+  # Never --clobber immutable assets. Concurrency is serialized at workflow level.
+  gh release upload "$tag" "$tmp/$asset" --repo "$GH_REPO"
+  echo "Published immutable completed-Match bundle $asset"
+  ;;
+*)
+  echo "Unknown checkpoint operation: $mode" >&2
+  exit 2
+  ;;
+esac
+ >/dev/null
   tar -xzf "$tmp/$asset" -C "$folder" --no-same-owner
   # Python checkpoint.restore_checkpoint independently verifies SHA256.
   echo "RNAD_RELEASE_EMPTY=0" >> "${GITHUB_ENV:-/dev/null}"
