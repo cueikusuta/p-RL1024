@@ -1,0 +1,7 @@
+# RNAD-001 isolated CPU research environment on GitHub-hosted ubuntu-latest
+# For torch use pinned CPU wheels via:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+# The rest installs from PyPI.
+numpy==1.26.4
+onnx==1.17.0
+onnxruntime==1.20.1
