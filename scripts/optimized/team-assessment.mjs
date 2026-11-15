@@ -71,6 +71,44 @@ export function estimateMegaOpportunityValue(team,data) {
   }));
 }
 
+// Offer-local bit flags eliminate per-roster tag-set allocations during
+// exact exhaustive enumeration. The original roleBonus remains the oracle.
+const ROLE_TAGS=['screen','setup','batonPass','attack','trickRoom',
+  'hazard','phazing','hazardRemoval','recovery'];
+function roleCacheFor(offer,capabilities,data){
+  return new Map(offer.map(p=>{
+    const tags=new Set(capabilities.get(p.instanceId).tags);
+    let flags=0;
+    for(let j=0;j<ROLE_TAGS.length;j++)if(tags.has(ROLE_TAGS[j]))flags|=1<<j;
+    return [p.instanceId,{flags,speed:statsFor(p,data)?.spe}];
+  }));
+}
+function roleBonusCached(team,roleCache) {
+  let flags=0,screen=0,setup=0,baton=0,attack=0;
+  const arr=[];
+  for(let i=0;i<team.length;i++){
+    const c=roleCache.get(team[i].instanceId),f=c.flags,b=1<<i;
+    flags|=f; if(f&1)screen|=b;if(f&2)setup|=b;
+    if(f&4)baton|=b;if(f&8)attack|=b;
+    arr.push(c);
+  }
+  let score=0;
+  if(screen&&setup&&countBits(screen|setup)>1)score+=10;
+  if(baton&&attack&&countBits(baton|attack)>1)score+=5;
+  for(let i=0;i<arr.length;i++) {
+    if(!(arr[i].flags&16)||!finite(arr[i].speed))continue;
+    let found=false;
+    for(let j=0;j<arr.length;j++)if(i!==j&&(arr[j].flags&8)&&
+      finite(arr[j].speed)&&arr[j].speed<arr[i].speed){
+      found=true;break;
+    }
+    if(found){score+=3;break;}
+  }
+  if((flags&32)&&(flags&64))score+=4;
+  if(flags&128)score+=2;
+  if(flags&256)score+=2;
+  return score;
+}
 function roleBonus(team,capabilities,data,tagCache=null) {
   const tags=team.map(p=>tagCache?.get(p.instanceId)??new Set(capabilities.get(p.instanceId).tags));
   const has=tag=>tags.some(s=>s.has(tag));
@@ -137,12 +175,20 @@ function capabilitiesFor(team,data) {
 
 // The same non-additive scorer is available to a SMALL independent full-
 // enumeration oracle. The caller must validate legal rosters separately.
-function scoreValidDraftRoster(chosen,{scored,caps,megaById,data,credits,spent,carried,tagCache=null,typeMasks=null}) {
-  return chosen.reduce((n,p)=>n+scored.get(p.instanceId),0)+
-    roleBonus(chosen,caps,data,tagCache)+teamDiversity(chosen,data,typeMasks)+
-    Math.max(0,...chosen.map(p=>megaById.get(p.instanceId)??0))*0.2+
+function scoreValidDraftRoster(chosen,{scored,caps,megaById,data,credits,spent,carried,tagCache=null,typeMasks=null,roleCache=null}) {
+  let strength=0,mega=0,carriedCount=0;
+  for(const p of chosen) {
+    strength+=scored.get(p.instanceId);
+    const bonus=megaById.get(p.instanceId)??0;
+    if(bonus>mega)mega=bonus;
+    if(carried.has(p.instanceId))carriedCount++;
+  }
+  return strength+
+    (roleCache?roleBonusCached(chosen,roleCache):roleBonus(chosen,caps,data,tagCache))+
+    teamDiversity(chosen,data,typeMasks)+
+    mega*0.2+
     Math.max(0,credits-spent)*0.15+
-    chosen.filter(p=>carried.has(p.instanceId)).length*0.6;
+    carriedCount*0.6;
 }
 export function scoreStrategyDraftRoster(chosen,{data,credits,carry=[]}={}) {
   if(!Array.isArray(chosen)||chosen.length!==6||!data?.moves||
@@ -212,6 +258,7 @@ export function chooseStrategyTeam(view,{data,forcedSetId=null,
   const scored=new Map(options.map(p=>[p.instanceId,basicStrength(p,data)]));
   const caps=capabilitiesFor(options,data);
   const tagCache=new Map(options.map(p=>[p.instanceId,new Set(caps.get(p.instanceId).tags)]));
+  const roleCache=roleCacheFor(options,caps,data);
   const typeMasks=typeMasksFor(options,data);
   // A Mega gain belongs to the own set, not to each roster combination.
   // Cache it once; full six-of-offer enumeration visits many legal rosters.
@@ -233,7 +280,7 @@ export function chooseStrategyTeam(view,{data,forcedSetId=null,
         catch {return;}
       }
       const score=scoreValidDraftRoster(chosen,{
-        scored,caps,megaById,data,credits,spent:remainingCost,carried,tagCache,typeMasks,
+        scored,caps,megaById,data,credits,spent:remainingCost,carried,tagCache,typeMasksroleCache,
       });
       if(score>bestScore+1e-9||
          (Math.abs(score-bestScore)<=1e-9&&
@@ -319,6 +366,7 @@ export function rankStrategySelections(view,{catalog,data,forcedSetId=null,
     throw new Error('Forced set absent from own roster');
   const caps=capabilitiesFor(team,data);
   const tagCache=new Map(team.map(p=>[p.instanceId,new Set(caps.get(p.instanceId).tags)]));
+  const roleCache=roleCacheFor(team,caps,data);
   const typeMasks=typeMasksFor(team,data);
   const base=team.map(p=>basicStrength(p,data));
   const threats=publicThreats(foeNames,catalog,data);
@@ -329,7 +377,7 @@ export function rankStrategySelections(view,{catalog,data,forcedSetId=null,
     if(forcedSetId&&!trio.some(p=>p.setId===forcedSetId))continue;
     if(trio.some(p=>(excludedSpeciesKey&&speciesKey(p)===excludedSpeciesKey)||
       (excludedItemId&&p.itemId===excludedItemId)))continue;
-    const synergy=roleBonus(trio,caps,data,tagCache)+teamDiversity(trio,data,typeMasks)*0.35;
+    const synergy=roleBonusCached(trio,roleCache)+teamDiversity(trio,data,typeMasks)*0.35;
     const cover=threats.map((_,t)=>{
       const scored=positions.map(n=>pairs[n][t]);
       const ordered=[...scored].sort((a,b)=>b.score-a.score);
