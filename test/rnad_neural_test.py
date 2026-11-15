@@ -1,7 +1,7 @@
 """Executable correctness checks against DeepNash supplementary equations."""
 import unittest
 import torch
-from scripts.rnad.neural import RNADNetwork, export_json, export_onnx, compare_onnx
+from scripts.rnad.neural import RNADNetwork, export_json, export_onnx, compare_onnx, load_exported_json
 from scripts.rnad.two_player import rnad_targets, neurd_policy_loss
 import tempfile
 from pathlib import Path
@@ -184,6 +184,31 @@ class RnadNeuralTrainingUnitTest(unittest.TestCase):
         self.assertTrue(all(torch.equal(x,y) for x,y in
             zip(reference,magnet.parameters())))
         self.assertEqual(scheduler.last_epoch,1)
+
+
+class WarmStartImportTest(unittest.TestCase):
+    def test_strict_json_roundtrip_and_schema_rejection(self):
+        torch.manual_seed(975601)
+        original=RNADNetwork()
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)/'trusted.json'
+            export_json(original,source)
+            loaded=RNADNetwork()
+            tag=load_exported_json(loaded,source)
+            self.assertEqual(len(tag),64)
+            self.assertTrue(all(torch.equal(a,b) for a,b in
+                zip(original.parameters(),loaded.parameters())))
+            data=json.loads(source.read_text())
+            data['weights']['gru.weight_ih']['values'][0]=float('nan')
+            invalid=Path(temp)/'invalid.json'
+            invalid.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError,'Invalid warm-start tensor'):
+                load_exported_json(RNADNetwork(),invalid)
+            data=json.loads(source.read_text())
+            data['schema']='unknown'
+            invalid.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError,'schema/dimensions'):
+                load_exported_json(RNADNetwork(),invalid)
 
 
 if __name__=='__main__':

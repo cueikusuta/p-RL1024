@@ -5,6 +5,8 @@ No opponent hidden features or privileged critic input are allowed.
 from __future__ import annotations
 import copy
 import json
+import hashlib
+import math
 from pathlib import Path
 import torch
 from torch import nn
@@ -104,3 +106,35 @@ def compare_onnx(model, onnx_path):
     if not all(x <= 1e-4 for x in maxima):
         raise AssertionError("PyTorch/ONNX parity exceeds 1e-4: " + str(maxima))
     return maxima
+
+
+def load_exported_json(model, path):
+    """Import a STRICT versioned finite model from same-job trusted JSON.
+
+    Returns the SHA256 of JSON bytes to bind all later checkpoints to the
+    optional initialization. No pickle execution or silent shape coercion.
+    """
+    raw=Path(path).read_bytes()
+    payload=json.loads(raw)
+    if (payload.get("schema")!=MODEL_SCHEMA or
+        payload.get("hidden")!=model.hidden_size or
+        payload.get("state_features")!=STATE_FEATURES or
+        payload.get("action_features")!=ACTION_FEATURES or
+        not isinstance(payload.get("weights"),dict)):
+        raise ValueError("Invalid warm-start model schema/dimensions")
+    reference=model.state_dict()
+    if set(payload["weights"])!=set(reference):
+        raise ValueError("Missing or unexpected warm-start tensors")
+    loaded={}
+    for name,prior in reference.items():
+        item=payload["weights"][name]
+        if (not isinstance(item,dict) or
+            item.get("shape")!=list(prior.shape) or
+            not isinstance(item.get("values"),list) or
+            len(item["values"])!=prior.numel() or
+            any(type(x) not in (float,int) or not math.isfinite(x)
+                for x in item["values"])):
+            raise ValueError("Invalid warm-start tensor: "+name)
+        loaded[name]=torch.tensor(item["values"],dtype=prior.dtype).reshape(prior.shape)
+    model.load_state_dict(loaded,strict=True)
+    return hashlib.sha256(raw).hexdigest()

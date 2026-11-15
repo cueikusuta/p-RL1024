@@ -15,7 +15,7 @@ from pathlib import Path
 
 import torch
 
-from scripts.rnad.neural import RNADNetwork, freeze_magnet, export_json
+from scripts.rnad.neural import RNADNetwork, freeze_magnet, export_json, load_exported_json
 from scripts.rnad.two_player import rnad_targets, neurd_policy_loss
 from scripts.rnad.checkpoint import save_checkpoint, restore_checkpoint
 
@@ -146,7 +146,7 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
 
 
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
-          eta=.2,magnet_period=4):
+          eta=.2,magnet_period=4,initial_model=None):
     if not 1 <= seed <= 0xffffffff or not 1 <= matches <= 16 or not 0 < eta <= 1:
         raise ValueError('Training smoke must be bounded (1–16 completed Matches)')
     torch.set_num_threads(1)
@@ -154,6 +154,9 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
     path.mkdir(parents=True,exist_ok=True)
     torch.manual_seed(seed);random.seed(seed)
     net=RNADNetwork()
+    initialization_sha256=(
+        load_exported_json(net,initial_model) if initial_model is not None
+        else "none")
     target=copy.deepcopy(net)
     magnet=freeze_magnet(net)
     optimizer=torch.optim.Adam(net.parameters(),lr=3e-4)
@@ -168,6 +171,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             checkpoint_dir,policy=net,value=target,magnet=magnet,
             optimizer=optimizer,scheduler=scheduler,
             expected={'model_id':'RNAD-001',
+                      'initialization_sha256':initialization_sha256,
                       'source_sha':current_git_sha(),
                       'engine_snapshot_sha':frozen_engine_sha(),
                       'training_code_sha':current_git_sha(),
@@ -193,6 +197,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             optimizer=optimizer,scheduler=scheduler,expected_prior_sha=prior,
             metadata={
                 'model_id':'RNAD-001',
+                'initialization_sha256':initialization_sha256,
                 'source_sha':current_git_sha(),
                 'engine_snapshot_sha':frozen_engine_sha(),
                 'training_code_sha':current_git_sha(),
@@ -214,6 +219,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                           'rounds':data['rounds'],**summary})
     export_json(net,path/'final-model.json')
     report={'schema':'rnad-smoke-training-report-v1',
+            'initialization_sha256':initialization_sha256,
             'source_sha':current_git_sha(),'engine_sha':frozen_engine_sha(),
             'completed_matches':completed,'updates':completed,
             'last_match_checkpoint_sha':prior,
@@ -231,7 +237,9 @@ if __name__=='__main__':
     parser.add_argument('--matches',type=int,default=1)
     parser.add_argument('--out',default='artifacts/rnad-001')
     parser.add_argument('--resume',action='store_true')
+    parser.add_argument('--initial-model',default=None)
     args=parser.parse_args()
     print(json.dumps(train(seed=args.seed,matches=args.matches,
-                           out=args.out,resume=args.resume),
+                           out=args.out,resume=args.resume,
+                           initial_model=args.initial_model),
                      indent=2))

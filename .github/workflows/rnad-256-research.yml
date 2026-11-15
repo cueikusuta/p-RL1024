@@ -1,10 +1,5 @@
 name: RNAD-001 research 256 complete Matches (hosted-only, no promotion)
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/research_256.py'
-      - '.github/workflows/rnad-256-research.yml'
   workflow_dispatch:
 permissions: {}
 concurrency:

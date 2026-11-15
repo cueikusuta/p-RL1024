@@ -1,11 +1,6 @@
 name: RNAD-001 optional fixed-Policy imitation (GitHub-hosted only)
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/export-teacher.mjs'
-      - 'scripts/rnad/train_teacher.py'
-      - '.github/workflows/rnad-teacher-research.yml'
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-001-teacher-${{ github.ref }}
