@@ -1,4 +1,4 @@
-name: I1 one-stage ten-host 20-model CPU fast 256
+name: I1 ten-host 20-model ARM64 CPU fast 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
@@ -15,7 +15,7 @@ permissions: {}
 jobs:
   train-and-aggregate:
     if: github.repository == 'cueikusuta/p-RL1024'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 330
     strategy:
       fail-fast: false
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          node_dirs=(/opt/hostedtoolcache/node/22.*/x64/bin)
+          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
           if (( ${#node_dirs[@]} )); then
             cached="$(printf '%s\n' "${node_dirs[@]}" | sort -V | tail -n 1)"
             if "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"; then
