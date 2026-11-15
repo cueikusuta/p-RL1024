@@ -147,8 +147,12 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
 
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
           eta=.2,magnet_period=4,initial_model=None):
-    if not 1 <= seed <= 0xffffffff or not 1 <= matches <= 16 or not 0 < eta <= 1:
-        raise ValueError('Training smoke must be bounded (1–16 completed Matches)')
+    if (not isinstance(seed,int) or not 1 <= seed <= 0xffffffff or
+        not isinstance(matches,int) or not 1 <= matches <= 16 or
+        not isinstance(eta,(float,int)) or not math.isfinite(float(eta)) or
+        not 0 < eta <= 1 or
+        type(magnet_period) is not int or not 1 <= magnet_period <= 256):
+        raise ValueError('Training must bound seed, matches, eta and magnet period')
     torch.set_num_threads(1)
     path=Path(out)
     path.mkdir(parents=True,exist_ok=True)
@@ -172,6 +176,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             optimizer=optimizer,scheduler=scheduler,
             expected={'model_id':'RNAD-001',
                       'initialization_sha256':initialization_sha256,
+                      'regularization_eta':float(eta),
+                      'magnet_period':magnet_period,
                       'source_sha':current_git_sha(),
                       'engine_snapshot_sha':frozen_engine_sha(),
                       'training_code_sha':current_git_sha(),
@@ -198,6 +204,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             metadata={
                 'model_id':'RNAD-001',
                 'initialization_sha256':initialization_sha256,
+                'regularization_eta':float(eta),
+                'magnet_period':magnet_period,
                 'source_sha':current_git_sha(),
                 'engine_snapshot_sha':frozen_engine_sha(),
                 'training_code_sha':current_git_sha(),
@@ -220,6 +228,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
     export_json(net,path/'final-model.json')
     report={'schema':'rnad-smoke-training-report-v1',
             'initialization_sha256':initialization_sha256,
+            'regularization_eta':float(eta),
+            'magnet_period':magnet_period,
             'source_sha':current_git_sha(),'engine_sha':frozen_engine_sha(),
             'completed_matches':completed,'updates':completed,
             'last_match_checkpoint_sha':prior,
