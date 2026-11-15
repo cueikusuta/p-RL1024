@@ -48,7 +48,8 @@ if(fastInline&&!fastWorker)throw new Error('Inline training requires isolated fa
 // module realm. Save argv through awaited imports: no concurrent globals.
 async function runInline(script,argv,tag){
   const old=process.argv;
-  const url=new URL('./'+script.replace(/^scripts\\//,''),import.meta.url);
+  if(!script.startsWith('scripts/'))throw new Error('Unsafe inline script path');
+  const url=new URL('./'+script.slice('scripts/'.length),import.meta.url);
   url.searchParams.set('inline',tag);
   process.argv=[process.execPath,url.pathname,...argv];
   try {await import(url.href);} finally {process.argv=old;}
