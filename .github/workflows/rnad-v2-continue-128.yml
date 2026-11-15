@@ -1,8 +1,8 @@
 name: RNAD-003 conditional exact full-state v2 16 to 128 generation study
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-v2-continue-128.yml']
+  # Previous versions were verified on GitHub-hosted CPU; avoid duplicate
+  # costly training every time the large Draft PR receives a commit.
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-003-v2-continue-after-first-16-i5
