@@ -142,3 +142,19 @@ test('nested arena data and opponent public species are recursively allowlisted'
   const phase={phase:'selection',self:{team},opponent:{species:[{secret:'SECRET'}]}};
   assert.throws(()=>projectRnadObservation(phase,{seat:0}),/Invalid public opponent species/);
 });
+
+test('opponent stage and reveal lists never serialize a nested private set',()=>{
+  const view={requestType:'turn',self:{team:[{speciesId:'own',hp:10,maxHP:10,
+    moves:[{id:'tackle',disabled:false}]}],active:0,canSwitch:false,canMega:false},
+    opponent:{speciesId:'public',hpPercent:60,
+      stages:{atk:2,hiddenSet:{moves:['SECRET']}},
+      publicObservation:{appearanceId:'visible',usedMoves:['tackle'],
+        moves:['SECRET'],itemIds:['SECRET'],abilityIds:['SECRET']}}};
+  const x=projectRnadObservation(view,{seat:0});
+  assert.equal(x.opponent.stages.atk,2);
+  assert.ok(!JSON.stringify(x).includes('SECRET'));
+  const changed=structuredClone(view);
+  changed.opponent.stages.hiddenSet={moves:['OTHER']};
+  changed.opponent.publicObservation.moves=['OTHER'];
+  assert.deepEqual(x,projectRnadObservation(changed,{seat:0}));
+});
