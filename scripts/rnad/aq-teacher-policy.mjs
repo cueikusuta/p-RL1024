@@ -5,7 +5,7 @@
 import {chooseStrategyTeam} from '../../src/ai/team-assessment.js';
 import {chooseTacticalSelection} from '../../src/ai/selection-tactical.js';
 import {rankStrategyV2Actions,commitStrategyV2Choice}
-  from '../../src/ai/strategy-v2.js';
+  from '../../aq-runtime/src/ai/strategy-v2.js';
 import {assessCompactMatchup,assessMatchup}
   from '../../src/ai/matchup-assessment.js';
 import {createI877AntiStall}
