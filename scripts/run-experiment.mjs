@@ -1,4 +1,4 @@
-import {spawnSync} from 'node:child_process';
+import {spawnSync,spawn} from 'node:child_process';
 import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {compare} from './verify-evaluation.mjs';
@@ -34,7 +34,22 @@ else if(selected.id==='RL-Linear')trainArgs.unshift('--all-phases','true');
 run(opponent.id==='AQ-Base-001'?'scripts/train-vs-aq.mjs':selected.trainingEntry,trainArgs);
 (selected.id==='RL-Linear'?loadModel:loadDeepModel)(JSON.stringify(JSON.parse(readFileSync(model,'utf8')).model));
 const evaluator=opponent.id==='AQ-Base-001'?'scripts/evaluate-vs-aq.mjs':selected.id==='RL-Linear'?'scripts/evaluate-linear.mjs':'scripts/evaluate-deep.mjs';
-for (const name of ['a','b']) run(evaluator,['--model',model,'--purpose','smoke','--blocks','2','--out',`${dir}/eval-${name}.json`]);
+function evaluateIndependent(name) {
+  return new Promise((resolve,reject)=>{
+    const child=spawn(process.execPath,[evaluator,'--model',model,'--purpose','smoke',
+      '--blocks','2','--out',dir+'/eval-'+name+'.json'],{stdio:'inherit'});
+    let rejected=false;
+    child.once('error',error=>{rejected=true;reject(error);});
+    child.once('close',(code,signal)=>{
+      if(rejected)return;
+      if(code!==0)reject(new Error('Frozen independent evaluation '+name+' failed '+code+'/'+signal));
+      else resolve();
+    });
+  });
+}
+// Run the two independent smoke evaluations concurrently on distinct Node
+// processes, preserving both 4-Match outcomes and the normalized digest gate.
+await Promise.all(['a','b'].map(evaluateIndependent));
 const read = name => JSON.parse(readFileSync(`${dir}/${name}`,'utf8'));
 const proof=compare(read('eval-a.json'),read('eval-b.json'));
 if(modelId==='RL-Linear'&&opponentId==='V2E'&&matches===9&&seed===975020 &&
