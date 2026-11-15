@@ -27,7 +27,7 @@ on:
         default: '256'
       shards:
         type: string
-        default: '4'
+        default: '8'
       parallel:
         type: string
         default: '4'
@@ -40,8 +40,6 @@ jobs:
     if: github.repository == 'cueikusuta/p-RL1024'
     runs-on: ubuntu-latest
     timeout-minutes: 330
-    env:
-      NODE_OPTIONS: --max-semi-space-size=64
     permissions:
       contents: read
     steps:
@@ -60,7 +58,7 @@ jobs:
           MODEL: ${{ inputs.model || 'RL-Deep' }}
           OPPONENT: ${{ inputs.opponent || 'AQ-Base-001' }}
           TOTAL: ${{ inputs.total_matches || '256' }}
-          SHARDS: ${{ inputs.shards || '4' }}
+          SHARDS: ${{ inputs.shards || '8' }}
           PARALLEL: ${{ inputs.parallel || '4' }}
           SEED: ${{ inputs.seed || '975020' }}
         run: node scripts/run-hosted-fast.mjs --model "$MODEL" --opponent "$OPPONENT" --total "$TOTAL" --shards "$SHARDS" --parallel "$PARALLEL" --seed "$SEED" --out artifacts/fast-training-aggregate.json
