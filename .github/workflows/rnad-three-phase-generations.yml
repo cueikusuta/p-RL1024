@@ -18,16 +18,19 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: cueikusuta/p-RL1024
-      RNAD_PIN: d9efa8936e9fd400eed626bb38bbbe81cbf28348
+      RNAD_PIN: 14976f08db19606d4f9787ad6a4dc7a814d8d850
       ROOT: artifacts/generations
       PYTHONHASHSEED: '0'
       OMP_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
     steps:
+      # The original 16-Match artifact was produced on a GitHub pull_request
+      # synthetic merge commit, not the PR head SHA. Pin that actual
+      # recorded source to preserve full optimizer/magnet/RNG state.
       - name: Checkout exact 16-match source to preserve checkpoint identity
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: d9efa8936e9fd400eed626bb38bbbe81cbf28348
+          ref: 14976f08db19606d4f9787ad6a4dc7a814d8d850
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
