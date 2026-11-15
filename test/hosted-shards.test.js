@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {planShards} from '../scripts/hosted-shard-plan.mjs';
 test('256 training Matches distributed without overlap',()=>{
@@ -22,4 +23,12 @@ test('reject overbudget, impossible shards and seed overflows',()=>{
   assert.throws(()=>planShards({mode:'training',total:9,shards:2,seed:975020}));
   assert.throws(()=>planShards({total:1000,shards:21,seed:1}));
   assert.throws(()=>planShards({total:1000,shards:1,seed:0xffffffff}));
+});
+
+test('ordinary research pushes stay at nine Matches/one shard unless dispatched explicitly',()=>{
+  const yaml=readFileSync(new URL('../.github/workflows/i975.yml',import.meta.url),'utf8');
+  assert.match(yaml,/RL_MATCHES: \$\{\{ inputs\.matches \|\| '9' \}\}/);
+  assert.match(yaml,/RL_SHARDS: \$\{\{ inputs\.shards \|\| '1' \}\}/);
+  assert.match(yaml,/runAttempt/);
+  assert.match(yaml,/GITHUB_RUN_ATTEMPT/);
 });
