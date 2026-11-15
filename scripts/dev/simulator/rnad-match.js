@@ -6,6 +6,7 @@ import {createBuiltinPhaseAgents} from './phase-agents.js';
 import {rnadLegalActions,projectRnadObservation} from '../../../src/ml/legal-action-adapter.js';
 import {createRnadTrajectoryCollector} from '../../../src/ml/trajectory-collector.js';
 import battleData from '../../../data/catalog/battle-data.json' with {type:'json'};
+import provenance from '../../../provenance/manifest.json' with {type:'json'};
 
 const hexSha=x=>typeof x==='string'&&/^[0-9a-f]{40,64}$/i.test(x);
 const positiveSeed=x=>Number.isSafeInteger(x)&&x>=1&&x<=0xffffffff;
@@ -44,7 +45,8 @@ export function runRnadAcceptanceSmoke({
 }={}){
   if(!positiveSeed(seed)||!hexSha(sourceSha)||!hexSha(engineSnapshotSha)||
     typeof matchId!=='string'||!matchId||typeof experimentId!=='string'||
-    !experimentId||typeof policy!=='function')
+    !experimentId||typeof policy!=='function'||
+    engineSnapshotSha!==provenance.sourceCommit)
     throw new TypeError('Invalid RNAD smoke provenance or policy');
   const collectors=[0,1].map(seat=>createRnadTrajectoryCollector({
     experimentId,matchId,seed,seat,
