@@ -1,0 +1,87 @@
+name: I1 two-stage four-runner CPU fast 256
+on:
+  push:
+    branches: ['research/gha-cpu-shards-20261115']
+    paths: ['.github/workflows/i975-cpu-matrix-fast.yml']
+  workflow_dispatch:
+permissions: {}
+jobs:
+  train:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        index: [0, 1, 2, 3]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Verify snapshot and Match provenance
+        run: |
+          node scripts/verify-snapshot.mjs
+          node --test test/hosted-proof.test.js test/hosted-shards.test.js
+      - name: Train one of four independent 64-Match shard models
+        env:
+          SHARD_INDEX: ${{ matrix.index }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          export RL_MODEL=RL-Deep RL_OPPONENT=AQ-Base-001 RL_MATCHES=64
+          export RL_SEED="$((975020 + 64 * SHARD_INDEX))"
+          SHARD_OFFSET="$((64 * SHARD_INDEX))"
+          started=$(date -u +%s)
+          set +e
+          node scripts/run-experiment.mjs
+          status=$?
+          set -e
+          finished=$(date -u +%s)
+          mkdir -p artifacts
+          printf '{"schema":"p-rl1024-hosted-shard-clock-v1","model":"RL-Deep","opponent":"AQ-Base-001","seed":%s,"offset":%s,"count":64,"shardIndex":%s,"durationSeconds":%s,"startedUnix":%s,"finishedUnix":%s,"exitCode":%s,"runId":"%s"}\n' "$RL_SEED" "$SHARD_OFFSET" "$SHARD_INDEX" "$((finished-started))" "$started" "$finished" "$status" "$GITHUB_RUN_ID" > artifacts/wallclock-shard.json
+          exit "$status"
+      - name: Save shard model, paired digest and all checkpoint proofs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i1-fast-matrix-${{ github.run_id }}-shard-${{ matrix.index }}
+          path: artifacts/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 14
+  aggregate:
+    needs: train
+    if: needs.train.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: i1-fast-matrix-${{ github.run_id }}-shard-*
+          path: shard-artifacts
+      - name: Verify every Match, weight SHA, evaluation digest and checkpoint
+        run: node scripts/merge-hosted-training.mjs --dir shard-artifacts --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 4 --seed 975020 --out artifacts/training-aggregate.json
+      - name: Upload validated training aggregate
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i1-fast-matrix-aggregate-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 14
