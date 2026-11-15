@@ -288,8 +288,10 @@ def research(origin, output):
                       'baseline_basic_wins_64':baseline_basic['wins'],
                       'direct_wins_64':direct['wins'],
                       'direct_paired_ci95':direct['paired_seed_hoeffding_95pct'],
-                      'statistical_improvement_confirmed':
-                        direct['paired_seed_hoeffding_95pct'][0] > .5})
+                      'uncorrected_direct_ci_above_half':
+                        direct['paired_seed_hoeffding_95pct'][0] > .5,
+                      'statistical_improvement_confirmed':False,
+                      'new_independent_holdout_required_for_multiplicity':True})
         print(json.dumps(final[-1],allow_nan=False),flush=True)
     report = {'schema':'rnad-003-population-100-screen-v1',
               **origin_provenance, 'source_sha':source_sha(),
