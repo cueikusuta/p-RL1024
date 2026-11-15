@@ -63,6 +63,7 @@ jobs:
             artifacts/rnad-256/initial-heldout.json
             artifacts/rnad-256/trained-heldout.json
             artifacts/rnad-256/checkpoints/latest.json
+            artifacts/rnad-256/checkpoints/checkpoint-u256-*.pt
             artifacts/rnad-256/initial-model.json
             artifacts/rnad-256/final-model.json
           if-no-files-found: warn
