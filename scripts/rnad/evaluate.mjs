@@ -7,6 +7,7 @@ import {runRnadAcceptanceSmoke,stage0FixedPolicy,verifiedRunningSourceSha}
   from '../dev/simulator/rnad-match.js';
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
+import {pairedHoeffding95} from './aggregate-eval.mjs';
 
 export const wilson=(successes,total)=>{
   if(!total)return [0,1];
@@ -53,13 +54,15 @@ export function evaluatePaired({modelPath,seed=987613,pairs=1}={}){
   const matches=rows.length;
   const modelSha256=createHash('sha256')
     .update(readFileSync(modelPath)).digest('hex');
-  const [ciLower,ciUpper]=wilson(wins,matches);
+  const [ciLower,ciUpper]=pairedHoeffding95(wins,pairs);
   return {schema:'rnad-paired-full-match-eval-v1',
     source_sha:verifiedRunningSourceSha(),
     engine_sha:provenance.sourceCommit,
     model_sha256:modelSha256,opponent_id:'stage0-fixed-untrained',
     seed,pairs,matches,
     wins,win_rate:wins/matches,ci95:[ciLower,ciUpper],
+    ci_method:'independent-seed-block-Hoeffding',
+    diagnostic_wilson_ci95:wilson(wins,matches),
     rounds,rows,is_champion:false,
     eligible_for_promotion_consideration:matches>=1000&&ciLower>.5};
 }
