@@ -1,3 +1,27 @@
+# RNAD-003: semantic v2 / strong AQ teacher / greedy deployment (2026-11-16 verified handoff)
+
+> This entry supersedes earlier "Draft/Selection not learned" statements below. All experiments are **GitHub-hosted `ubuntu-latest`**, never self-hosted. Existing Issue #5 and Draft PR #6 remain open. No main merge or Champion promotion. Sampled-policy and greedy-policy results are NOT interchangeable; likewise Basic, Stage0, and AQ-Base are different opponents.
+
+## Empirical findings (authoritative complete four-win Matches)
+
+- New three-phase neural Actor exists: Draft + Selection + Battle are authority-accepted, seat-projected, trained with separate `rnad-three-phase-features-v1/v2` model contracts; the old battle-only `RNAD-001` remains distinct.
+- [Hosted 128-Match public AQ imitation](https://github.com/cueikusuta/p-RL1024/actions/runs/43737981487): 15,222 accepted actions, 4 supervised epochs; **v1 heldout imitation accuracy** Draft 2.2%, Selection 7.1%, Battle 55.0%. Sampled v1 against Basic **3/256**. Merely adding 16 R-NaD Match updates did not establish superiority.
+- [Original v2 greedy evaluation](https://github.com/cueikusuta/p-RL1024/actions/runs/43744199284): independent paired 128 seeds (256 complete Matches) against Basic: **27/256 sampled vs 123/256 greedy** from v2 model. The corresponding v1 model was **3/256 sampled vs 27/256 greedy**. [Independent seed-block paired difference verification](https://github.com/cueikusuta/p-RL1024/actions/runs/43747506291) proved a substantial v2 sampled-vs-greedy increase on those frozen seeds; NOT proof against AQ-Base.
+- [Phase-balanced semantic v2 teacher study](https://github.com/cueikusuta/p-RL1024/actions/runs/43743931532): 128 frozen-AQ teacher Matches and 4 epochs; 15,222 examples per epoch, phase-balanced CE+value, separate frozen-v2 schema. Heldout teacher agreement Draft 4.40%, Selection 6.59%, Battle 69.51%. Sampled policy vs Basic 41/256; phase losses / public features still require improvement.
+- [Real v2 teacher-initialized 16-Match R-NaD](https://github.com/cueikusuta/p-RL1024/actions/runs/43746142851): frozen teacher on fresh paired seeds vs Basic **136/256** (greedy), RNAD16 **134/256** (greedy), RNAD16 directly vs teacher **66/128** (51.56%; not statistically significant). Both training and evaluation used real completed Match authority; exact full-state optimizer/magnet/RNG checkpoint retained. The study marks **candidate_for_128_training_study=true**, which is only a cheap non-regression screen, not a strength confirmation.
+- [Exact 16→128 continuation](https://github.com/cueikusuta/p-RL1024/actions/runs/43747882146): fixed two separate CI failures before resumed training: app-scoped `gh api --jq .conclusion` returned an empty field, silently causing previous `success` run to skip training; then checkout-to-source restored runner's default Python and PyTorch 2.5.1 was unavailable. Patched to validate real archived model/checkpoint bytes as the authority, then pin Python 3.11 / Node 22.14. **Continuation is running, NOT yet proven complete at time of this note.** Source SHA is archive-derived and checked before `train(...resume=True)`; zero manual optimizer reset.
+- [v2 semantic encoder tests](https://github.com/cueikusuta/p-RL1024/actions/runs/43747882164) and [paired greedy comparison tests](https://github.com/cueikusuta/p-RL1024/actions/runs/43747882169) passed on the tested HEAD.
+
+## Important cautions and next gates
+
+1. **Never claim 128 Match completion from an Actions `success` when its expensive training steps are `skipped`.** Verify each named step, generation-64/-128 checkpoint SHA and archived model `source_sha`. The old skip-only success [#43747506276](https://github.com/cueikusuta/p-RL1024/actions/runs/43747506276) is NOT a trained 128 generation.
+2. Compare actual v2 generation-128 vs frozen teacher **on the same held-out seed-pairs and greedily executed moves**; require full scores, SHA, both seats and disjoint train seeds. Its 128-game direct assessment is diagnostic only. For formal small-difference research, 2,048 full Matches (1,024 independent seed blocks), conservative paired CIs, and additional independent opponents are recommended.
+3. Strengthen Draft/Selection: 4%-7% exact-action agreement remains poor, though top-1 action accuracy over very large legal candidate sets is not itself directly comparable with Battle accuracy. Study supervised phase-balanced losses, structured/categorical team composition and exposure to frozen stronger teachers. V2 feature IDs are versioned; NEVER change their meaning in-place for existing checkpoints (introduce v3).
+4. **Independent review by a DIFFERENT ChatGPT Chat session**, including public/private information, R-NaD/NeuRD/V-trace formulae, all-phase accepted events, greedy deployment vs training-policy interpretation, and checkpoint SHA identity remains mandatory. Do not use same implementer as independent reviewer.
+5. No Champion without real >=1,000 independent paired full Matches, required confidence bounds, opponent diversity, latest-HEAD CI and independent review. Archived workflow artifacts expire; not durable production-model storage.
+
+---
+
 # RNAD-001 latest verified status (2026-11-15)
 
 > This section supersedes older chronological notes below. **Only GitHub-hosted `ubuntu-latest` runners** are permitted for RNAD-001; no self-hosted runners. Existing Issue #5 / Draft PR #6 continue; **no Champion promoted or main merge**.
