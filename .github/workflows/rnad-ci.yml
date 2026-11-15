@@ -30,5 +30,7 @@ jobs:
           node-version: '22.14.0'
       - name: Verify frozen source snapshot
         run: node scripts/verify-snapshot.mjs
+      - name: Check Python checkpoint syntax (PyTorch execution is a separate gate)
+        run: python -m py_compile scripts/rnad/checkpoint.py test/rnad_checkpoint_test.py
       - name: Verify RNAD Stage 0 and phase pipeline contracts
         run: node --test test/rnad-stage0-contract.test.js test/rnad-authority-match.test.js test/rnad-full-match.test.js test/rnad-toy.test.js test/phase-pipeline-contract.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js
