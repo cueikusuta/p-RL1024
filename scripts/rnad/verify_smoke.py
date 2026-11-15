@@ -86,7 +86,7 @@ def verify(*, root, seed, matches=16, three_phase=False):
                 raise ValueError('Missing accepted battle decisions')
         elif any(event.get('phase')!='battle' for event in events):
             raise ValueError('Unexpected phase in Battle-only evaluation')
-         for item in events:
+        for item in events:
             if (item.get("actor") not in (0,1)
                 or item.get("reward") not in ([0,0],[1,-1],[-1,1])
                 or len(item.get("state",[]))!=32
