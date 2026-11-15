@@ -159,7 +159,7 @@ jobs:
               'feature_diagnostic':f['stats'],
               'new_champion_proven':False,'is_champion':False}
           (p/'study-report.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\n')
-          print(json.dumps(report,flush=True))
+          print(json.dumps(report),flush=True)
           PY
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -348,7 +348,7 @@ jobs:
                   out['direct'][f'{candidate}-v-{baseline}']={
                       'wins':total,'matches':256,'win_rate':total/256}
           (e/'study-report.json').write_text(json.dumps(out,indent=2,allow_nan=False)+'\n')
-          print(json.dumps(out,flush=True))
+          print(json.dumps(out),flush=True)
           PY
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
