@@ -51,7 +51,7 @@ class PhaseFocusLossTest(unittest.TestCase):
                         {'label_smoothing':-.1},
                         {'label_smoothing':.2}):
             with self.subTest(changes=changes),self.assertRaises(ValueError):
-                train(**args,**changes)
+                train(**{**args,**changes})
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError,'missing independent'):
                 collect(996001,1,Path(tmp)/'unused',three_phase=True,
