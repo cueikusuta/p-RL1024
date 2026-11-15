@@ -97,8 +97,8 @@ jobs:
               [[ "$COMPLETED" =~ ^[0-9]+$ ]] || exit 2
               if (( COMPLETED + 16 > 2048 )); then
                 echo "RNAD-001 research limit reached: completed=$COMPLETED"
-                python -m scripts.rnad.export_checkpoint \\
-                  --checkpoint artifacts/rnad-001/checkpoints \\
+                python -m scripts.rnad.export_checkpoint \
+                  --checkpoint artifacts/rnad-001/checkpoints \
                   --out artifacts/rnad-001/final-model.json
                 exit 0
               fi
