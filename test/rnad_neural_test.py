@@ -78,6 +78,20 @@ class RnadMathTest(unittest.TestCase):
         self.assertTrue(torch.isfinite(logits2.grad).all())
         self.assertGreater(float(logits2.grad.abs().sum()),0)
 
+    def test_neurd_off_policy_gradient_is_scaled_by_two_player_c(self):
+        def gradient(c):
+            logits=torch.tensor([.2,-.1,.3],requires_grad=True)
+            q=torch.tensor([1.0,-.25,.5])
+            neurd_policy_loss(logits,q,beta=0,is_c=c).backward()
+            return logits.grad.detach()
+        full=gradient(1.0)
+        self.assertGreater(float(full.abs().sum()),1e-6)
+        self.assertTrue(torch.allclose(gradient(.5),full*.5,atol=1e-7))
+        self.assertTrue(torch.equal(gradient(0),torch.zeros(3)))
+        with self.assertRaises(ValueError):
+            neurd_policy_loss(torch.tensor([0.,0.]),torch.tensor([1.,0.]),
+                              is_c=1.01)
+
     def test_invalid_probability_and_zero_sum_fail_closed(self):
         with self.assertRaises(ValueError):
             rnad_targets([step(0,(1,1))])
