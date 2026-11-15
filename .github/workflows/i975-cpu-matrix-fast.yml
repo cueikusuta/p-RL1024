@@ -51,7 +51,7 @@ jobs:
           set -e
           finished=$(date -u +%s)
           mkdir -p artifacts
-          printf '{"schema":"p-rl1024-hosted-shard-clock-v1","model":"RL-Deep","opponent":"AQ-Base-001","seed":%s,"offset":%s,"count":%s,"shardIndex":%s,"durationSeconds":%s,"startedUnix":%s,"finishedUnix":%s,"exitCode":%s,"runId":"%s"}\n' "$RL_SEED" "$SHARD_OFFSET" "$SHARD_INDEX" "$RL_MATCHES" "$((finished-started))" "$started" "$finished" "$status" "$GITHUB_RUN_ID" > artifacts/wallclock-shard.json
+          printf '{"schema":"p-rl1024-hosted-shard-clock-v1","model":"RL-Deep","opponent":"AQ-Base-001","seed":%s,"offset":%s,"count":%s,"shardIndex":%s,"durationSeconds":%s,"startedUnix":%s,"finishedUnix":%s,"exitCode":%s,"runId":"%s"}\n' "$RL_SEED" "$SHARD_OFFSET" "$RL_MATCHES" "$SHARD_INDEX" "$((finished-started))" "$started" "$finished" "$status" "$GITHUB_RUN_ID" > artifacts/wallclock-shard.json
           exit "$status"
       - name: Preserve peer model and checkpoint evidence
         if: always() && matrix.index != 0
