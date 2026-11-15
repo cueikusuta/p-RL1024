@@ -71,3 +71,14 @@ test('shard clock must use the exact index, seed, run and finite measured wallcl
     {durationSeconds:0},{runId:'456'},{runAttempt:'1'},{runAttempt:null}])
     assert.throws(()=>verifyShardClock({...x,...patch},expected),/Invalid shard identity/);
 });
+
+test('checkpoint history must match the complete final training history prefix',()=>{
+  const f=fake();try{
+    const finalHistory=[...f.cp.history,{seed:mixSeed(seed,8,0xa975),studentSeat:0,winner:0,score:[4,2]}];
+    assert.equal(verifyTrainingCheckpoints(f.dir,{...options,finalHistory}).length,1);
+    const altered=structuredClone(finalHistory);
+    altered[3].score=[4,3];
+    assert.throws(()=>verifyTrainingCheckpoints(f.dir,{...options,finalHistory:altered}),/history diverges/);
+    assert.throws(()=>verifyTrainingCheckpoints(f.dir,{...options,finalHistory:[]}),/Invalid final/);
+  }finally{rmSync(f.dir,{recursive:true,force:true});}
+});

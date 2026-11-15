@@ -53,7 +53,7 @@ for(const [index,artifact] of artifacts.entries()){
     throw new Error('Missing AQ outcome');
   trainingWins+=opponent==='AQ-Base-001'||model==='RL-Deep'?wins:training.studentWins??wins;
   const checkpoints=verifyTrainingCheckpoints(folder,{
-    model,opponent,count,seed:rootSeed,sourceSha256:training.sourceSha256
+    model,opponent,count,seed:rootSeed,sourceSha256:training.sourceSha256,finalHistory:history
   });
   rows.push({artifact,offset,count,seedStart:rootSeed,seedEnd:rootSeed+count-1,
     durationSeconds:t.durationSeconds,startedUnix:t.startedUnix,finishedUnix:t.finishedUnix,

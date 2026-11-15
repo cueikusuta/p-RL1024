@@ -5,10 +5,12 @@ import {mixSeed} from '../models/aq-runner.mjs';
 
 const sha=x=>createHash('sha256').update(x).digest('hex');
 const isSha=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
-export function verifyTrainingCheckpoints(folder,{model,opponent,count,seed,sourceSha256}) {
+export function verifyTrainingCheckpoints(folder,{model,opponent,count,seed,sourceSha256,finalHistory}) {
   if(!Number.isSafeInteger(count)||count<9||count>256||!Number.isSafeInteger(seed)||seed<1||
      !isSha(sourceSha256)||!['RL-Linear','RL-Deep'].includes(model)||
      !['V2E','RL-Deep','AQ-Base-001'].includes(opponent))throw new Error('Invalid checkpoint provenance');
+  if(finalHistory!==undefined&&(!Array.isArray(finalHistory)||finalHistory.length!==count))
+    throw new Error('Invalid final training history');
   const expected=Array.from({length:Math.floor(count/8)},(_,i)=>'training-m'+((i+1)*8)+'.json');
   const actual=readdirSync(folder).filter(x=>/^training-m\d+\.json$/.test(x));
   if(actual.length!==expected.length||expected.some(x=>!actual.includes(x)))
@@ -36,6 +38,8 @@ export function verifyTrainingCheckpoints(folder,{model,opponent,count,seed,sour
         throw new Error('Checkpoint configuration mismatch: '+name);
       history=state.history;
     }
+    if(finalHistory&&sha(JSON.stringify(history))!==sha(JSON.stringify(finalHistory.slice(0,completed))))
+      throw new Error('Checkpoint history diverges from final training history: '+name);
     const tag=opponent==='AQ-Base-001'?0xa975:model==='RL-Deep'?0x976:0x975;
     for(let j=0;j<history.length;j++) {
       const h=history[j];
