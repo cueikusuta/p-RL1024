@@ -120,5 +120,7 @@ jobs:
           path: |
             artifacts/rnad-001/report.json
             artifacts/rnad-001/heldout-batch.json
+            artifacts/rnad-001/checkpoints/latest.json
+            artifacts/rnad-001/checkpoints/checkpoint-*.pt
           if-no-files-found: warn
           retention-days: 30
