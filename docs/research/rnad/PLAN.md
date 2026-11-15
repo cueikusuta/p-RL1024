@@ -26,7 +26,7 @@ Goal: [Issue #5](https://github.com/cueikusuta/p-RL1024/issues/5).
 3. Validate on Rock–Paper–Scissors, Matching Pennies, and a genuinely imperfect-information toy game: action normalization, correct sign for both seats, finite gradients, magnet refresh, nontrivial mixed strategy, exploitability against exact best response. **Do not mark this gate complete on a 50% self-play win rate.**
 4. Implement PyTorch model, full resumable checkpoint (policy, critic, optimizer, magnet, scheduler, RNG, game/code/schema SHA, update number, completed match IDs), export/ONNX CPU numerical parity, and a persistent Node inference worker. Never launch Python anew per decision.
 5. Wire to authority-accepted three-phase Match actions, ensure both players choose without seeing the opponent's simultaneous action, and run deterministic small training smoke. Snapshot pinning and no-secret tests are mandatory.
-6. Add bounded self-hosted training workflow, immutable long-term checkpoint promotion, paired unseen-seed 4-win Match evaluation, Champion selection. Keep untrained baseline separate from champion.
+6. Add bounded GitHub-hosted training workflow, immutable long-term checkpoint promotion, paired unseen-seed 4-win Match evaluation, Champion selection. Keep untrained baseline separate from champion.
 
 ## Metamon teacher
 
@@ -34,7 +34,7 @@ The [Metamon repository](https://github.com/UT-Austin-RPL/metamon) is MIT licens
 
 ## Compute policy
 
-Training on the user's selected **self-hosted runner** once availability and isolation are verified. GitHub-hosted CPU may run short portability/contract CI. Each workflow must bound job duration, total job count, target matches, aggregate compute, retries and stop flags. One writer per model, immutable evaluation inputs, SHA-checked checkpoint compare-and-swap.
+**Latest explicit user decision (2026-11-15): GitHub-hosted runners ONLY** for RNAD-001, for short tests and actual CPU training. Do not use `self-hosted` labels. Run bounded `ubuntu-latest` jobs, serialise training/checkpoint publication, enforce hard timeout, quota/seed/match limits and no unbounded retries. Each workflow must bound job duration, total job count, target matches, aggregate compute, retries and stop flags. One writer per model, immutable evaluation inputs, SHA-checked checkpoint compare-and-swap.
 
 ## 2026-11-15 independent-review remediation checkpoint
 
@@ -60,5 +60,9 @@ The preceding review note predates these changes. The following code now exists 
 - The bare `createRnadTrajectoryCollector().commit()` API can still be misused by other trusted local code; the integrated runner hides it from the Actor. The accepted-action integrity of *published training data*, including authority error paths, needs independent review. The P1-3 concern cannot be considered fully closed before that review.
 - Node and Python currently have **no** persistent ONNX model inference or R-NaD learner connection. Real accepted trajectory records are not proof of learning.
 - DeepNash two-player V-trace, neural NeuRD, frozen magnet refresh, PyTorch numerical gradients, PyTorch/ONNX parity, and full-game deterministic checkpoint continuation must be implemented and tested.
-- Training workflows, self-hosted runner availability, durable releases, teacher import and Champion evaluation remain outstanding.
+- Training workflows, GitHub-hosted runner availability, durable releases, teacher import and Champion evaluation remain outstanding.
 - The original provenance manifest and pre-existing RL models/experiments were not edited. Review the latest head and required CI before any merge.
+
+## Runner policy override (2026-11-15)
+
+The explicit current requirement is **GitHub-hosted GitHub Actions runners (`ubuntu-latest`) for all RNAD-001 training and evaluation**. Older self-hosted recommendations in the Issue description, earlier PR comments or handoff are superseded. The RNAD training workflow must be opt-in, bounded, use the GitHub-hosted runner, enforce single-writer concurrency and non-persistent artifacts must not be treated as the durable checkpoint store. Avoid unrelated changes to original RL workflows.
