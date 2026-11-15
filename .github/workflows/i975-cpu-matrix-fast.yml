@@ -23,23 +23,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Select Node 22 for isolated CPU training
-        id: cached-node
-        shell: bash
-        run: |
-          shopt -s nullglob
-          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
-          if (( ${#node_dirs[@]} )); then
-            cached="${node_dirs[${#node_dirs[@]}-1]}"
-            if "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"; then
-              echo "$cached" >> "$GITHUB_PATH"
-              echo 'hit=true' >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          echo 'hit=false' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        if: steps.cached-node.outputs.hit != 'true'
         with:
           node-version: '22'
       - name: Train one isolated 12-13 Match model
@@ -67,29 +51,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Select Node 22 and verify source snapshot
-        id: cached-node
-        shell: bash
-        run: |
-          shopt -s nullglob
-          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
-          if (( ${#node_dirs[@]} )); then
-            cached="${node_dirs[${#node_dirs[@]}-1]}"
-            if "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"; then
-              echo "$cached" >> "$GITHUB_PATH"
-              "$cached/node" scripts/verify-snapshot.mjs
-              "$cached/node" --test test/hosted-proof.test.js test/hosted-shards.test.js
-              echo 'hit=true' >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          echo 'hit=false' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        if: steps.cached-node.outputs.hit != 'true'
         with:
           node-version: '22'
-      - name: Verify snapshot and proofs with fallback Node
-        if: steps.cached-node.outputs.hit != 'true'
+      - name: Verify source snapshot and training proofs
         run: |
           node scripts/verify-snapshot.mjs
           node --test test/hosted-proof.test.js test/hosted-shards.test.js
