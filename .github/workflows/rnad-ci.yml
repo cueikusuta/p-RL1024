@@ -11,6 +11,8 @@ on:
       - 'test/rnad-*.test.js'
       - 'test/rnad_*_test.py'
       - 'requirements-rnad.txt'
+      - 'scripts/rnad/compare_warmstart_eval.mjs'
+      - 'test/rnad-warmstart-eval.test.js'
       - '.github/workflows/rnad-ci.yml'
       - 'docs/research/rnad/**'
   workflow_dispatch:
@@ -45,4 +47,4 @@ jobs:
       - name: Verify RNAD two-player V-trace, neural gradients, ONNX and checkpoint runtime
         run: python -m unittest discover -s test -p 'rnad_*_test.py' -v
       - name: Verify RNAD Stage 0 and phase pipeline contracts
-        run: node --test test/rnad-stage0-contract.test.js test/rnad-receipts.test.js test/rnad-authority-match.test.js test/rnad-full-match.test.js test/rnad-toy.test.js test/rnad-evaluation.test.js test/phase-pipeline-contract.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js
+        run: node --test test/rnad-stage0-contract.test.js test/rnad-receipts.test.js test/rnad-authority-match.test.js test/rnad-full-match.test.js test/rnad-toy.test.js test/rnad-evaluation.test.js test/rnad-warmstart-eval.test.js test/phase-pipeline-contract.test.js test/pure-rl-phases.test.js test/pure-rl-acceptance.test.js
