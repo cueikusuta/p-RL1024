@@ -81,3 +81,9 @@ console.log(result.winner,result.score,result.agentIds);
 ```sh
 node --test test/phase-pipeline-contract.test.js test/phase-pipeline-integration.test.js
 ```
+
+## RNAD-001 (Issue #5): GitHub-hosted runner policy
+
+RNAD-001 の開発・小規模検証・本学習・評価は **GitHub Actions の GitHub-hosted runner（`ubuntu-latest`）のみ**を使用します。**セルフホスト runner は使用しません**。これは2026-11-15のユーザー指定による最新の運用方針で、旧計画のセルフホスト推奨より優先されます。
+
+研究の設計と未完了ゲートは [docs/research/rnad/PLAN.md](docs/research/rnad/PLAN.md) を参照してください。学習は明示的な `workflow_dispatch`、試合数・時間・同時書込制限、コードSHAとCheckpoint整合性確認、独立レビューの品質ゲートを通してのみ実行します。短期GitHub Actions artifactを永続Checkpointの正本として扱わず、学習成果と評価結果を区別します。
