@@ -11,6 +11,8 @@ import {chooseTeam,chooseSelection} from '../dev/simulator/draft-ai.js';
 import {playableSets} from '../../src/production-runtime.js';
 import data from '../../data/catalog/battle-data.json' with {type:'json'};
 import provenance from '../../provenance/manifest.json' with {type:'json'};
+import {createPublicAQTeacher,AQ_TEACHER_ID,AQ_WEIGHTS_SHA256}
+  from './aq-teacher-policy.mjs';
 
 function stage0ThreePhaseTeacher({observation,legalActions,rng}){
   if(observation.phase==='battle')
@@ -24,18 +26,23 @@ function stage0ThreePhaseTeacher({observation,legalActions,rng}){
   return {action,behaviorLogProbability:0,
     referenceLogProbability:-Math.log(legalActions.length),predictedValue:0};
 }
-export function createTeacherMatch(seed,{threePhase=false}={}){
+export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
-    typeof threePhase!=='boolean')
+    typeof threePhase!=='boolean'||
+    !['basic-stage0','aq-public-belief'].includes(teacher)||
+    (teacher==='aq-public-belief'&&!threePhase))
     throw new TypeError('Invalid teacher seed');
+  const aq=teacher==='aq-public-belief'?createPublicAQTeacher():null;
+  const effectivePolicy=aq??stage0FixedPolicy;
   const match=runRnadAcceptanceSmoke({
     seed,matchId:'rnad-stage0-teacher-'+seed,
     experimentId:'RNAD-001-optional-stage0-imitation',
     sourceSha:verifiedRunningSourceSha(),
     engineSnapshotSha:provenance.sourceCommit,
-    policyVersion:threePhase?'basic-stage0-3phase-teacher':'stage0-fixed-teacher',
-    phasePolicy:threePhase?stage0ThreePhaseTeacher:null,
-    policy:stage0FixedPolicy});
+    policyVersion:aq?AQ_TEACHER_ID:
+      threePhase?'basic-stage0-3phase-teacher':'stage0-fixed-teacher',
+    phasePolicy:aq??(threePhase?stage0ThreePhaseTeacher:null),
+    policy:effectivePolicy});
   if(!match.completed||!match.jointTimeline||!match.trajectories||
      ![0,1].includes(match.winner)||match.score[match.winner]!==4)
     throw new Error('Teacher data requires a complete authoritative Match');
@@ -62,13 +69,16 @@ export function createTeacherMatch(seed,{threePhase=false}={}){
       examples.filter(e=>e.phase===stage).length!==2*match.rounds))||
      !examples.some(e=>e.actor===0)||!examples.some(e=>e.actor===1))
     throw new Error('Teacher match acceptance count mismatch');
-  return {schema:threePhase?'rnad-basic-stage0-three-phase-teacher-v1':
+  return {schema:aq?'rnad-aq-public-belief-three-phase-teacher-v1':
+      threePhase?'rnad-basic-stage0-three-phase-teacher-v1':
       'rnad-fixed-stage0-teacher-match-v1',
     feature_schema:threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA,
     source_sha:verifiedRunningSourceSha(),
     engine_sha:provenance.sourceCommit,
     seed,completed:true,winner:match.winner,score:match.score,
-    teacher:threePhase?'basic-stage0-3phase':'stage0-fixed-untrained',
+    teacher:aq?AQ_TEACHER_ID:
+      threePhase?'basic-stage0-3phase':'stage0-fixed-untrained',
+    ...(aq?{teacher_model_sha256:AQ_WEIGHTS_SHA256}:{}),
     rounds:match.rounds,action_counts:match.actionCounts,examples};
 }
 if(process.argv[1]?.endsWith('/export-teacher.mjs')){
@@ -77,7 +87,7 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
   const inputs={};
   for(let i=0;i<args.length;i+=2){
     const k=args[i]?.slice(2);
-    if(!args[i]?.startsWith('--')||!['seed','out','three-phase'].includes(k)||
+    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher'].includes(k)||
       Object.hasOwn(inputs,k))throw new Error('Invalid teacher CLI option');
     inputs[k]=args[i+1];
   }
@@ -85,7 +95,8 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
     (inputs['three-phase']!==undefined&&inputs['three-phase']!=='true'))
     throw new Error('Usage: --seed N --out FILE [--three-phase true]');
   const trace=createTeacherMatch(Number(inputs.seed),
-    {threePhase:inputs['three-phase']==='true'});
+    {threePhase:inputs['three-phase']==='true',
+     teacher:inputs.teacher??'basic-stage0'});
   writeFileSync(inputs.out,JSON.stringify(trace)+'\n',{flag:'wx'});
   process.stdout.write(JSON.stringify({seed:trace.seed,
     score:trace.score,examples:trace.examples.length})+'\n');

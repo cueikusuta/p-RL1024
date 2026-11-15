@@ -18,7 +18,10 @@ from scripts.rnad.neural import (RNADNetwork, export_json,
 from scripts.rnad.train import state_hash, current_git_sha, frozen_engine_sha
 
 
-def collect(seed, count, folder, *, three_phase=False):
+AQ_WEIGHTS_SHA256="5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e"
+
+def collect(seed, count, folder, *, three_phase=False,
+            teacher='basic-stage0'):
     root=folder/"teacher-matches"
     root.mkdir(parents=True,exist_ok=True)
     traces=[]
@@ -30,11 +33,17 @@ def collect(seed, count, folder, *, three_phase=False):
         cmd=["node","scripts/rnad/export-teacher.mjs",
              "--seed",str(n),"--out",str(file)]
         if three_phase:cmd.extend(["--three-phase","true"])
+        if teacher!='basic-stage0':cmd.extend(["--teacher",teacher])
         subprocess.run(cmd,check=True,timeout=120)
         trace=json.loads(file.read_text())
-        if (trace.get("schema")!=(
-                "rnad-basic-stage0-three-phase-teacher-v1" if three_phase
-                else "rnad-fixed-stage0-teacher-match-v1")
+        expected_schema=("rnad-aq-public-belief-three-phase-teacher-v1"
+                         if teacher=="aq-public-belief" else
+                         "rnad-basic-stage0-three-phase-teacher-v1" if three_phase
+                         else "rnad-fixed-stage0-teacher-match-v1")
+        expected_teacher=("rnad-aq-public-belief-v2" if teacher=="aq-public-belief"
+                          else "basic-stage0-3phase" if three_phase
+                          else "stage0-fixed-untrained")
+        if (trace.get("schema")!=expected_schema
             or trace.get("feature_schema")!=(
                 THREE_PHASE_FEATURE_SCHEMA if three_phase
                 else BATTLE_FEATURE_SCHEMA)
@@ -42,9 +51,9 @@ def collect(seed, count, folder, *, three_phase=False):
             or trace.get("source_sha")!=current_git_sha()
             or trace.get("engine_sha")!=frozen_engine_sha()
             or trace.get("completed") is not True
-            or trace.get("teacher")!=(
-                "basic-stage0-3phase" if three_phase
-                else "stage0-fixed-untrained")
+            or trace.get("teacher")!=expected_teacher
+            or (teacher=="aq-public-belief" and
+                trace.get("teacher_model_sha256")!=AQ_WEIGHTS_SHA256)
             or trace.get("score",[])[trace["winner"]]!=4
             or not trace.get("examples") or
             len(trace["examples"])!=sum(trace.get("action_counts",[]))+
@@ -55,10 +64,13 @@ def collect(seed, count, folder, *, three_phase=False):
 
 
 def train(*,seed=975601,out="artifacts/rnad-teacher",
-          three_phase=False,matches=32,epochs=4):
+          three_phase=False,matches=32,epochs=4,
+          teacher='basic-stage0'):
     if (type(seed) is not int or type(matches) is not int or
         type(epochs) is not int or type(three_phase) is not bool or
-        not 1<=matches<=32 or not 1<=epochs<=4 or
+        not 1<=matches<=256 or not 1<=epochs<=6 or
+        teacher not in ('basic-stage0','aq-public-belief') or
+        (teacher=='aq-public-belief' and not three_phase) or
         not 1<=seed<=0xffffffff-matches):
         raise ValueError("Invalid bounded teacher seed/matches/epochs")
     torch.set_num_threads(1)
@@ -71,7 +83,8 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
     feature_schema=(THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
     export_json(model,folder/"initial-model.json",feature_schema=feature_schema)
-    traces=collect(seed,matches,folder,three_phase=three_phase)
+    traces=collect(seed,matches,folder,three_phase=three_phase,
+                   teacher=teacher)
     optimizer=torch.optim.Adam(model.parameters(),lr=0.0006)
     results=[]
     for epoch in range(epochs):
@@ -127,8 +140,13 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                       else "rnad-optional-stage0-imitation-report-v1"),
             "feature_schema":feature_schema,
             "source_sha":current_git_sha(),"engine_sha":frozen_engine_sha(),
-            "teacher_id":("basic-stage0-3phase" if three_phase
-                          else "stage0-fixed-untrained"),"seed":seed,
+            "teacher_id":("rnad-aq-public-belief-v2"
+                          if teacher=="aq-public-belief" else
+                          "basic-stage0-3phase" if three_phase
+                          else "stage0-fixed-untrained"),
+            "teacher_weights_sha256":(AQ_WEIGHTS_SHA256 if
+                                     teacher=="aq-public-belief" else None),
+            "seed":seed,
             "teacher_completed_matches":matches,"teacher_updates":matches*epochs,
             "initial_model_sha256":initial_hash,
             "trained_model_sha256":trained_hash,
@@ -145,6 +163,9 @@ if __name__=="__main__":
     p.add_argument("--matches",type=int,default=32)
     p.add_argument("--epochs",type=int,default=4)
     p.add_argument("--three-phase",action="store_true")
+    p.add_argument("--teacher",choices=["basic-stage0","aq-public-belief"],
+                   default="basic-stage0")
     args=p.parse_args()
     print(json.dumps(train(out=args.out,seed=args.seed,matches=args.matches,
-                           epochs=args.epochs,three_phase=args.three_phase),indent=2))
+                           epochs=args.epochs,three_phase=args.three_phase,
+                           teacher=args.teacher),indent=2))
