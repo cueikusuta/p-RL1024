@@ -1,3 +1,17 @@
+# RNAD-003: ordinary exact-state R-NaD learning continues in parallel (2026-11-16)
+
+**Both research tracks continue independently** under Issue #5 / Draft PR #6:
+
+- **Ordinary (unmutated) R-NaD:** successful generation-128 [GitHub-hosted run #43747882146](https://github.com/cueikusuta/p-RL1024/actions/runs/43747882146) is the immutable origin. Generation-128 directly won 65/128 against the frozen teacher (not significant), and against Basic on the same fresh paired 128 seeds had 130/256 wins compared with the teacher's 129/256 wins. These are diagnostic and not proof of strength improvement.
+- The separate [standard continuation run #43752012559](https://github.com/cueikusuta/p-RL1024/actions/runs/43752012559) starts from the **actual generation-128 full optimizer/magnet/scheduler/RNG checkpoint**, not the 100-policy exploration model. It checks out exact original training source `f08a9587d6a7033546eab00ffa6479399ca71c2f`, Python 3.11 / CPU Torch 2.5.1 / Node 22.14.0, original teacher model SHA and strict engine/seed/feature schema checkpoint identity. It resumes 16 accepted complete four-win Matches per batch to 256, retaining checkpoints at 192 and 256.
+- Independent evaluation has pre-registered **128 unseen seed pairs** (256 complete Matches) against frozen Basic for both the original 128 and new 256 Actor, plus **128 disjoint seed pairs** (256 Matches) of direct 256 versus 128 with both seats and greedy deployment. All results are checked against the frozen SHA, model bytes, scores, seed/seat completeness, and version. A 55% direct-win diagnostic with no more than 3 percentage-point Basic regression may justify a later 512 generation, but **does not establish statistical significance or trigger Champion promotion**.
+- **Evolutionary/gacha exploration** is a separate 100-mutant screen and four fresh 16-Match learners, with entirely disjoint training/evaluation seed windows and new optimizer states. It cannot overwrite or be called a continuation of this standard 128-generation checkpoint.
+- Both expensive research workflows are now **manual-only for subsequent starts** to prevent re-running experiments on every Draft PR commit. The already-started hosted runs are independent of later workflow edits; run result and artifact hashes must be verified. Every other QA/CI must remain green, and independent review by a **different ChatGPT Chat session** remains necessary before main merge or Champion promotion.
+
+No result is claimed yet for the new 128→256 standard run until all actual training/evaluation steps complete and the preserved checkpoint bytes are verified.
+
+---
+
 # RNAD-003: population mutation experiment (2026-11-16)
 
 This is an **exploratory evolutionary screen**, not a proven Population Based Training (PBT) continuous optimizer, an exact full-state resume, or a Champion promotion. Source is Issue #5 / Draft PR #6. Only GitHub-hosted Ubuntu CPU may execute research.
