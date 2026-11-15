@@ -9,7 +9,7 @@ for(let i=0;i<argv.length;i+=2){if(!allowed.includes(argv[i])||opts.has(argv[i])
 const id=opts.get('--model'),matches=Number(opts.get('--matches')),root=Number(opts.get('--seed')),interval=Number(opts.get('--checkpoint-every')??8),out=opts.get('--out');
 if(!['RL-Linear','RL-Deep'].includes(id)||!Number.isSafeInteger(matches)||matches<9||matches>256||!Number.isSafeInteger(root)||root<1||root>0xffffffff||interval!==8||!out)throw new Error('Invalid AQ training configuration');
 const sha=x=>createHash('sha256').update(x).digest('hex'),h=createHash('sha256');
-const files=['provenance/manifest.json','package.json','scripts/train-vs-aq.mjs','scripts/evaluate-vs-aq.mjs'];
+const files=['provenance/manifest.json','package.json','scripts/train-vs-aq.mjs','scripts/evaluate-vs-aq.mjs','scripts/optimized/strategy-match.mjs','scripts/optimized/team-assessment.mjs'];
 for(const x of await readdir('models'))if(x.endsWith('.mjs'))files.push('models/'+x);
 for(const path of files.sort()){h.update(path+'\0');h.update(await readFile(path));}
 const sourceSha256=h.digest('hex');
@@ -24,7 +24,9 @@ async function checkpoint() {
   const state={schema:'p-rl1024-aq-checkpoint-v1',modelId:id,matches,seed:root,sourceSha256,opponentSha256:weightsSha256,model,history,decisions,updates};
   const path=resolve(out.replace(/\.json$/,'')+`-m${history.length}.json`),tmp=path+'.tmp-'+randomUUID();
   await mkdir(dirname(path),{recursive:true});
-  try{await writeFile(tmp,JSON.stringify({...state,checkpointSha256:sha(JSON.stringify(state))})+'\n',{flag:'wx'});await rename(tmp,path);}catch(error){await rm(tmp,{force:true});throw error;}
+  const body=JSON.stringify(state);
+  const data=body.slice(0,-1)+',"checkpointSha256":"'+sha(body)+'"}\n';
+  try{await writeFile(tmp,data,{flag:'wx'});await rename(tmp,path);}catch(error){await rm(tmp,{force:true});throw error;}
 }
 for(let i=history.length;i<matches;i++) {
   const seed=mixSeed(root,i,0xa975),seat=i%2,epsilon=.35+(.08-.35)*i/(matches-1);

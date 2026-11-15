@@ -1,6 +1,6 @@
 import {SeededRandom} from '../src/battle.js';
 import {mixSeed} from '../aq-runtime/scripts/dev/simulator/runner.js';
-import {runStrategyMatch} from '../aq-runtime/scripts/dev/simulator/strategy-match.js';
+import {runStrategyMatch} from '../scripts/optimized/strategy-match.mjs';
 import {createPureRlModel,validatePureRlModel,createPureRlSession} from '../src/ai/pure-rl-linear.js';
 import {rankPureRlPhaseActions} from '../src/ai/pure-rl-phases.js';
 import {rankActions as rankLinear} from './linear.mjs';

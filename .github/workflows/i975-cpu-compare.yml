@@ -1,0 +1,148 @@
+name: I975 hosted CPU wallclock comparison
+on:
+  push:
+    branches: ['research/gha-cpu-shards-20261115']
+    paths: ['.github/workflows/i975-cpu-compare.yml']
+  workflow_dispatch:
+    inputs:
+      model:
+        type: choice
+        options: [RL-Linear, RL-Deep]
+        default: RL-Deep
+      opponent:
+        type: choice
+        options: [AQ-Base-001]
+        default: AQ-Base-001
+      total_matches:
+        type: string
+        default: '1000'
+      shards:
+        type: string
+        default: '12'
+      seed:
+        type: string
+        default: '975020'
+      workers:
+        type: string
+        default: '4'
+permissions: {}
+jobs:
+  plan:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify snapshot and shard planner
+        run: |
+          node scripts/verify-snapshot.mjs
+          node --test test/hosted-shards.test.js
+      - name: Plan deterministic, nonoverlapping shards
+        id: plan
+        env:
+          TOTAL: ${{ inputs.total_matches || '1000' }}
+          SHARDS: ${{ inputs.shards || '12' }}
+          SEED: ${{ inputs.seed || '975020' }}
+        run: echo "matrix=$(node scripts/hosted-shard-plan.mjs --mode evaluation --total "$TOTAL" --shards "$SHARDS" --seed "$SEED")" >> "$GITHUB_OUTPUT"
+  serial:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Serial frozen full-Match evaluation
+        env:
+          MODEL: ${{ inputs.model || 'RL-Deep' }}
+          OPPONENT: ${{ inputs.opponent || 'AQ-Base-001' }}
+          TOTAL: ${{ inputs.total_matches || '1000' }}
+          SEED: ${{ inputs.seed || '975020' }}
+        run: node scripts/hosted-frozen-eval.mjs --model "$MODEL" --opponent "$OPPONENT" --total "$TOTAL" --offset 0 --count "$TOTAL" --seed "$SEED" --workers 1 --out artifacts/eval/report.json
+      - name: Save serial evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i975-eval-serial-${{ github.run_id }}
+          path: artifacts/eval/
+          if-no-files-found: warn
+          retention-days: 14
+  sharded:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Shard frozen full-Match evaluation
+        env:
+          MODEL: ${{ inputs.model || 'RL-Deep' }}
+          OPPONENT: ${{ inputs.opponent || 'AQ-Base-001' }}
+          TOTAL: ${{ inputs.total_matches || '1000' }}
+          SEED: ${{ inputs.seed || '975020' }}
+          WORKERS: ${{ inputs.workers || '4' }}
+        run: node scripts/hosted-frozen-eval.mjs --model "$MODEL" --opponent "$OPPONENT" --total "$TOTAL" --offset "${{ matrix.offset }}" --count "${{ matrix.count }}" --seed "$SEED" --workers "$WORKERS" --out artifacts/eval/report.json
+      - name: Save per-shard evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i975-eval-shard-${{ github.run_id }}-${{ matrix.index }}
+          path: artifacts/eval/
+          if-no-files-found: warn
+          retention-days: 14
+  aggregate:
+    needs: [plan, serial, sharded]
+    if: always() && needs.serial.result == 'success' && needs.sharded.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: i975-eval-serial-${{ github.run_id }}
+          path: serial-artifact
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: i975-eval-shard-${{ github.run_id }}-*
+          path: shard-artifacts
+      - name: Verify model SHA, every seed, outcomes and wallclock speedup
+        run: node scripts/aggregate-hosted-evaluation.mjs --serial serial-artifact/report.json --shards shard-artifacts --out artifacts/eval-aggregate.json
+      - name: Save normalized aggregate and timing proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i975-eval-aggregate-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14

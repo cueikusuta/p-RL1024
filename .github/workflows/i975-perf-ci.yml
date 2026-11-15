@@ -1,0 +1,71 @@
+name: I975 dedicated CPU performance gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/i975.yml'
+      - '.github/workflows/i975-perf-ci.yml'
+      - 'scripts/run-experiment.mjs'
+      - 'test/fast-inline.test.js'
+      - 'scripts/train-vs-aq.mjs'
+      - 'models/aq-runner.mjs'
+      - 'scripts/optimized/**'
+      - 'scripts/benchmark-aq-draft.mjs'
+      - 'scripts/merge-hosted-training.mjs'
+      - 'scripts/hosted-proof.mjs'
+      - 'test/hosted-proof.test.js'
+      - 'models/deep*.mjs'
+      - 'scripts/benchmark-*.mjs'
+      - 'scripts/batch-frozen-deep.mjs'
+      - 'scripts/dev/simulator/**'
+      - 'src/**'
+      - 'test/fast-deep-features.test.js'
+      - 'test/parallel-frozen-deep.test.js'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/i975.yml'
+      - '.github/workflows/i975-perf-ci.yml'
+      - 'scripts/run-experiment.mjs'
+      - 'test/fast-inline.test.js'
+      - 'scripts/train-vs-aq.mjs'
+      - 'models/aq-runner.mjs'
+      - 'scripts/optimized/**'
+      - 'scripts/benchmark-aq-draft.mjs'
+      - 'scripts/merge-hosted-training.mjs'
+      - 'scripts/hosted-proof.mjs'
+      - 'test/hosted-proof.test.js'
+      - 'models/deep*.mjs'
+      - 'scripts/benchmark-*.mjs'
+      - 'scripts/batch-frozen-deep.mjs'
+      - 'scripts/dev/simulator/**'
+      - 'src/**'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: i975-perf-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  benchmark:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify source snapshot
+        run: node scripts/verify-snapshot.mjs
+      - name: Verify optimized model contracts
+        run: node --test test/parallel-frozen-deep.test.js test/fast-deep-features.test.js test/hosted-shards.test.js test/hosted-proof.test.js test/fast-inline.test.js
+      - name: Verify frozen AQ full-Match equivalence across three repeats
+        run: node scripts/benchmark-aq-draft.mjs
+      - name: Verify original versus optimized online training and model SHA
+        run: node scripts/benchmark-training.mjs
+      - name: Verify original versus optimized full-Match throughput and digest
+        run: node scripts/benchmark-engine.mjs
