@@ -23,13 +23,20 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22'
-      - name: Train one isolated 12-13 Match model
+      - name: Train isolated 16-Match model using runner's cached Node 22
         env:
           JOB_INDEX: ${{ matrix.index }}
-        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 16 --total 256 --seed 975020 --out artifacts
+        shell: bash
+        run: |
+          shopt -s nullglob
+          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
+          if (( ${#node_dirs[@]} == 0 )); then
+            echo 'ERROR: GitHub-hosted ARM64 toolcache missing Node 22' >&2
+            exit 1
+          fi
+          selected="${node_dirs[${#node_dirs[@]}-1]}/node"
+          "$selected" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"
+          "$selected" scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 16 --total 256 --seed 975020 --out artifacts
       # Artifact name identifies both workflow run and re-run attempt.
       - name: Upload complete shard checkpoint and evaluation evidence
         if: always()
@@ -51,19 +58,26 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22'
-      - name: Verify source snapshot and training proofs
-        run: |
-          node scripts/verify-snapshot.mjs
-          node --test test/hosted-proof.test.js test/hosted-shards.test.js
-      - name: Collect all sixteen complete peer evidence artifacts
+      - name: Verify source and collect complete peer artifacts using cached Node 22
         env:
           GH_TOKEN: ${{ github.token }}
           RL_SHARDS: '16'
           RL_FIRST_ARTIFACT_INDEX: '0'
-        run: node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
+        shell: bash
+        run: |
+          shopt -s nullglob
+          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
+          if (( ${#node_dirs[@]} == 0 )); then
+            echo 'ERROR: GitHub-hosted ARM64 toolcache missing Node 22' >&2
+            exit 1
+          fi
+          cached="${node_dirs[${#node_dirs[@]}-1]}"
+          "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"
+          export PATH="$cached:$PATH"
+          echo "$cached" >> "$GITHUB_PATH"
+          node scripts/verify-snapshot.mjs
+          node --test test/hosted-proof.test.js test/hosted-shards.test.js
+          node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
       - name: Verify 256 four-win Matches, weights, seeds, paired digests and checkpoints
         run: |
           set -euo pipefail
