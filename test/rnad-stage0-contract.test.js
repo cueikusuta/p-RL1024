@@ -75,13 +75,11 @@ test('only authoritative commit records a decision; rejection discards proposal'
   assert.equal(c.stats().accepted_decisions,0);
   assert.throws(()=>c.propose({...args,action:{kind:'switch',index:0}}),/not in/);
   c.propose(args);
-  assert.equal(c.commit(actions[0]),1);
-  const result=c.finish({completed:true,winner:0,score:[4,2]});
-  assert.equal(result.schema,RNAD_TRAJECTORY_SCHEMA);
-  assert.equal(result.decisions.length,1);
-  assert.equal(result.decisions[0].terminal_reward,1);
-  assert.equal(result.decisions[0].player_seat,0);
-  assert.throws(()=>c.propose(args),/Invalid proposed/);
+  assert.throws(()=>c.commit(actions[0]),/authority.*receipt/i);
+  assert.equal(c.stats().accepted_decisions,0);
+  assert.throws(()=>c.finish({completed:true,winner:0,score:[4,2]}),/Expected/);
+  c.reject();
+  assert.equal(c.stats().pending,false);
 });
 test('opponent seat receives negative terminal reward and cannot cross seats',()=>{
   const c=collector(1);
@@ -92,9 +90,11 @@ test('opponent seat receives negative terminal reward and cannot cross seats',()
     legalActions:rnadLegalActions({phase:'selection',self:{team}}),action,
     behaviorLogProbability:Math.log(1/60),
     referenceLogProbability:Math.log(1/60),predictedValue:0});
-  c.commit(action);
-  assert.equal(c.finish({completed:true,winner:0,score:[4,3]})
-    .decisions[0].terminal_reward,-1);
+  // A second seat cannot self-certify an accepted action or terminal result.
+  assert.throws(()=>c.commit(action,Object.freeze({})),/authority.*receipt/i);
+  assert.equal(c.stats().accepted_decisions,0);
+  c.reject();
+  assert.throws(()=>c.finish({completed:true,winner:0,score:[4,3]},Object.freeze({})),/authority.*receipt/i);
 });
 
 test('untrusted cross-round handoff and draft history cannot reach actor',()=>{
