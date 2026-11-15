@@ -1,0 +1,82 @@
+name: RNAD-002 frozen 512 Match phase ablation versus Basic
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-512-phase-ablation.yml']
+permissions: {}
+concurrency:
+  group: rnad-512-phase-ablation-i5
+  cancel-in-progress: false
+jobs:
+  ablation:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ROOT: artifacts/phase-ablation512
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify immutable game source and retrieve trusted generation-512 Actor
+        run: |
+          node scripts/verify-snapshot.mjs
+          node --check scripts/rnad/evaluate-phase-ablation.mjs
+          mkdir -p "$ROOT"
+          gh run download 43706288860 --repo cueikusuta/p-RL1024 \
+            --name rnad-002-generations-43706288860-1 --dir "$ROOT"
+          test -s "$ROOT/generations/model-u512.json"
+          test -s "$ROOT/generations/generation-512.json"
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path(os.environ['ROOT'])/'generations'
+          m=json.loads((p/'model-u512.json').read_text())
+          r=json.loads((p/'generation-512.json').read_text())
+          assert m['feature_schema']=='rnad-three-phase-features-v1'
+          assert r['completed_matches']==512 and r['is_champion'] is False
+          print(json.dumps({'source_model':r['model_sha256'],'generation':512}))
+          PY
+      - name: Evaluate three phase-partition profiles on identical 128 paired seeds
+        run: |
+          node scripts/rnad/evaluate-phase-ablation.mjs \
+            --model "$ROOT/generations/model-u512.json" \
+            --seed 997301 --pairs 128 --out "$ROOT/phase-ablation.json"
+      - name: Verify independent full seed-paired outcomes and no automatic promotion
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ['ROOT'])
+          r=json.loads((root/'phase-ablation.json').read_text())
+          assert r['schema']=='rnad-002-frozen-512-phase-ablation-v1'
+          assert r['model_sha256']==hashlib.sha256(
+              (root/'generations/model-u512.json').read_bytes()).hexdigest()
+          assert r['pairs']==128 and r['is_champion'] is False
+          assert set(r['profiles'])=={
+              'neural_three','basic_then_neural','strategy_tactical_then_neural'}
+          for p in r['profiles'].values():
+              assert p['matches']==256 and len(p['rows'])==256
+              assert p['wins']==sum(row['won'] for row in p['rows'])
+              seen={(x['seed'],x['candidateSeat']) for x in p['rows']}
+              assert seen=={(s,i) for s in range(997301,997429) for i in (0,1)}
+          print(json.dumps({key:{'wins':p['wins'],'win_rate':p['win_rate']}
+              for key,p in r['profiles'].items()}))
+          PY
+      - name: Retain real phase-ablation results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-512-phase-ablation-${{ github.run_id }}
+          path: |
+            artifacts/phase-ablation512/phase-ablation.json
+            artifacts/phase-ablation512/generations/model-u512.json
+          if-no-files-found: warn
+          retention-days: 30
