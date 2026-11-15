@@ -63,11 +63,11 @@ test('frozen evaluation timing rejects invalid durations, timestamps and workers
 test('shard clock must use the exact index, seed, run and finite measured wallclock',()=>{
   const x={schema:'p-rl1024-hosted-shard-clock-v1',model:'RL-Deep',
     opponent:'AQ-Base-001',shardIndex:0,offset:0,count:13,seed:975020,
-    startedUnix:1794704599,finishedUnix:1794704602,durationSeconds:3,exitCode:0,runId:'123'};
-  const expected={model:'RL-Deep',opponent:'AQ-Base-001',index:0,offset:0,count:13,seed:975020,runId:'123'};
+    startedUnix:1794704599,finishedUnix:1794704602,durationSeconds:3,exitCode:0,runId:'123',runAttempt:'2'};
+  const expected={model:'RL-Deep',opponent:'AQ-Base-001',index:0,offset:0,count:13,seed:975020,runId:'123',runAttempt:'2'};
   assert.doesNotThrow(()=>verifyShardClock(x,expected));
   for(const patch of [{shardIndex:1},{offset:12},{exitCode:1},{startedUnix:NaN},
     {finishedUnix:1794704500},{durationSeconds:Infinity},{durationSeconds:-1},
-    {durationSeconds:0},{runId:'456'}])
+    {durationSeconds:0},{runId:'456'},{runAttempt:'1'},{runAttempt:null}])
     assert.throws(()=>verifyShardClock({...x,...patch},expected),/Invalid shard identity/);
 });
