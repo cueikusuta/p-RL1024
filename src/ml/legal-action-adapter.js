@@ -66,7 +66,40 @@ export function projectRnadObservation(view,{seat,context=null}={}){
     if(!Array.isArray(view.self.team))throw new TypeError('Missing own battle team');
     result.self=fields(view.self,ownBattleKeys);
     result.self.team=view.self.team.map(ownPokemon);
-    result.opponent=fields(view.opponent,opponentBattleKeys.filter(x=>x!=='stages'));
+    result.opponent=fields(view.opponent,opponentBattleKeys.filter(x=>
+      !['stages','publicObservation','types'].includes(x)));
+    if(Object.hasOwn(result.opponent,'speciesId')&&
+      typeof result.opponent.speciesId!=='string')
+      throw new TypeError('Invalid public opponent species ID');
+    if(Object.hasOwn(result.opponent,'status')&&
+      result.opponent.status!==null&&typeof result.opponent.status!=='string')
+      throw new TypeError('Invalid public opponent status');
+    for(const key of ['hpPercent','remaining'])if(Object.hasOwn(result.opponent,key)&&
+      !Number.isFinite(result.opponent[key]))
+      throw new TypeError('Invalid public opponent scalar');
+    if(view.opponent?.types!=null){
+      if(!Array.isArray(view.opponent.types)||
+        !view.opponent.types.every(x=>typeof x==='string'))
+        throw new TypeError('Invalid public opponent types');
+      result.opponent.types=[...view.opponent.types];
+    }
+    if(view.opponent?.publicObservation!=null){
+      const raw=view.opponent.publicObservation;
+      if(!object(raw))throw new TypeError('Invalid public reveal');
+      const obs=fields(raw,['appearanceId']);
+      if(Object.hasOwn(obs,'appearanceId')&&
+        typeof obs.appearanceId!=='string')
+        throw new TypeError('Invalid public appearance');
+      for(const key of ['usedMoves','observedItemIds','observedAbilityIds']){
+        if(Object.hasOwn(raw,key)){
+          if(!Array.isArray(raw[key])||raw[key].length>256||
+            !raw[key].every(x=>typeof x==='string'))
+            throw new TypeError('Invalid public revealed '+key);
+          obs[key]=[...raw[key]];
+        }
+      }
+      result.opponent.publicObservation=obs;
+    }
     if(view.opponent?.stages!==undefined){
       const stageNames=['atk','def','spa','spd','spe','accuracy','evasion'];
       const raw=view.opponent.stages;
@@ -75,10 +108,7 @@ export function projectRnadObservation(view,{seat,context=null}={}){
       if(Object.values(result.opponent.stages).some(x=>!Number.isFinite(x)))
         throw new TypeError('Invalid opponent stage value');
     }
-    if(Object.hasOwn(result.opponent,'publicObservation'))
-      result.opponent.publicObservation=fields(
-        result.opponent.publicObservation,publicObservationKeys);
-    result.field=fields(view.field,fieldKeys.filter(key=>key!=='sideEffects'));
+     result.field=fields(view.field,fieldKeys.filter(key=>key!=='sideEffects'));
     if(Object.hasOwn(view.field??{},'sideEffects')){
       const effects=view.field.sideEffects;
       if(!Array.isArray(effects)||effects.length!==2||
