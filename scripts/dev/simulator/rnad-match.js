@@ -2,6 +2,7 @@
 // Only this trusted runner owns collectors; user-supplied policies receive
 // actor projections and legal candidates, never a commit/accepted callback.
 import {runPhaseMatch} from './phase-match.js';
+import {execFileSync} from 'node:child_process';
 import {createBuiltinPhaseAgents} from './phase-agents.js';
 import {rnadLegalActions,projectRnadObservation} from '../../../src/ml/legal-action-adapter.js';
 import {createRnadTrajectoryCollector} from '../../../src/ml/trajectory-collector.js';
@@ -10,6 +11,12 @@ import provenance from '../../../provenance/manifest.json' with {type:'json'};
 
 const hexSha=x=>typeof x==='string'&&/^[0-9a-f]{40,64}$/i.test(x);
 const positiveSeed=x=>Number.isSafeInteger(x)&&x>=1&&x<=0xffffffff;
+export function verifiedRunningSourceSha(){
+  const sha=execFileSync('git',['rev-parse','HEAD'],{
+    encoding:'utf8',timeout:5000}).trim();
+  if(!/^[a-f0-9]{40}$/.test(sha))throw new Error('Not running a verified Git checkout');
+  return sha;
+}
 
 // Deterministic untrained contract policy; never use these records as
 // a trained R-NaD policy or a performance claim. Selection uses normal Basic.
@@ -40,20 +47,23 @@ export function stage0FixedPolicy({observation,legalActions}){
 // BEFORE invoking the agent's accepted callback.
 export function runRnadAcceptanceSmoke({
   seed=22003,matchId='stage0-smoke',experimentId='rnad-stage0',
-  sourceSha,engineSnapshotSha,policy=stage0FixedPolicy,
+  sourceSha=verifiedRunningSourceSha(),engineSnapshotSha,policy=stage0FixedPolicy,
+  policyVersion='rnad-stage0-fixed-untrained',opponentPolicyVersion=policyVersion,
   maxRounds=64,maxDecisionsPerRound=3000
 }={}){
   if(!positiveSeed(seed)||!hexSha(sourceSha)||!hexSha(engineSnapshotSha)||
     typeof matchId!=='string'||!matchId||typeof experimentId!=='string'||
     !experimentId||typeof policy!=='function'||
-    engineSnapshotSha!==provenance.sourceCommit)
+    engineSnapshotSha!==provenance.sourceCommit||sourceSha!==verifiedRunningSourceSha()||
+    typeof policyVersion!=='string'||!policyVersion||
+    typeof opponentPolicyVersion!=='string'||!opponentPolicyVersion)
     throw new TypeError('Invalid RNAD smoke provenance or policy');
   const collectors=[0,1].map(seat=>createRnadTrajectoryCollector({
     experimentId,matchId,seed,seat,
-    policyVersion:'rnad-stage0-fixed-untrained',
-    opponentPolicyVersion:'rnad-stage0-fixed-untrained',
+    policyVersion,opponentPolicyVersion,
     sourceSha,engineSnapshotSha
   }));
+  const timeline=[]; // Actual acceptance order; never Actor-visible.
   const agents=[0,1].map(seat=>{
     const collector=collectors[seat];
     // Actor handlers never receive the collector, acceptance function,
@@ -78,10 +88,13 @@ export function runRnadAcceptanceSmoke({
         });
         return proposed.action;
       },
-      accepted({action}){collector.commit(action);},
-      finish({result}){
+      accepted({action,authorityReceipt}){
+        const index=collector.commit(action,authorityReceipt)-1;
+        timeline.push({seat,index});
+      },
+      finish({result,authorityReceipt}){
         if(!result.completed)return collector.stats();
-        return collector.finish(result);
+        return collector.finish(result,authorityReceipt);
       }
     };
     return createBuiltinPhaseAgents({
@@ -91,7 +104,14 @@ export function runRnadAcceptanceSmoke({
   const result=runPhaseMatch({seed,agents,maxRounds,maxDecisionsPerRound});
   // Only completed runs produce complete trajectories. Aborted / rejected
   // proposals cannot yield a publishable learned dataset.
-  return {...result,
-    trajectories:result.completed?
-      result.agentStats.map(agent=>agent.battle):null};
+  const trajectories=result.completed?
+    result.agentStats.map(agent=>agent.battle):null;
+  if(trajectories){
+    const counts=trajectories.map(t=>t.accepted_decisions);
+    if(counts.some((n,seat)=>n!==result.actionCounts[seat])||
+      timeline.length!==counts[0]+counts[1])
+      throw new Error('Authority trajectory order/count mismatch');
+  }
+  return {...result,trajectories,
+    jointTimeline:trajectories?timeline:null};
 }
