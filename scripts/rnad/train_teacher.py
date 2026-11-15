@@ -22,21 +22,27 @@ from scripts.rnad.train import state_hash, current_git_sha, frozen_engine_sha
 AQ_WEIGHTS_SHA256="5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e"
 
 def collect(seed, count, folder, *, three_phase=False,
-            teacher='basic-stage0',features_v2=False):
-    root=folder/"teacher-matches"
-    root.mkdir(parents=True,exist_ok=True)
+            teacher='basic-stage0',features_v2=False,reuse_from=None):
+    root=Path(reuse_from) if reuse_from is not None else folder/"teacher-matches"
+    if reuse_from is None:
+        root.mkdir(parents=True,exist_ok=True)
+    elif not root.is_dir():
+        raise ValueError("Cannot reuse missing independent accepted teacher traces")
     traces=[]
     for i in range(count):
         n=seed+i
         file=root/f"teacher-{n}.json"
-        if file.exists():
-            raise ValueError("Refuse to overwrite teacher experiment")
-        cmd=["node","scripts/rnad/export-teacher.mjs",
-             "--seed",str(n),"--out",str(file)]
-        if three_phase:cmd.extend(["--three-phase","true"])
-        if teacher!='basic-stage0':cmd.extend(["--teacher",teacher])
-        if features_v2:cmd.extend(["--features-v2","true"])
-        subprocess.run(cmd,check=True,timeout=120)
+        if reuse_from is None:
+            if file.exists():
+                raise ValueError("Refuse to overwrite teacher experiment")
+            cmd=["node","scripts/rnad/export-teacher.mjs",
+                 "--seed",str(n),"--out",str(file)]
+            if three_phase:cmd.extend(["--three-phase","true"])
+            if teacher!='basic-stage0':cmd.extend(["--teacher",teacher])
+            if features_v2:cmd.extend(["--features-v2","true"])
+            subprocess.run(cmd,check=True,timeout=120)
+        elif not file.is_file():
+            raise ValueError("Cannot reuse missing authority-accepted teacher Match")
         trace=json.loads(file.read_text())
         expected_schema=("rnad-aq-public-belief-three-phase-teacher-v1"
                          if teacher=="aq-public-belief" else
@@ -66,7 +72,7 @@ def collect(seed, count, folder, *, three_phase=False,
     return traces
 
 
-def phase_balanced_mean_loss(events, *, enabled=False):
+def phase_balanced_mean_loss(events, *, enabled=False, weights=None):
     """Each completed Match gives each phase an equal mean-gradient weight.
 
     Standard mode is byte-for-byte the earlier event-mean objective. Each
@@ -75,6 +81,12 @@ def phase_balanced_mean_loss(events, *, enabled=False):
     if not events or any(phase not in ('draft','selection','battle')
                          for phase,_ in events):
         raise ValueError("Missing or malformed accepted event losses")
+    if weights is not None:
+        if (not enabled or not isinstance(weights,dict) or
+            set(weights)!=set(('draft','selection','battle')) or
+            any(type(x) not in (int,float) or not math.isfinite(x) or x<=0
+                for x in weights.values())):
+            raise ValueError("Invalid positive finite phase weights")
     if not enabled:
         return torch.stack([loss for _,loss in events]).mean()
     grouped={p:[] for p in ('draft','selection','battle')}
@@ -82,18 +94,29 @@ def phase_balanced_mean_loss(events, *, enabled=False):
         grouped[phase].append(loss)
     if any(not losses for losses in grouped.values()):
         raise ValueError("Phase-balanced training requires all three phases")
-    return torch.stack([torch.stack(grouped[p]).mean()
-        for p in ('draft','selection','battle')]).mean()
+    if weights is None:
+        return torch.stack([torch.stack(grouped[p]).mean()
+            for p in ('draft','selection','battle')]).mean()
+    return sum(torch.stack(grouped[p]).mean()*weights[p]
+        for p in ('draft','selection','battle'))/sum(weights.values())
 
 
 def train(*,seed=975601,out="artifacts/rnad-teacher",
           three_phase=False,matches=32,epochs=4,
-          teacher='basic-stage0',features_v2=False,phase_balanced=False):
+          teacher='basic-stage0',features_v2=False,phase_balanced=False,
+          phase_profile='equal',label_smoothing=0.0,reuse_teacher_traces=None):
     if (type(seed) is not int or type(matches) is not int or
         type(epochs) is not int or type(three_phase) is not bool or
         type(features_v2) is not bool or (features_v2 and not three_phase) or
         type(phase_balanced) is not bool or
         (phase_balanced and not three_phase) or
+        phase_profile not in ('equal','draft-selection') or
+        (phase_profile!='equal' and not phase_balanced) or
+        type(label_smoothing) not in (int,float) or
+        not math.isfinite(float(label_smoothing)) or
+        not 0 <= float(label_smoothing) <= .15 or
+        (reuse_teacher_traces is not None and
+         not isinstance(reuse_teacher_traces,(str,Path))) or
         not 1<=matches<=256 or not 1<=epochs<=6 or
         teacher not in ('basic-stage0','aq-public-belief') or
         (teacher=='aq-public-belief' and not three_phase) or
@@ -111,7 +134,10 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                     else BATTLE_FEATURE_SCHEMA)
     export_json(model,folder/"initial-model.json",feature_schema=feature_schema)
     traces=collect(seed,matches,folder,three_phase=three_phase,
-                   teacher=teacher,features_v2=features_v2)
+                   teacher=teacher,features_v2=features_v2,
+                   reuse_from=reuse_teacher_traces)
+    phase_weights=({'draft':2.,'selection':2.,'battle':1.}
+                   if phase_profile=='draft-selection' else None)
     optimizer=torch.optim.Adam(model.parameters(),lr=0.0006)
     results=[]
     for epoch in range(epochs):
@@ -138,7 +164,9 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                 a=torch.tensor([event["actions"]],dtype=torch.float32)
                 logits,value,h=model(s,a,memory[seat])
                 memory[seat]=h.detach()
-                loss=F.cross_entropy(logits,torch.tensor([event["choice"]]))
+                loss=F.cross_entropy(
+                    logits,torch.tensor([event["choice"]]),
+                    label_smoothing=float(label_smoothing))
                 target=torch.tensor([float(event["terminal_target"])])
                 phase=event.get("phase")
                 if phase not in phase_count:
@@ -149,7 +177,8 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                 phase_correct[phase]+=matched
                 phase_count[phase]+=1
                 n+=1
-            batch_loss=phase_balanced_mean_loss(losses,enabled=phase_balanced)
+            batch_loss=phase_balanced_mean_loss(
+                losses,enabled=phase_balanced,weights=phase_weights)
             if not torch.isfinite(batch_loss):
                 raise ValueError("Nonfinite teacher learning loss")
             optimizer.zero_grad(set_to_none=True)
@@ -179,6 +208,10 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                       else "rnad-optional-stage0-imitation-report-v1"),
             "feature_schema":feature_schema,
             "phase_balanced":phase_balanced,
+            "phase_profile":phase_profile,
+            "label_smoothing":float(label_smoothing),
+            "reused_authority_accepted_teacher_traces":
+                reuse_teacher_traces is not None,
             "source_sha":current_git_sha(),"engine_sha":frozen_engine_sha(),
             "teacher_id":("rnad-aq-public-belief-v2"
                           if teacher=="aq-public-belief" else
@@ -205,6 +238,10 @@ if __name__=="__main__":
     p.add_argument("--three-phase",action="store_true")
     p.add_argument("--features-v2",action="store_true")
     p.add_argument("--phase-balanced",action="store_true")
+    p.add_argument("--phase-profile",choices=["equal","draft-selection"],
+                   default="equal")
+    p.add_argument("--label-smoothing",type=float,default=0.0)
+    p.add_argument("--reuse-teacher-traces",default=None)
     p.add_argument("--teacher",choices=["basic-stage0","aq-public-belief"],
                    default="basic-stage0")
     args=p.parse_args()
@@ -212,4 +249,8 @@ if __name__=="__main__":
                            epochs=args.epochs,three_phase=args.three_phase,
                            teacher=args.teacher,
                            features_v2=args.features_v2,
-                           phase_balanced=args.phase_balanced),indent=2))
+                           phase_balanced=args.phase_balanced,
+                           phase_profile=args.phase_profile,
+                           label_smoothing=args.label_smoothing,
+                           reuse_teacher_traces=args.reuse_teacher_traces),
+                     indent=2))
