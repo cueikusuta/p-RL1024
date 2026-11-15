@@ -1,8 +1,9 @@
 name: RNAD-003 phase learning and independent population recheck
 on:
-  # The initial hosted run was launched on PR #6 as #43755157523.
-  # Expensive teacher/pretraining and 1,000+ Match evaluations must not
-  # repeat automatically on every subsequent Draft PR commit.
+  # Bounded one-time re-execution of the teacher job after a test fixture fix.
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-v2-research-next.yml']
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -180,7 +181,9 @@ jobs:
           retention-days: 30
 
   independent-rank:
-    if: github.repository == 'cueikusuta/p-RL1024' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024')
+    # Original separate fresh-seed ranking is already running under #43755157523;
+    # don't duplicate those 1,000+ real Matches on a teacher-only retry.
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 130
     permissions:
