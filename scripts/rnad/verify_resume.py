@@ -7,25 +7,27 @@ from pathlib import Path
 from scripts.rnad.train import train
 
 
-def verify(seed=975023):
+def verify(seed=975023,three_phase=False):
     with tempfile.TemporaryDirectory() as root:
         a=Path(root)/'continuous'
         b=Path(root)/'interrupted'
-        uninterrupted=train(seed=seed,matches=2,out=str(a))
-        train(seed=seed,matches=1,out=str(b))
+        uninterrupted=train(seed=seed,matches=2,out=str(a),
+                            three_phase=three_phase)
+        train(seed=seed,matches=1,out=str(b),three_phase=three_phase)
         # Changing the objective or magnet schedule cannot silently
         # continue an existing policy series under the same model label.
         for changed in ({'eta':.05},{'magnet_period':5}):
             try:
                 train(seed=seed,matches=1,out=str(b),resume=True,
-                      **changed)
+                      three_phase=three_phase,**changed)
             except ValueError as exc:
                 if 'checkpoint' not in str(exc).lower() and 'identity' not in str(exc).lower():
                     raise
             else:
                 raise AssertionError(
                     'Checkpoint accepted a changed R-NaD learning schedule')
-        resumed=train(seed=seed,matches=1,out=str(b),resume=True)
+        resumed=train(seed=seed,matches=1,out=str(b),resume=True,
+                      three_phase=three_phase)
         fields=('model_sha256','magnet_sha256',
                 'completed_matches','updates')
         for key in fields:
@@ -42,6 +44,7 @@ def verify(seed=975023):
         if next1!=next2:
             raise AssertionError('Resumed policy changes authoritative Match behavior')
         return {'schema':'rnad-resume-equivalence-v1','seed':seed,
+                'three_phase':three_phase,
                 'completed_matches':2,
                 'model_sha256':uninterrupted['model_sha256'],
                 'magnet_sha256':uninterrupted['magnet_sha256'],
@@ -52,5 +55,6 @@ def verify(seed=975023):
 if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--seed',type=int,default=975023)
+    p.add_argument('--three-phase',action='store_true')
     a=p.parse_args()
-    print(json.dumps(verify(a.seed),indent=2))
+    print(json.dumps(verify(a.seed,three_phase=a.three_phase),indent=2))
