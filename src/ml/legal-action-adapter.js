@@ -108,14 +108,37 @@ export function projectRnadObservation(view,{seat,context=null}={}){
       if(Object.values(result.opponent.stages).some(x=>!Number.isFinite(x)))
         throw new TypeError('Invalid opponent stage value');
     }
-     result.field=fields(view.field,fieldKeys.filter(key=>key!=='sideEffects'));
+    result.field=fields(view.field,fieldKeys.filter(key=>key!=='sideEffects'));
+    // Field/weather/terrain are public ONLY as versioned primitive values.
+    // Clone-based projection without type validation could carry a nested
+    // object containing training-only or otherwise private data.
+    for(const name of ['weather','terrain']){
+      if(Object.hasOwn(result.field,name)&&result.field[name]!==null&&
+        typeof result.field[name]!=='string')
+        throw new TypeError('Invalid visible field '+name);
+    }
+    if(Object.hasOwn(result.field,'trickRoomTurns')&&
+      (!Number.isSafeInteger(result.field.trickRoomTurns)||
+        result.field.trickRoomTurns<0||
+        result.field.trickRoomTurns>64))
+      throw new TypeError('Invalid visible Trick Room turns');
     if(Object.hasOwn(view.field??{},'sideEffects')){
       const effects=view.field.sideEffects;
       if(!Array.isArray(effects)||effects.length!==2||
-        effects.some(side=>!Array.isArray(side)))
+        effects.some(side=>!Array.isArray(side)||side.length>32))
         throw new TypeError('Invalid visible field side effects');
-      result.field.sideEffects=effects.map(side=>side.map(entry=>
-        fields(entry,['id','layers','duration'])));
+      result.field.sideEffects=effects.map(side=>side.map(entry=>{
+        if(!object(entry)||typeof entry.id!=='string'||!entry.id)
+          throw new TypeError('Invalid visible side-effect ID');
+        const publicEntry=fields(entry,['id','layers','duration']);
+        for(const name of ['layers','duration']){
+          if(Object.hasOwn(publicEntry,name)&&
+            (!Number.isSafeInteger(publicEntry[name])||
+              publicEntry[name]<0||publicEntry[name]>64))
+            throw new TypeError('Invalid visible side-effect '+name);
+        }
+        return publicEntry;
+      }));
     }
   }else{
     Object.assign(result,fields(view,['round','score','budget','grant']));

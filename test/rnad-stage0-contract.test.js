@@ -180,3 +180,33 @@ test('public reveal primitive-only schema rejects nested adversarial payloads',(
   assert.throws(()=>projectRnadObservation(hidden,{seat:0}),
     /Invalid public opponent scalar/);
 });
+
+test('battle public field schema rejects secret-bearing nested weather and hazard fields',()=>{
+  const view={requestType:'turn',turn:1,self:{team:[{
+    speciesId:'own',hp:100,maxHP:100,moves:[{id:'tackle',disabled:false}]
+  }],active:0},opponent:{speciesId:'visible',hpPercent:100},
+  field:{weather:'raindance',terrain:null,trickRoomTurns:0,
+    sideEffects:[[{id:'stealthrock',layers:1}],[]]}};
+  const expected=projectRnadObservation(view,{seat:0});
+  assert.equal(expected.field.weather,'raindance');
+  assert.equal(expected.field.sideEffects[0][0].layers,1);
+  const nestedWeather=structuredClone(view);
+  nestedWeather.field.weather={id:'raindance',hiddenSet:'SECRET'};
+  assert.throws(()=>projectRnadObservation(nestedWeather,{seat:0}),
+    /Invalid visible field weather/);
+  const nestedTerrain=structuredClone(view);
+  nestedTerrain.field.terrain={id:'grassyterrain',secret:'SECRET'};
+  assert.throws(()=>projectRnadObservation(nestedTerrain,{seat:0}),
+    /Invalid visible field terrain/);
+  const nestedTurns=structuredClone(view);
+  nestedTurns.field.trickRoomTurns={turns:2,secret:'SECRET'};
+  assert.throws(()=>projectRnadObservation(nestedTurns,{seat:0}),
+    /Invalid visible Trick Room turns/);
+  const nestedSideEffect=structuredClone(view);
+  nestedSideEffect.field.sideEffects[0][0].id={id:'stealthrock',secret:'SECRET'};
+  assert.throws(()=>projectRnadObservation(nestedSideEffect,{seat:0}),
+    /Invalid visible side-effect ID/);
+  const secretPadding=structuredClone(view);
+  secretPadding.field.sideEffects[0][0].hiddenSet={moves:['SECRET']};
+  assert.deepEqual(projectRnadObservation(secretPadding,{seat:0}),expected);
+});
