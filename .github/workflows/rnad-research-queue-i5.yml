@@ -1,8 +1,9 @@
 name: RNAD-003 bounded research queue — 36 independent CPU studies
 on:
-  # Initial 36-study hosted queue was submitted as Run #43756892480.
-  # Use manual dispatch for deliberate later batches; GitHub PR path filters
-  # match the whole PR diff, and would otherwise repeat every expensive job.
+  # Retry of verified model preparation after a Python print() typo.
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-research-queue-i5.yml']
   workflow_dispatch:
 permissions: {}
 jobs:
@@ -56,7 +57,7 @@ jobs:
               shutil.copyfile(file,dst)
               manifest['models'][name]=sh(dst)
           (Path('queue/models')/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-          print(json.dumps(manifest,flush=True))
+          print(json.dumps(manifest),flush=True)
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -214,7 +215,9 @@ jobs:
           retention-days: 30
 
   teacher-sweep:
-    if: github.repository == 'cueikusuta/p-RL1024' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024')
+    # Four teacher variants already entered the first queue (#43756892480).
+    # Retry only the skipped, source-bound 32 evaluation shards.
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 140
     permissions: {contents: read}
@@ -374,7 +377,7 @@ jobs:
               raise ValueError('Mixed source and engine in aggregate')
           path=Path('queue/queued-study-report.json')
           path.write_text(json.dumps(results,indent=2,allow_nan=False)+'\n')
-          print(json.dumps(results,flush=True))
+          print(json.dumps(results),flush=True)
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
