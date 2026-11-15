@@ -83,11 +83,28 @@ jobs:
       - name: Paired held-out full Match evaluation (diagnostic only)
         run: |
           node scripts/rnad/evaluate.mjs --model artifacts/rnad-001/final-model.json --seed 987613 --pairs 1 --out artifacts/rnad-001/heldout.json
+      - name: Extended 16-full-Match learning on GitHub-hosted CPU (no Champion claim)
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m scripts.rnad.train --seed 975105 --matches 16 --out artifacts/rnad-16
+      - name: Verify all 16 unique authoritative Matches and actual parameter updates
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m scripts.rnad.verify_smoke --out artifacts/rnad-16 --seed 975105 --matches 16
+      - name: Held-out 8-seed paired diagnostic against frozen Stage0 (not promotion)
+        if: github.event_name == 'pull_request'
+        run: |
+          node scripts/rnad/evaluate.mjs --model artifacts/rnad-16/final-model.json --seed 987681 --pairs 8 --out artifacts/rnad-16/heldout-16.json
       - name: Save unpromoted experimental evidence (NOT durable Champion storage)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rnad-001-smoke-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/rnad-001/
+          path: |
+            artifacts/rnad-001/
+            artifacts/rnad-16/report.json
+            artifacts/rnad-16/heldout-16.json
+            artifacts/rnad-16/final-model.json
+            artifacts/rnad-16/checkpoints/latest.json
           if-no-files-found: warn
           retention-days: 30
