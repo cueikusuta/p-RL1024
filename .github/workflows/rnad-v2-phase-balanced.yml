@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   phase-balanced:
-    if: github.repository == 'cueikusuta/p-RL1024'
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.sha == 'f0d1c4d2be8d9a1487fb75df1f5b6b9ed577259c'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
@@ -34,7 +34,7 @@ jobs:
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
           node scripts/verify-snapshot.mjs
-          python test/rnad-phase-balanced-loss.test.py
+          PYTHONPATH=. python test/rnad-phase-balanced-loss.test.py
           node --test test/rnad-three-phase-features-v2.test.js
       - name: Train 128 accepted AQ public-teacher full Matches, 4 epochs and equal gradient by phase
         run: |
