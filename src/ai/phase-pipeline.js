@@ -98,7 +98,7 @@ export function createPhasePipeline(agents,{seat}={}){
     pending={stage,round,action:cleanAction(action),handoff};
     return action;
   }
-  function accepted(stage,view,action){
+  function accepted(stage,view,action,authorityReceipt=null){
     if(!pending||pending.stage!==stage||!current||
       current.round!==pending.round||
       JSON.stringify(action)!==JSON.stringify(pending.action))
@@ -123,7 +123,8 @@ export function createPhasePipeline(agents,{seat}={}){
     if(pending.handoff!==null)notes[stage]=pending.handoff;
     pending=null;
     handlers[stage].accepted?.({view:immutable(clone(view)),action:ids,
-      context:snapshot(),seat,round:current.round});
+      context:snapshot(),seat,round:current.round,
+      authorityReceipt});
   }
   function roundEnd(round,winner){
     if(pending||!current||current.round!==round||
@@ -133,13 +134,13 @@ export function createPhasePipeline(agents,{seat}={}){
     completed.push(current);
     current=null;
   }
-  function finish(result){
+  function finish(result,authorityReceipt=null){
     if(finished||pending||current||!isObject(result))
       throw new Error('Pipeline not ready to finish');
     finished=true;
     return Object.fromEntries(STAGES.map(stage=>[stage,
       handlers[stage].finish?.({result:immutable(clone(result)),
-        context:snapshot(),seat})??null]));
+        context:snapshot(),seat,authorityReceipt})??null]));
   }
   return {ids,select,accepted,roundEnd,finish,snapshot};
 }
