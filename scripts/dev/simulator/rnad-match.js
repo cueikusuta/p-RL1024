@@ -49,6 +49,7 @@ export function runRnadAcceptanceSmoke({
   seed=22003,matchId='stage0-smoke',experimentId='rnad-stage0',
   sourceSha=verifiedRunningSourceSha(),engineSnapshotSha,policy=stage0FixedPolicy,
   policyVersion='rnad-stage0-fixed-untrained',opponentPolicyVersion=policyVersion,
+  policyVersions=[policyVersion,policyVersion],
   maxRounds=64,maxDecisionsPerRound=3000
 }={}){
   if(!positiveSeed(seed)||!hexSha(sourceSha)||!hexSha(engineSnapshotSha)||
@@ -56,11 +57,13 @@ export function runRnadAcceptanceSmoke({
     !experimentId||typeof policy!=='function'||
     engineSnapshotSha!==provenance.sourceCommit||sourceSha!==verifiedRunningSourceSha()||
     typeof policyVersion!=='string'||!policyVersion||
-    typeof opponentPolicyVersion!=='string'||!opponentPolicyVersion)
+    typeof opponentPolicyVersion!=='string'||!opponentPolicyVersion||
+    !Array.isArray(policyVersions)||policyVersions.length!==2||
+    policyVersions.some(x=>typeof x!=='string'||!x))
     throw new TypeError('Invalid RNAD smoke provenance or policy');
   const collectors=[0,1].map(seat=>createRnadTrajectoryCollector({
     experimentId,matchId,seed,seat,
-    policyVersion,opponentPolicyVersion,
+    policyVersion:policyVersions[seat],opponentPolicyVersion:policyVersions[1-seat],
     sourceSha,engineSnapshotSha
   }));
   const timeline=[]; // Actual acceptance order; never Actor-visible.
