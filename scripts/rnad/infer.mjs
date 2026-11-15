@@ -2,7 +2,9 @@
 // PyTorch-exported weights. This lives inside Node throughout a Match;
 // no Python subprocess per action and no modification to original AI paths.
 import {readFileSync} from 'node:fs';
-import {encodeRnadDecision} from '../../src/ml/rnad-features.js';
+import {encodeRnadDecision,RNAD_FEATURE_SCHEMA} from '../../src/ml/rnad-features.js';
+import {encodeRnadThreePhaseDecision,RNAD_THREE_PHASE_FEATURE_SCHEMA}
+  from '../../src/ml/rnad-phase-features.js';
 export const RNAD_MODEL_SCHEMA='rnad-small-gru-v1';
 const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const sigmoid=x=>1/(1+Math.exp(-x));
@@ -30,6 +32,10 @@ export class PersistentRNADInference{
       payload.hidden!==128||payload.state_features!==32||
       payload.action_features!==16||!payload.weights)
       throw new TypeError('Wrong RNAD model/schema dimensions');
+    this.featureSchema=payload.feature_schema??RNAD_FEATURE_SCHEMA;
+    if(![RNAD_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA]
+      .includes(this.featureSchema))
+      throw new TypeError('Unsupported RNAD model feature schema');
     const p=payload.weights,H=128;
     this.params={};
     for(const [name,shape] of Object.entries({
@@ -93,7 +99,11 @@ export class PersistentRNADInference{
     return {logits,value,memory};
   }
   inferProjected(observation,legalActions,seat,opts){
-    const f=encodeRnadDecision(observation,legalActions);
+    if(this.featureSchema===RNAD_FEATURE_SCHEMA&&observation?.phase!=='battle')
+      throw new TypeError('Battle-only RNAD weights cannot control other phases');
+    const f=this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA?
+      encodeRnadThreePhaseDecision(observation,legalActions):
+      encodeRnadDecision(observation,legalActions);
     return this.infer(f.state,f.actions,seat,opts);
   }
 }
@@ -101,6 +111,7 @@ export class RNADMixedPolicy {
   constructor({model,magnet,epsilon=0.02}){
     if(!(model instanceof PersistentRNADInference)||
       !(magnet instanceof PersistentRNADInference)||
+      model.featureSchema!==magnet.featureSchema||
       !finite(epsilon)||epsilon<0||epsilon>.5)
       throw new TypeError('Invalid RNAD behavior/magnet');
     this.model=model;this.magnet=magnet;this.epsilon=epsilon;
