@@ -1,0 +1,69 @@
+name: I1 single-runner CPU fast 256
+on:
+  push:
+    branches: ['research/gha-cpu-shards-20261115']
+    paths:
+      - '.github/workflows/i975-cpu-fast.yml'
+      - 'scripts/run-hosted-fast.mjs'
+      - 'scripts/run-experiment.mjs'
+      - 'scripts/merge-hosted-training.mjs'
+      - 'scripts/hosted-proof.mjs'
+      - 'test/hosted-proof.test.js'
+  workflow_dispatch:
+    inputs:
+      model:
+        type: choice
+        options: [RL-Linear, RL-Deep]
+        default: RL-Deep
+      opponent:
+        type: choice
+        options: [V2E, RL-Deep, AQ-Base-001]
+        default: AQ-Base-001
+      total_matches:
+        type: string
+        default: '256'
+      shards:
+        type: string
+        default: '4'
+      parallel:
+        type: string
+        default: '4'
+      seed:
+        type: string
+        default: '975020'
+permissions: {}
+jobs:
+  fast:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify snapshot and shard evidence rules
+        run: |
+          node scripts/verify-snapshot.mjs
+          node --test test/hosted-shards.test.js test/hosted-proof.test.js
+      - name: Parallel isolated shard training within one 4-vCPU GitHub-hosted runner
+        env:
+          MODEL: ${{ inputs.model || 'RL-Deep' }}
+          OPPONENT: ${{ inputs.opponent || 'AQ-Base-001' }}
+          TOTAL: ${{ inputs.total_matches || '256' }}
+          SHARDS: ${{ inputs.shards || '4' }}
+          PARALLEL: ${{ inputs.parallel || '4' }}
+          SEED: ${{ inputs.seed || '975020' }}
+        run: node scripts/run-hosted-fast.mjs --model "$MODEL" --opponent "$OPPONENT" --total "$TOTAL" --shards "$SHARDS" --parallel "$PARALLEL" --seed "$SEED" --out artifacts/fast-training-aggregate.json
+      - name: Save complete weights, checkpoints, digests, timing and aggregate
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i1-fast-training-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14

@@ -44,7 +44,7 @@ jobs:
       - name: Verify source snapshot
         run: node scripts/verify-snapshot.mjs
       - name: Verify optimized model contracts
-        run: node --test test/parallel-frozen-deep.test.js test/fast-deep-features.test.js test/hosted-shards.test.js
+        run: node --test test/parallel-frozen-deep.test.js test/fast-deep-features.test.js test/hosted-shards.test.js test/hosted-proof.test.js
       - name: Verify original versus optimized online training and model SHA
         run: node scripts/benchmark-training.mjs
       - name: Verify original versus optimized full-Match throughput and digest
