@@ -6,6 +6,8 @@ import {createHash} from 'node:crypto';
 import {runRnadAcceptanceSmoke,stage0FixedPolicy,verifiedRunningSourceSha}
   from '../dev/simulator/rnad-match.js';
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
+import {RNAD_THREE_PHASE_FEATURE_SCHEMA}
+  from '../../src/ml/rnad-phase-features.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 import {pairedHoeffding95} from './aggregate-eval.mjs';
 
@@ -31,15 +33,19 @@ export function evaluatePaired({modelPath,seed=987613,pairs=1}={}){
         model:new PersistentRNADInference(modelPath),
         magnet:new PersistentRNADInference(modelPath),
         epsilon:0});
+      const neuralThreePhase=net.model.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA;
       const outcome=runRnadAcceptanceSmoke({
         seed:gameSeed,matchId:'eval-'+gameSeed+'-'+candidateSeat,
         experimentId:'RNAD-001-heldout',
         sourceSha:verifiedRunningSourceSha(),
         engineSnapshotSha:provenance.sourceCommit,
-        policyVersion:'RNAD-001-eval',
+        policyVersion:neuralThreePhase?'RNAD-002-three-phase-eval':'RNAD-001-eval',
         opponentPolicyVersion:'fixed-stage0',
         policyVersions:[0,1].map(seat=>seat===candidateSeat?
-          'RNAD-001-eval':'fixed-stage0'),
+          (neuralThreePhase?'RNAD-002-three-phase-eval':'RNAD-001-eval'):
+          'fixed-stage0'),
+        phasePolicies:neuralThreePhase?[0,1].map(seat=>
+          seat===candidateSeat?(ctx=>net.choose(ctx)):null):null,
         policy:ctx=>ctx.seat===candidateSeat?net.choose(ctx):
           stage0FixedPolicy(ctx)
       });
@@ -58,7 +64,9 @@ export function evaluatePaired({modelPath,seed=987613,pairs=1}={}){
   return {schema:'rnad-paired-full-match-eval-v1',
     source_sha:verifiedRunningSourceSha(),
     engine_sha:provenance.sourceCommit,
-    model_sha256:modelSha256,opponent_id:'stage0-fixed-untrained',
+    model_sha256:modelSha256,
+    model_feature_schema:new PersistentRNADInference(modelPath).featureSchema,
+    opponent_id:'stage0-fixed-untrained',
     seed,pairs,matches,
     wins,win_rate:wins/matches,ci95:[ciLower,ciUpper],
     ci_method:'independent-seed-block-Hoeffding',
