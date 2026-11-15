@@ -1,3 +1,27 @@
+# RNAD-001 latest verified status (2026-11-15)
+
+> This section supersedes older chronological notes below. **Only GitHub-hosted `ubuntu-latest` runners** are permitted for RNAD-001; no self-hosted runners. Existing Issue #5 / Draft PR #6 continue; **no Champion promoted or main merge**.
+
+## Executed evidence and interpretation
+
+| Research stage | Real GitHub-hosted evidence | Result |
+|---|---|---|
+| 16-match learner smoke | [#43681087240](https://github.com/cueikusuta/p-RL1024/actions/runs/43681087240) | 16 complete four-win Matches, 2,629 accepted battle decisions, 16 optimizer updates |
+| Pure 256-match RNAD selfplay | [#43681846580](https://github.com/cueikusuta/p-RL1024/actions/runs/43681846580) | 256 Matches, 39,984 accepted decisions, 256 optimizer updates; frozen Stage0 opponent holdout: initial 4/64 wins, trained 9/64; not significant |
+| Fixed-Stage0 imitation teacher, then RNAD256 | Archived [#43683127479](https://github.com/cueikusuta/p-RL1024/actions/runs/43683127479) | Source-bound optional *local fixed policy*, **not Metamon** |
+| 128 independent seed-pair A/B versus Stage0 | [#43697864312](https://github.com/cueikusuta/p-RL1024/actions/runs/43697864312) | Teacher 123/256 (48.05%), teacher+256 RNAD 115/256 (44.92%), paired gain −3.125 pp, conservative 95% bounds −27.13…+20.88 pp |
+| **Direct teacher vs RNAD256** | Same [#43697864312](https://github.com/cueikusuta/p-RL1024/actions/runs/43697864312) | RNAD 69/128 (53.91%) on 64 unseen seed pairs with both seats; 95% paired bounds 36.93%–70.88%, not significant |
+| **Low eta/slow magnet ablation** | [#43698077819](https://github.com/cueikusuta/p-RL1024/actions/runs/43698077819) | `eta=.05`, `magnet_period=16`, 64 complete Matches, 6,892 accepted decisions, 64 updates; 32/64 versus teacher (50%) and 27/64 versus earlier 256 RNAD (42.19%), neither significant |
+
+All figures reflect their specific seeds, model opponents and revisions. **Do not rank models from their cross-opponent raw win rates.** Direct head-to-head and identical-seed baselines are deliberately distinct experiments. A few dozen paired seeds cannot establish a Champion.
+
+Current implementation additions: strict `scripts/rnad/compare_warmstart_eval.mjs` validation (score, round, source/model SHA, seed window, both seats), direct neural-to-neural `scripts/rnad/evaluate-direct.mjs`, bounded `research_eta_ablation.py` with a GitHub-hosted-only workflow, and `train.py` full-checkpoint identity binding of `regularization_eta` and `magnet_period`. The latest-HEAD CI must re-verify both ordinary and failed-hyperparameter resume.
+
+**Remaining Goal #5 gates:** learn Draft and Selection (currently Basic), improve categorical Pokémon/action encodings and actual win rate, independently verify original-paper mathematical details, valid external teacher licensing, reliable 2,048/16,384 Match longer-term continuation and durable storage, independent 1,000+ paired Champion confidence bounds, and separate latest-HEAD ChatGPT Chat independent review/P0-P1 clearance. Existing Draft PR #6 stays unmerged until all mandatory Stage gates for integration pass.
+
+---
+
+## Historical notes (chronological; older “pending” claims are superseded above)
 # RNAD-001 implementation status — 2026-11-15 (Issue #5 / Draft PR #6)
 
 **Required execution environment: GitHub-hosted GitHub Actions `ubuntu-latest` ONLY. Do not use any self-hosted runner.** This is the latest explicit user instruction, overriding all earlier recommendations.
