@@ -1,0 +1,260 @@
+name: RNAD-002 hosted exact-checkpoint multi-generation study
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-three-phase-generations.yml']
+permissions: {}
+concurrency:
+  group: rnad-002-exact-checkpoint-i5
+  cancel-in-progress: false
+jobs:
+  generation-study:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest # GitHub-hosted ONLY, no self-hosted runners.
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: \${{ github.token }}
+      GH_REPO: cueikusuta/p-RL1024
+      RNAD_PIN: d9efa8936e9fd400eed626bb38bbbe81cbf28348
+      ROOT: artifacts/generations
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout exact 16-match source to preserve checkpoint identity
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: d9efa8936e9fd400eed626bb38bbbe81cbf28348
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Pin CPU Torch and NumPy; verify frozen source
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          test "$(git rev-parse HEAD)" = "$RNAD_PIN"
+          node scripts/verify-snapshot.mjs
+      - name: Restore actual full-state 16-Match learner and unchanged teacher
+        run: |
+          mkdir -p "$ROOT"
+          gh run download 43703479004 --repo "$GH_REPO" \
+            --name rnad-002-basic-teacher-43703479004-1 --dir "$ROOT"
+          test -s "$ROOT/study-report.json"
+          test -s "$ROOT/teacher/trained-model.json"
+          test -s "$ROOT/selfplay/checkpoints/latest.json"
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          from scripts.rnad.neural import RNADNetwork,load_exported_json,THREE_PHASE_FEATURE_SCHEMA
+          from scripts.rnad.train import state_hash
+          r=Path(os.environ['ROOT']);s=json.loads((r/'study-report.json').read_text())
+          index=json.loads((r/'selfplay/checkpoints/latest.json').read_text())
+          md=index['metadata'];t=r/'teacher/trained-model.json'
+          m=r/'selfplay/final-model.json';pt=r/'selfplay/checkpoints'/index['checkpoint_file']
+          if not (s['source_sha']==os.environ['RNAD_PIN'] and s['rnad_completed_matches']==16
+              and s['rnad_selfplay_seed']==975361 and s['rnad_optimizer_updates']==16
+              and md['source_sha']==md['training_code_sha']==os.environ['RNAD_PIN']
+              and md['model_id']=='RNAD-002-3phase'
+              and md['observation_schema_version']==THREE_PHASE_FEATURE_SCHEMA
+              and md['regularization_eta']==.2 and md['magnet_period']==4
+              and md['initial_seed']==975361 and md['next_match_seed']==975377
+              and md['completed_matches']==md['updates']==16
+              and md['initialization_sha256']==hashlib.sha256(t.read_bytes()).hexdigest()
+              and len(set(md['completed_match_ids']))==16
+              and md['accepted_decisions']==s['rnad_accepted_actions']>0
+              and index['checkpoint_sha256']==s['rnad_checkpoint_sha256']
+              and hashlib.sha256(pt.read_bytes()).hexdigest()==index['checkpoint_sha256']):
+              raise ValueError('Untrusted or incomplete 16-Match full-state checkpoint')
+          teacher=RNADNetwork();load_exported_json(teacher,t,
+              expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA)
+          learner=RNADNetwork();load_exported_json(learner,m,
+              expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA)
+          if state_hash(teacher)!=s['teacher_model_sha256'] or state_hash(learner)!=s['rnad_model_sha256']:
+              raise ValueError('Immutable teacher/learner model hashes differ')
+          print(json.dumps({'verified_generation':16,'accepted_decisions':md['accepted_decisions'],
+              'checkpoint_sha256':index['checkpoint_sha256'],
+              'next_seed':md['next_match_seed'],'source_sha':os.environ['RNAD_PIN']}),flush=True)
+          PY
+      - name: Continue optimizer, magnet, scheduler and RNG state to 64, 128, 256 generations
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,shutil
+          from pathlib import Path
+          from scripts.rnad.train import train,current_git_sha
+          root=Path(os.environ['ROOT']);folder=root/'selfplay'
+          teacher=root/'teacher/trained-model.json';out=root/'generations'
+          out.mkdir(exist_ok=True);indexfile=folder/'checkpoints/latest.json'
+          last_count=json.loads(indexfile.read_text())['metadata']['accepted_decisions']
+          history=[]
+          for target in (64,128,256):
+              while True:
+                  old=json.loads(indexfile.read_text())['metadata']['completed_matches']
+                  if old>=target:break
+                  if old<16 or old%16:raise ValueError('Non-boundary generation')
+                  report=train(seed=975361,matches=16,out=str(folder),
+                      resume=True,three_phase=True,initial_model=str(teacher),
+                      eta=.2,magnet_period=4)
+                  index=json.loads(indexfile.read_text());md=index['metadata']
+                  if (md['completed_matches']!=old+16 or md['updates']!=old+16
+                      or report['completed_matches']!=old+16
+                      or report['updates']!=old+16 or
+                      md['next_match_seed']!=975361+old+16 or
+                      md['initial_seed']!=975361 or
+                      md['accepted_decisions']<=last_count or
+                      len(set(md['completed_match_ids']))!=old+16 or
+                      md['completed_match_ids'][old:]!=[
+                          'rnad-match-'+str(n) for n in range(975361+old,975377+old)] or
+                      report['source_sha']!=current_git_sha() or
+                      index['checkpoint_sha256']!=report['last_match_checkpoint_sha']):
+                      raise ValueError('Invalid generation state or accepted events')
+                  checkpoint=folder/'checkpoints'/index['checkpoint_file']
+                  if hashlib.sha256(checkpoint.read_bytes()).hexdigest()!=index['checkpoint_sha256']:
+                      raise ValueError('Corrupt full-state checkpoint bytes')
+                  last_count=md['accepted_decisions']
+                  # The last snapshot is immutable; release earlier full state to save disk.
+                  for previous in (folder/'checkpoints').glob('checkpoint-u*.pt'):
+                      if previous.name!=index['checkpoint_file']:previous.unlink()
+                  print(json.dumps({'generation':old+16,'accepted':last_count,
+                      'model_sha256':report['model_sha256']}),flush=True)
+              if old!=target:raise ValueError('Generation target overshot')
+              shutil.copyfile(folder/'final-model.json',out/f'model-u{target}.json')
+              shutil.copyfile(folder/'checkpoints'/index['checkpoint_file'],
+                              out/index['checkpoint_file'])
+              history.append({'generation':target,'model_sha256':report['model_sha256'],
+                  'checkpoint_sha256':index['checkpoint_sha256'],
+                  'checkpoint_file':index['checkpoint_file'],
+                  'accepted_actions_cumulative':last_count})
+              (out/'progress.json').write_text(json.dumps({
+                  'schema':'rnad-002-verified-multigeneration-v1',
+                  'source_sha':current_git_sha(),
+                  'origin_run_id':43703479004,'origin_generation':16,
+                  'snapshots':history,'is_champion':False},indent=2)+'\n')
+              print('SAVED GENERATION',target,flush=True)
+          PY
+      - name: Independent same-seed 200-game Stage0 checks of teacher, generation 64 and 256
+        run: |
+          set -euo pipefail
+          for name in teacher u64 u256; do
+            if [[ "$name" = teacher ]]; then model="$ROOT/teacher/trained-model.json"
+            else model="$ROOT/generations/model-$name.json"; fi
+            node scripts/rnad/evaluate.mjs --model "$model" \
+              --seed 989101 --pairs 100 --out "$ROOT/generations/stage0-$name.json"
+          done
+      - name: Run 2048 independent held-out complete Matches, both seats, model 256 versus frozen teacher
+        run: |
+          set -euo pipefail
+          for block in $(seq 0 10); do
+            pairs=100
+            if [[ "$block" = 10 ]]; then pairs=24; fi
+            seed=$((990101+block*100))
+            node scripts/rnad/evaluate-direct.mjs \
+              --teacher "$ROOT/teacher/trained-model.json" \
+              --rnad "$ROOT/generations/model-u256.json" \
+              --seed "$seed" --pairs "$pairs" \
+              --out "$ROOT/generations/direct-pair-$block.json"
+          done
+      - name: Validate 1024 unique paired seeds, model identity and true score, then gate generation 512
+        run: |
+          python - <<'PY'
+          import hashlib,json,math,os
+          from pathlib import Path
+          r=Path(os.environ['ROOT']);g=r/'generations'
+          t=hashlib.sha256((r/'teacher/trained-model.json').read_bytes()).hexdigest()
+          m=hashlib.sha256((g/'model-u256.json').read_bytes()).hexdigest()
+          seeds=set(range(990101,991125));seen=set();wins=0
+          files=sorted(g.glob('direct-pair-*.json'))
+          if len(files)!=11:raise ValueError('Incomplete 2048-game evidence blocks')
+          for file in files:
+              x=json.loads(file.read_text());rows=x['rows']
+              if (x['schema']!='rnad-direct-neural-paired-match-v1' or
+                  x['source_sha']!=os.environ['RNAD_PIN'] or
+                  x['teacher_model_sha256']!=t or x['rnad_model_sha256']!=m or
+                  x['model_feature_schema']!='rnad-three-phase-features-v1' or
+                  x['is_champion'] is not False or
+                  len(rows)!=x['matches'] or x['matches']!=2*x['pairs'] or
+                  x['wins']!=sum(row['won'] for row in rows)):
+                  raise ValueError('Invalid direct paired report/model provenance')
+              for row in rows:
+                  key=(row['seed'],row['rnadSeat'])
+                  if (key in seen or key[0] not in seeds or key[1] not in (0,1)
+                      or type(row['won']) is not bool or
+                      not 4<=row['rounds']<=64 or
+                      len(row['score'])!=2 or
+                      max(row['score'])!=4 or
+                      row['score'][key[1] if row['won'] else 1-key[1]]!=4 or
+                      row['score'][1-key[1] if row['won'] else key[1]]>=4):
+                      raise ValueError('Invalid, repeated or forged seat outcome')
+                  seen.add(key);wins+=int(row['won'])
+          if seen!={(seed,seat) for seed in seeds for seat in (0,1)}:
+              raise ValueError('Unmatched or missing held-out seed')
+          baselines={}
+          for name in ('teacher','u64','u256'):
+              x=json.loads((g/f'stage0-{name}.json').read_text())
+              if x['seed']!=989101 or x['pairs']!=100 or x['matches']!=200:
+                  raise ValueError('Mismatched Stage0 comparison')
+              baselines[name]=x['win_rate']
+          p=wins/2048
+          half=math.sqrt(math.log(40)/2048)
+          ci=[max(0,p-half),min(1,p+half)]
+          effective=ci[0]>.5 and baselines['u256']>=baselines['teacher']-.03
+          report={'schema':'rnad-002-2048-direct-evaluation-v1',
+              'model_sha256':m,'source_sha':os.environ['RNAD_PIN'],
+              'completed_training_matches':256,'paired_seed_count':1024,
+              'evaluation_matches':2048,'rnad_wins':wins,'rnad_win_rate':p,
+              'paired_hoeffding_95pct':ci,
+              'stage0_win_rate_by_model_200_games':baselines,
+              'continue_generation_512':effective,'champion_promoted':False}
+          (g/'summary-2048.json').write_text(json.dumps(report,indent=2)+'\n')
+          (g/'continue-512.txt').write_text('yes\n' if effective else 'no\n')
+          print(json.dumps(report),flush=True)
+          PY
+      - name: Advance same exact optimizer series to generation 512 ONLY if evidence shows real improvement
+        run: |
+          if [[ "$(cat "$ROOT/generations/continue-512.txt")" != yes ]]; then
+            echo "Generation 512 withheld: no statistically established improvement."
+            exit 0
+          fi
+          python - <<'PY'
+          import hashlib,json,os,shutil
+          from pathlib import Path
+          from scripts.rnad.train import train
+          r=Path(os.environ['ROOT']);p=r/'selfplay';t=r/'teacher/trained-model.json'
+          for n in range(256,512,16):
+              x=train(seed=975361,matches=16,out=str(p),resume=True,
+                      three_phase=True,initial_model=str(t),eta=.2,magnet_period=4)
+              i=json.loads((p/'checkpoints/latest.json').read_text())
+              if x['completed_matches']!=n+16 or i['metadata']['updates']!=n+16:
+                  raise ValueError('Invalid automatic 512 generation step')
+              state=p/'checkpoints'/i['checkpoint_file']
+              if hashlib.sha256(state.read_bytes()).hexdigest()!=i['checkpoint_sha256']:
+                  raise ValueError('Missing full-state continuation')
+              for old in (p/'checkpoints').glob('checkpoint-u*.pt'):
+                  if old.name!=i['checkpoint_file']:old.unlink()
+              print('ADVANCED',n+16,flush=True)
+          shutil.copyfile(p/'final-model.json',r/'generations/model-u512.json')
+          (r/'generations/generation-512.json').write_text(json.dumps({
+              'completed_matches':512,'model_sha256':x['model_sha256'],
+              'checkpoint_sha256':i['checkpoint_sha256'],'is_champion':False})+'\n')
+          PY
+      - name: Preserve real full-state optimizer/magnet checkpoints and all research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-002-generations-\${{ github.run_id }}-\${{ github.run_attempt }}
+          path: |
+            artifacts/generations/generations/
+            artifacts/generations/study-report.json
+            artifacts/generations/selfplay/report.json
+            artifacts/generations/selfplay/final-model.json
+            artifacts/generations/selfplay/checkpoints/latest.json
+            artifacts/generations/selfplay/checkpoints/checkpoint-u*.pt
+          if-no-files-found: warn
+          retention-days: 30
