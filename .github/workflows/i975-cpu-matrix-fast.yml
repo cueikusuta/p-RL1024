@@ -50,13 +50,23 @@ jobs:
           JOB_INDEX: ${{ matrix.index }}
           RL_FAST_WORKER: '1'
         run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 18 --total 256 --seed 975020 --out artifacts
+      - name: Pack complete shard evidence with fast lossless gzip
+        if: success()
+        env:
+          JOB_INDEX: ${{ matrix.index }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p packed
+          test -f "artifacts/shard-${JOB_INDEX}/wallclock-shard.json"
+          tar -C artifacts --use-compress-program='gzip -1' -cf "packed/shard-${JOB_INDEX}.tar.gz" "shard-${JOB_INDEX}"
       # Artifact name identifies both workflow run and re-run attempt.
       - name: Upload complete shard checkpoint and evaluation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: i1-fast-matrix-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.index }}
-          path: artifacts/
+          path: packed/
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -122,8 +132,15 @@ jobs:
           shopt -s nullglob
           mkdir -p all-shards artifacts
           cp -a artifacts/shard-0 all-shards/shard-0
-          for dir in peer-artifacts/*/shard-*; do
-            cp -a "$dir" "all-shards/$(basename "$dir")"
+          files=(peer-artifacts/*/shard-*.tar.gz)
+          if (( ${#files[@]} != 18 )); then
+            echo "Expected 18 immutable shard archives, found ${#files[@]}" >&2
+            exit 1
+          fi
+          for file in "${files[@]}"; do
+            # Refuse archive path traversal and accidental nested/foreign shard content.
+            tar -tzf "$file" | grep -Ev '^shard-[0-9]+(/|$)' && { echo 'Unsafe shard entry' >&2; exit 1; } || :
+            tar -xzf "$file" -C all-shards
           done
           node scripts/merge-hosted-training.mjs --dir all-shards --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 18 --seed 975020 --out artifacts/training-aggregate.json
       - name: Upload complete leader checkpoint and verified aggregate SHA manifest
