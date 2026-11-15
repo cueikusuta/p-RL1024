@@ -5,49 +5,88 @@ import {runRnadAcceptanceSmoke,stage0FixedPolicy,verifiedRunningSourceSha}
   from '../dev/simulator/rnad-match.js';
 import {encodeRnadDecision,RNAD_FEATURE_SCHEMA}
   from '../../src/ml/rnad-features.js';
+import {encodeRnadThreePhaseDecision,RNAD_THREE_PHASE_FEATURE_SCHEMA}
+  from '../../src/ml/rnad-phase-features.js';
+import {chooseTeam,chooseSelection} from '../dev/simulator/draft-ai.js';
+import {playableSets} from '../../src/production-runtime.js';
+import data from '../../data/catalog/battle-data.json' with {type:'json'};
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
-export function createTeacherMatch(seed){
-  if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff)
+function stage0ThreePhaseTeacher({observation,legalActions,rng}){
+  if(observation.phase==='battle')
+    return stage0FixedPolicy({observation,legalActions});
+  const action=observation.phase==='draft'?
+    chooseTeam(observation,{data,rng}):
+    chooseSelection(observation,{data,sets:playableSets,rng});
+  if(!legalActions.some(candidate=>
+      JSON.stringify(candidate)===JSON.stringify(action)))
+    throw new Error('Trusted Basic phase action not in authoritative legal set');
+  return {action,behaviorLogProbability:0,
+    referenceLogProbability:-Math.log(legalActions.length),predictedValue:0};
+}
+export function createTeacherMatch(seed,{threePhase=false}={}){
+  if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
+    typeof threePhase!=='boolean')
     throw new TypeError('Invalid teacher seed');
   const match=runRnadAcceptanceSmoke({
     seed,matchId:'rnad-stage0-teacher-'+seed,
     experimentId:'RNAD-001-optional-stage0-imitation',
     sourceSha:verifiedRunningSourceSha(),
     engineSnapshotSha:provenance.sourceCommit,
-    policyVersion:'stage0-fixed-teacher',
+    policyVersion:threePhase?'basic-stage0-3phase-teacher':'stage0-fixed-teacher',
+    phasePolicy:threePhase?stage0ThreePhaseTeacher:null,
     policy:stage0FixedPolicy});
   if(!match.completed||!match.jointTimeline||!match.trajectories||
      ![0,1].includes(match.winner)||match.score[match.winner]!==4)
     throw new Error('Teacher data requires a complete authoritative Match');
   const examples=match.jointTimeline.map(({seat,index})=>{
     const record=match.trajectories[seat].decisions[index];
-    if(record.player_seat!==seat||record.phase!=='battle')
+    if(record.player_seat!==seat||
+      (!threePhase&&record.phase!=='battle')||
+      !['draft','selection','battle'].includes(record.phase))
       throw new Error('Invalid seat-local accepted teacher event');
-    const f=encodeRnadDecision(record.observation,record.legal_actions);
+    const f=threePhase?
+      encodeRnadThreePhaseDecision(record.observation,record.legal_actions):
+      encodeRnadDecision(record.observation,record.legal_actions);
     const choice=record.legal_actions.findIndex(x=>
       JSON.stringify(x)===JSON.stringify(record.accepted_action));
     if(choice<0||choice>=f.actions.length)
       throw new Error('Accepted teacher action is not legal');
-    return {actor:seat,state:f.state,actions:f.actions,
+    return {actor:seat,phase:record.phase,
+      state:f.state,actions:f.actions,
       choice,terminal_target:seat===match.winner?1:-1};
   });
-  if(examples.length!==match.actionCounts[0]+match.actionCounts[1]||
+  if(examples.length!==match.actionCounts[0]+match.actionCounts[1]+
+    (threePhase?4*match.rounds:0)||
+    (threePhase&&['draft','selection'].some(stage=>
+      examples.filter(e=>e.phase===stage).length!==2*match.rounds))||
      !examples.some(e=>e.actor===0)||!examples.some(e=>e.actor===1))
     throw new Error('Teacher match acceptance count mismatch');
-  return {schema:'rnad-fixed-stage0-teacher-match-v1',
-    feature_schema:RNAD_FEATURE_SCHEMA,
+  return {schema:threePhase?'rnad-basic-stage0-three-phase-teacher-v1':
+      'rnad-fixed-stage0-teacher-match-v1',
+    feature_schema:threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA,
     source_sha:verifiedRunningSourceSha(),
     engine_sha:provenance.sourceCommit,
     seed,completed:true,winner:match.winner,score:match.score,
-    teacher:'stage0-fixed-untrained',examples};
+    teacher:threePhase?'basic-stage0-3phase':'stage0-fixed-untrained',
+    rounds:match.rounds,action_counts:match.actionCounts,examples};
 }
 if(process.argv[1]?.endsWith('/export-teacher.mjs')){
   const args=process.argv.slice(2);
-  if(args.length!==4||args[0]!=='--seed'||args[2]!=='--out')
-    throw new Error('Usage: --seed N --out FILE');
-  const trace=createTeacherMatch(Number(args[1]));
-  writeFileSync(args[3],JSON.stringify(trace)+'\n',{flag:'wx'});
+  if(args.length%2!==0)throw new Error('Invalid teacher CLI');
+  const inputs={};
+  for(let i=0;i<args.length;i+=2){
+    const k=args[i]?.slice(2);
+    if(!args[i]?.startsWith('--')||!['seed','out','three-phase'].includes(k)||
+      Object.hasOwn(inputs,k))throw new Error('Invalid teacher CLI option');
+    inputs[k]=args[i+1];
+  }
+  if(!inputs.seed||!inputs.out||
+    (inputs['three-phase']!==undefined&&inputs['three-phase']!=='true'))
+    throw new Error('Usage: --seed N --out FILE [--three-phase true]');
+  const trace=createTeacherMatch(Number(inputs.seed),
+    {threePhase:inputs['three-phase']==='true'});
+  writeFileSync(inputs.out,JSON.stringify(trace)+'\n',{flag:'wx'});
   process.stdout.write(JSON.stringify({seed:trace.seed,
     score:trace.score,examples:trace.examples.length})+'\n');
 }
