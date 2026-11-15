@@ -23,6 +23,9 @@ test('duplicate seeds, unmatched seat and mixed provenance fail closed',()=>{
   assert.throws(()=>aggregateIndependentPaired([fake(),changed]),/Mixed/);
   const corrupt=fake(700001);
   corrupt.rows[1].candidateSeat=0;
+  // Preserve a consistent "seat 0 lost" score, so duplicate-seat
+  // detection (not the earlier invalid-outcome validation) is exercised.
+  corrupt.rows[1].score=[1,4];
   assert.throws(()=>aggregateIndependentPaired([corrupt]),/Reused/);
 });
 test('one thousand independent paired matches meet count but not assumed strength',()=>{
