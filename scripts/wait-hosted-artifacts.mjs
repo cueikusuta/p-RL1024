@@ -6,8 +6,9 @@ import {mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 const repo=process.env.GITHUB_REPOSITORY;
 const runId=process.env.GITHUB_RUN_ID;
+const runAttempt=process.env.GITHUB_RUN_ATTEMPT;
 const token=process.env.GH_TOKEN;
-if(repo!=='cueikusuta/p-RL1024'||!/^[0-9]+$/.test(runId??'')||!token)
+if(repo!=='cueikusuta/p-RL1024'||!/^[0-9]+$/.test(runId??'')||!/^[0-9]+$/.test(runAttempt??'')||!token)
   throw new Error('Expected scoped GitHub Actions environment');
 const shardCount=Number(process.env.RL_SHARDS||4);
 if(!Number.isSafeInteger(shardCount)||shardCount<2||shardCount>20)
@@ -18,7 +19,7 @@ const destination=process.argv[3];
 const firstIndex=Number(process.env.RL_FIRST_ARTIFACT_INDEX??1);
 if(![0,1].includes(firstIndex))throw new Error('Invalid first artifact index');
 const expected=Array.from({length:shardCount-firstIndex},(_,i)=>
-  `i1-fast-matrix-${runId}-shard-${i+firstIndex}`);
+  `i1-fast-matrix-${runId}-${runAttempt}-shard-${i+firstIndex}`);
 const expectedNames=new Set(expected);
 const downloaded=new Set(),jobs=[];
 const url=`https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`;
