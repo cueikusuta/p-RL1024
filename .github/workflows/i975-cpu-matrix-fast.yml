@@ -1,4 +1,4 @@
-name: I1 concurrent eighteen-trainer plus aggregator ARM64 CPU fast 256
+name: I1 leader trainer with seventeen ARM64 peers, verified 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       max-parallel: 18
       matrix:
-        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+        index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
     permissions:
       contents: read
     steps:
@@ -97,27 +97,41 @@ jobs:
         run: |
           node scripts/verify-snapshot.mjs
           node --test test/hosted-proof.test.js test/hosted-shards.test.js
-      - name: Collect all eighteen complete peer evidence artifacts
+      - name: Train first shard concurrently with downloading 17 peer artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           RL_SHARDS: '18'
-          RL_FIRST_ARTIFACT_INDEX: '0'
-        run: node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
+          RL_FIRST_ARTIFACT_INDEX: '1'
+          RL_FAST_WORKER: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Peer artifact retrieval starts before leader training so both overlap.
+          node scripts/wait-hosted-artifacts.mjs --download peer-artifacts >peer-download.log 2>&1 &
+          peer_pid=$!
+          trap 'kill "$peer_pid" 2>/dev/null || true' EXIT
+          node scripts/run-hosted-batch.mjs --job-index 0 --parallel 1 --shards 18 --total 256 --seed 975020 --out artifacts
+          if ! wait "$peer_pid"; then
+            cat peer-download.log
+            exit 1
+          fi
+          cat peer-download.log
       - name: Verify 256 four-win Matches, weights, seeds, paired digests and checkpoints
         run: |
           set -euo pipefail
           shopt -s nullglob
           mkdir -p all-shards artifacts
+          cp -a artifacts/shard-0 all-shards/shard-0
           for dir in peer-artifacts/*/shard-*; do
             cp -a "$dir" "all-shards/$(basename "$dir")"
           done
           node scripts/merge-hosted-training.mjs --dir all-shards --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 18 --seed 975020 --out artifacts/training-aggregate.json
-      - name: Upload validated aggregate SHA manifest
+      - name: Upload complete leader checkpoint and verified aggregate SHA manifest
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: i1-fast-matrix-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/training-aggregate.json
+          path: artifacts/
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
