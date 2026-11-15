@@ -20,8 +20,7 @@ if (selected.status!=='trainable' || !opponent.opponent || !((selected.id==='RL-
 const matches = Number(process.env.RL_MATCHES || '9');
 const seed = Number(process.env.RL_SEED || '975020');
 if (!Number.isSafeInteger(matches) || matches < 9 || matches > 256 || !Number.isSafeInteger(seed) || seed < 1 || seed > 0xffffffff) throw new Error('RL_MATCHES must be 9–256 and RL_SEED must be 1–4294967295');
-const artifactRoot=process.env.RL_OUTPUT_ROOT||'artifacts';
-const dir = opponent.id==='AQ-Base-001'?`${artifactRoot}/${selected.id}-vs-aq`:selected.id==='RL-Linear'?`${artifactRoot}/i975`:`${artifactRoot}/rl-deep`;
+const dir = opponent.id==='AQ-Base-001'?`artifacts/${selected.id}-vs-aq`:selected.id==='RL-Linear'?'artifacts/i975':'artifacts/rl-deep';
 mkdirSync(dir,{recursive:true});
 function run(script,args) {
   const result=spawnSync(process.execPath,[script,...args],{stdio:'inherit',timeout:290*60*1000});

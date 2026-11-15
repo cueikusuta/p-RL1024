@@ -5,6 +5,10 @@ on:
     paths:
       - '.github/workflows/i975-cpu-matrix-fast.yml'
       - 'scripts/wait-hosted-artifacts.mjs'
+      - 'scripts/train-vs-aq.mjs'
+      - 'scripts/merge-hosted-training.mjs'
+      - 'scripts/hosted-proof.mjs'
+      - 'test/hosted-proof.test.js'
   workflow_dispatch:
 permissions: {}
 jobs:
