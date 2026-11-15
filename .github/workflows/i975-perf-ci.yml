@@ -7,6 +7,9 @@ on:
       - '.github/workflows/i975-perf-ci.yml'
       - '.github/workflows/i975-cpu-matrix-fast.yml'
       - 'scripts/train-vs-aq.mjs'
+      - 'models/aq-runner.mjs'
+      - 'scripts/optimized/**'
+      - 'scripts/benchmark-aq-draft.mjs'
       - 'scripts/merge-hosted-training.mjs'
       - 'scripts/hosted-proof.mjs'
       - 'scripts/wait-hosted-artifacts.mjs'
@@ -25,6 +28,9 @@ on:
       - '.github/workflows/i975-perf-ci.yml'
       - '.github/workflows/i975-cpu-matrix-fast.yml'
       - 'scripts/train-vs-aq.mjs'
+      - 'models/aq-runner.mjs'
+      - 'scripts/optimized/**'
+      - 'scripts/benchmark-aq-draft.mjs'
       - 'scripts/merge-hosted-training.mjs'
       - 'scripts/hosted-proof.mjs'
       - 'scripts/wait-hosted-artifacts.mjs'
@@ -57,6 +63,8 @@ jobs:
         run: node scripts/verify-snapshot.mjs
       - name: Verify optimized model contracts
         run: node --test test/parallel-frozen-deep.test.js test/fast-deep-features.test.js test/hosted-shards.test.js test/hosted-proof.test.js
+      - name: Verify frozen AQ full-Match equivalence across three repeats
+        run: node scripts/benchmark-aq-draft.mjs
       - name: Verify original versus optimized online training and model SHA
         run: node scripts/benchmark-training.mjs
       - name: Verify original versus optimized full-Match throughput and digest
