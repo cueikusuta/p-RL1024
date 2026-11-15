@@ -133,8 +133,8 @@ jobs:
           mkdir -p all-shards artifacts
           cp -a artifacts/shard-0 all-shards/shard-0
           files=(peer-artifacts/*/shard-*.tar.gz)
-          if (( ${#files[@]} != 18 )); then
-            echo "Expected 18 immutable shard archives, found ${#files[@]}" >&2
+          if (( ${#files[@]} != 17 )); then
+            echo "Expected 17 peer shard archives, found ${#files[@]}" >&2
             exit 1
           fi
           for file in "${files[@]}"; do
