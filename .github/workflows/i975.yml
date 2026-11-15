@@ -2,6 +2,8 @@ name: RL model smoke and training
 on:
   push:
     branches: [main, 'research/**']
+    paths-ignore:
+      - '.github/workflows/i975-cpu-matrix-fast.yml'
   workflow_dispatch:
     inputs:
       model:
