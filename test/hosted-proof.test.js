@@ -5,7 +5,7 @@ import {mkdtempSync,writeFileSync,unlinkSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {mixSeed} from '../models/aq-runner.mjs';
-import {verifyTrainingCheckpoints,verifyReportTiming} from '../scripts/hosted-proof.mjs';
+import {verifyTrainingCheckpoints,verifyReportTiming,verifyShardClock} from '../scripts/hosted-proof.mjs';
 const sha=x=>createHash('sha256').update(x).digest('hex');
 const sourceSha256='a'.repeat(64),seed=975020;
 const options={model:'RL-Deep',opponent:'AQ-Base-001',count:9,seed,sourceSha256};
@@ -58,4 +58,16 @@ test('frozen evaluation timing rejects invalid durations, timestamps and workers
   for(const patch of [{durationMs:NaN},{durationMs:-5},{durationMs:0},{durationMs:Infinity},
     {startedAtMs:NaN},{startedAtMs:null},{workers:0},{workers:5}])
     assert.throws(()=>verifyReportTiming({...report,...patch}),/timing/);
+});
+
+test('shard clock must use the exact index, seed, run and finite measured wallclock',()=>{
+  const x={schema:'p-rl1024-hosted-shard-clock-v1',model:'RL-Deep',
+    opponent:'AQ-Base-001',shardIndex:0,offset:0,count:13,seed:975020,
+    startedUnix:1794704599,finishedUnix:1794704602,durationSeconds:3,exitCode:0,runId:'123'};
+  const expected={model:'RL-Deep',opponent:'AQ-Base-001',index:0,offset:0,count:13,seed:975020,runId:'123'};
+  assert.doesNotThrow(()=>verifyShardClock(x,expected));
+  for(const patch of [{shardIndex:1},{offset:12},{exitCode:1},{startedUnix:NaN},
+    {finishedUnix:1794704500},{durationSeconds:Infinity},{durationSeconds:-1},
+    {durationSeconds:0},{runId:'456'}])
+    assert.throws(()=>verifyShardClock({...x,...patch},expected),/Invalid shard identity/);
 });

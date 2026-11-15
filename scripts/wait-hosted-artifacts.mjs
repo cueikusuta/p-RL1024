@@ -1,4 +1,4 @@
-// In a fixed four-shard research benchmark, shard 0 aggregates on its own
+// In a 4-to-20 shard research benchmark, shard 0 aggregates on its own
 // runner after all three peer artifacts become visible. It never trusts a
 // partially uploaded or mismatched artifact, and has read-only Actions access.
 const repo=process.env.GITHUB_REPOSITORY;
@@ -6,7 +6,10 @@ const runId=process.env.GITHUB_RUN_ID;
 const token=process.env.GH_TOKEN;
 if(repo!=='cueikusuta/p-RL1024'||!/^\d+$/.test(runId??'')||!token)
   throw new Error('Expected scoped GitHub Actions environment');
-const expected=[1,2,3].map(i=>`i1-fast-matrix-${runId}-shard-${i}`);
+const shardCount=Number(process.env.RL_SHARDS||4);
+if(!Number.isSafeInteger(shardCount)||shardCount<2||shardCount>20)
+  throw new Error('Invalid peer shard count');
+const expected=Array.from({length:shardCount-1},(_,i)=>`i1-fast-matrix-${runId}-shard-${i+1}`);
 const url=`https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`;
 let found=false;
 for(let attempt=0;attempt<60;attempt++){

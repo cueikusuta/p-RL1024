@@ -46,6 +46,19 @@ export function verifyTrainingCheckpoints(folder,{model,opponent,count,seed,sour
     return {name,fileSha256:sha(bytes),stateSha256:recorded,completedMatches:completed};
   });
 }
+export function verifyShardClock(x,expected) {
+  if(!x||x.schema!=='p-rl1024-hosted-shard-clock-v1'||
+    x.model!==expected.model||x.opponent!==expected.opponent||
+    x.shardIndex!==expected.index||x.offset!==expected.offset||
+    x.count!==expected.count||x.seed!==expected.seed||x.exitCode!==0||
+    !Number.isSafeInteger(x.startedUnix)||x.startedUnix<1577836800||
+    !Number.isSafeInteger(x.finishedUnix)||x.finishedUnix<x.startedUnix||
+    typeof x.durationSeconds!=='number'||!Number.isFinite(x.durationSeconds)||
+    x.durationSeconds<0||
+    Math.abs(x.finishedUnix-x.startedUnix-x.durationSeconds)>2||
+    (expected.runId&&x.runId!==expected.runId))
+    throw new Error('Invalid shard identity or wallclock proof');
+}
 export function verifyReportTiming(report){
   if(!Number.isSafeInteger(report.startedAtMs)||report.startedAtMs<1577836800000||
      report.startedAtMs>9999999999999||typeof report.durationMs!=='number'||
