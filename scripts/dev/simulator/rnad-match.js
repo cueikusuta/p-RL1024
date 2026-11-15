@@ -48,7 +48,7 @@ export function stage0FixedPolicy({observation,legalActions}){
 export function runRnadAcceptanceSmoke({
   seed=22003,matchId='stage0-smoke',experimentId='rnad-stage0',
   sourceSha=verifiedRunningSourceSha(),engineSnapshotSha,policy=stage0FixedPolicy,
-  phasePolicy=null,
+  phasePolicy=null,phasePolicies=null,
   policyVersion='rnad-stage0-fixed-untrained',opponentPolicyVersion=policyVersion,
   policyVersions=[policyVersion,policyVersion],
   maxRounds=64,maxDecisionsPerRound=3000
@@ -57,6 +57,10 @@ export function runRnadAcceptanceSmoke({
     typeof matchId!=='string'||!matchId||typeof experimentId!=='string'||
     !experimentId||typeof policy!=='function'||
     (phasePolicy!==null&&typeof phasePolicy!=='function')||
+    (phasePolicies!==null&&
+      (phasePolicy!==null||!Array.isArray(phasePolicies)||
+       phasePolicies.length!==2||
+       phasePolicies.some(x=>x!==null&&typeof x!=='function')))||
     engineSnapshotSha!==provenance.sourceCommit||sourceSha!==verifiedRunningSourceSha()||
     typeof policyVersion!=='string'||!policyVersion||
     typeof opponentPolicyVersion!=='string'||!opponentPolicyVersion||
@@ -71,15 +75,16 @@ export function runRnadAcceptanceSmoke({
   const timeline=[]; // Actual acceptance order; never Actor-visible.
   const agents=[0,1].map(seat=>{
     const collector=collectors[seat];
+    const seatPhasePolicy=phasePolicies?.[seat]??phasePolicy;
     // A single per-seat collector follows accepted draft -> selection ->
     // Battle in order.  The other seat's pending action is never visible.
     function actor(stage){
       return {
-        id:phasePolicy?'rnad-three-phase-'+stage:'rnad-stage0-actor',
+        id:seatPhasePolicy?'rnad-three-phase-'+stage:'rnad-stage0-actor',
         select({view,context,round,rng}){
           const observation=projectRnadObservation(view,{seat,context});
           const legalActions=rnadLegalActions(view);
-          const choose=phasePolicy??policy;
+          const choose=seatPhasePolicy??policy;
           const proposed=choose({observation,legalActions,round,seat,rng});
           if(!proposed||typeof proposed!=='object'||
             !Object.hasOwn(proposed,'action'))
@@ -106,8 +111,8 @@ export function runRnadAcceptanceSmoke({
       };
     }
     return createBuiltinPhaseAgents({
-      draft:phasePolicy?actor('draft'):'basic',
-      selection:phasePolicy?actor('selection'):'basic',
+      draft:seatPhasePolicy?actor('draft'):'basic',
+      selection:seatPhasePolicy?actor('selection'):'basic',
       battle:actor('battle')
     });
   });
@@ -118,8 +123,8 @@ export function runRnadAcceptanceSmoke({
     result.agentStats.map(agent=>agent.battle):null;
   if(trajectories){
     const counts=trajectories.map(t=>t.accepted_decisions);
-    const phaseOffset=phasePolicy?2*result.rounds:0;
-    if(counts.some((n,seat)=>n!==result.actionCounts[seat]+phaseOffset)||
+    if(counts.some((n,seat)=>n!==result.actionCounts[seat]+
+      ((phasePolicies?.[seat]??phasePolicy)?2*result.rounds:0))||
       timeline.length!==counts[0]+counts[1])
       throw new Error('Authority trajectory order/count mismatch');
   }
