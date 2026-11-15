@@ -1,4 +1,5 @@
 import {spawn} from 'node:child_process';
+import {Worker} from 'node:worker_threads';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {planShards} from './hosted-shard-plan.mjs';
@@ -24,6 +25,16 @@ function parse(args){
   return config;
 }
 function runShardNode(env){
+  if(process.env.RL_FAST_WORKER==='1')return new Promise((resolve,reject)=>{
+    const worker=new Worker(new URL('./run-experiment.mjs',import.meta.url),{env});
+    let error=null;
+    worker.once('error',e=>{error=e;});
+    worker.once('exit',code=>{
+      if(error)reject(error);
+      else if(code!==0)reject(new Error('Fast shard worker exited '+code));
+      else resolve();
+    });
+  });
   return new Promise((resolve,reject)=>{
     const child=spawn(process.execPath,['scripts/run-experiment.mjs'],{env,stdio:'inherit'});
     let failed=false;
