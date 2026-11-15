@@ -1,0 +1,236 @@
+name: RNAD-003 conditional exact full-state v2 16 to 128 generation study
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-v2-continue-128.yml']
+permissions: {}
+concurrency:
+  group: rnad-003-v2-continue-after-first-16-i5
+  cancel-in-progress: false
+jobs:
+  extend-if-promising:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest # GitHub-hosted ONLY
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ROOT: ${{ runner.temp }}/rnad003-v2-continuation
+      GH_REPO: cueikusuta/p-RL1024
+      ORIGIN_RUN: '43746142851'
+      START_SEED: '1100201'
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout current PR to authenticate archive discovery
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Obtain completed signed study artifact; decide whether 128-Match expense is justified
+        id: screen
+        run: |
+          set -euo pipefail
+          mkdir -p "$ROOT"
+          state="$(gh api "repos/$GH_REPO/actions/runs/$ORIGIN_RUN" --jq .conclusion)"
+          if [[ "$state" != success ]]; then
+            echo "Original v2 16-Match research not successful: $state"
+            echo "proceed=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh run download "$ORIGIN_RUN" --repo "$GH_REPO" \
+            --name "rnad-003-v2-selfplay-$ORIGIN_RUN" --dir "$ROOT"
+          python - <<'PY'
+          import hashlib,json,os,re
+          from pathlib import Path
+          r=Path(os.environ['ROOT'])
+          study=json.loads((r/'summary.json').read_text())
+          report=json.loads((r/'selfplay/report.json').read_text())
+          idx=json.loads((r/'selfplay/checkpoints/latest.json').read_text())
+          model=r/'selfplay/final-model.json'
+          teacher=r/'aq-supervised-v2-balanced/trained-model.json'
+          sh=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          sha=report.get('source_sha')
+          assert re.fullmatch(r'[a-f0-9]{40}',sha or '')
+          checkpoint=r/'selfplay/checkpoints'/idx['checkpoint_file']
+          if not (study['schema']=='rnad-003-v2-16-match-real-learning-comparison-v1'
+              and study['champion_promoted'] is False
+              and report['schema']=='rnad-three-phase-v2-training-report-v1'
+              and report['feature_schema']=='rnad-three-phase-features-v2'
+              and report['model_id']=='RNAD-003-3phase-v2'
+              and report['completed_matches']==report['updates']==16
+              and idx['metadata']['completed_matches']==idx['metadata']['updates']==16
+              and idx['metadata']['source_sha']==idx['metadata']['training_code_sha']==sha
+              and idx['metadata']['initial_seed']==1100201
+              and idx['metadata']['next_match_seed']==1100217
+              and idx['metadata']['model_id']=='RNAD-003-3phase-v2'
+              and idx['metadata']['observation_schema_version']=='rnad-three-phase-features-v2'
+              and idx['metadata']['initialization_sha256']==sh(teacher)
+              and idx['metadata']['regularization_eta']==.2
+              and idx['metadata']['magnet_period']==4
+              and idx['checkpoint_sha256']==sh(checkpoint)
+              and idx['checkpoint_sha256']==report['last_match_checkpoint_sha']
+              and len(set(idx['metadata']['completed_match_ids']))==16
+              and study['trained_vs_teacher_matches']==128
+              and study['candidate_for_128_training_study'] in (True,False)):
+              raise ValueError('Initial 16-Match checkpoint/study identity not valid')
+          output=Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a') as f:
+              f.write('source_sha='+sha+'\n')
+              f.write('proceed='+('yes' if study['candidate_for_128_training_study'] else 'no')+'\n')
+          print(json.dumps({'confirmed_origin_sha':sha,
+              'initial_matches':16,
+              'initial_128_match_gate':study['candidate_for_128_training_study'],
+              'teacher_vs_basic':study['teacher_vs_basic_wins'],
+              'student_vs_basic':study['trained_vs_basic_wins'],
+              'student_vs_teacher':study['trained_vs_teacher_wins']}),flush=True)
+          PY
+      - name: Exact recorded training checkout preserves optimizer and RNG identity
+        if: steps.screen.outputs.proceed == 'yes'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.screen.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pinned source and CPU environment check
+        if: steps.screen.outputs.proceed == 'yes'
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ steps.screen.outputs.source_sha }}"
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+      - name: Continue same exact optimizer/magnet/RNG state through generations 64 and 128
+        if: steps.screen.outputs.proceed == 'yes'
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,shutil
+          from pathlib import Path
+          from scripts.rnad.train import train,current_git_sha
+          root=Path(os.environ['ROOT']);s=root/'selfplay'
+          t=root/'aq-supervised-v2-balanced/trained-model.json'
+          checkpoint=s/'checkpoints/latest.json'
+          out=root/'generations';out.mkdir(exist_ok=True)
+          results=[]
+          assert current_git_sha()==os.environ['SOURCE_SHA']
+          for target in (64,128):
+              while True:
+                  idx=json.loads(checkpoint.read_text())
+                  before=idx['metadata']['completed_matches']
+                  if before>=target:break
+                  if before<16 or before%16:raise ValueError('Wrong checkpoint boundary')
+                  report=train(seed=1100201,matches=16,out=str(s),resume=True,
+                               three_phase=True,features_v2=True,
+                               initial_model=str(t))
+                  idx=json.loads(checkpoint.read_text());md=idx['metadata']
+                  if not (md['completed_matches']==before+16
+                      and md['updates']==before+16
+                      and report['model_id']=='RNAD-003-3phase-v2'
+                      and report['feature_schema']=='rnad-three-phase-features-v2'
+                      and report['completed_matches']==before+16
+                      and report['updates']==before+16
+                      and md['source_sha']==md['training_code_sha']==current_git_sha()
+                      and md['initial_seed']==1100201
+                      and md['next_match_seed']==1100201+before+16
+                      and len(set(md['completed_match_ids']))==before+16
+                      and md['completed_match_ids'][before:]==[
+                          f'rnad-match-{seed}' for seed in range(
+                              1100201+before,1100217+before)]
+                      and idx['checkpoint_sha256']==report['last_match_checkpoint_sha']):
+                      raise ValueError('Wrong accepted v2 generation/seed')
+                  pt=s/'checkpoints'/idx['checkpoint_file']
+                  if hashlib.sha256(pt.read_bytes()).hexdigest()!=idx['checkpoint_sha256']:
+                      raise ValueError('Bad full optimizer state SHA')
+                  for obsolete in (s/'checkpoints').glob('checkpoint-u*.pt'):
+                      if obsolete.name!=idx['checkpoint_file']:obsolete.unlink()
+                  print(json.dumps({'generation':before+16,
+                      'model_sha256':report['model_sha256'],
+                      'checkpoint_sha256':idx['checkpoint_sha256']}),flush=True)
+              if before!=target:raise ValueError('Overshot generation target')
+              shutil.copyfile(s/'final-model.json',out/f'model-u{target}.json')
+              shutil.copyfile(s/'checkpoints'/idx['checkpoint_file'],
+                              out/idx['checkpoint_file'])
+              results.append({'generation':target,'model_sha256':report['model_sha256'],
+                              'checkpoint_sha256':idx['checkpoint_sha256']})
+              (out/'progress.json').write_text(json.dumps({
+                 'schema':'rnad-003-v2-verified-128-generation-v1',
+                 'source_sha':current_git_sha(),'origin_run_id':43746142851,
+                 'snapshots':results,'is_champion':False},indent=2)+'\n')
+              print('SAVED RNAD-003 FULL GENERATION',target,flush=True)
+          PY
+        env:
+          SOURCE_SHA: ${{ steps.screen.outputs.source_sha }}
+      - name: Compare generation 128 vs frozen teacher in two-seat 128-game diagnostic
+        if: steps.screen.outputs.proceed == 'yes'
+        run: |
+          node scripts/rnad/evaluate-direct.mjs \
+            --teacher "$ROOT/aq-supervised-v2-balanced/trained-model.json" \
+            --rnad "$ROOT/generations/model-u128.json" \
+            --seed 1102401 --pairs 64 --selection-mode greedy \
+            --out "$ROOT/generations/direct-128-vs-teacher.json"
+      - name: Compare generation 128 against Basic in independent two-seat 256 Match test
+        if: steps.screen.outputs.proceed == 'yes'
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/generations/model-u128.json" \
+            --seed 1102801 --pairs 128 --out "$ROOT/generations/basic-128.json" \
+            --selection-mode greedy
+      - name: Compare same-seed frozen teacher against Basic and preserve bounded research decision
+        if: steps.screen.outputs.proceed == 'yes'
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/aq-supervised-v2-balanced/trained-model.json" \
+            --seed 1102801 --pairs 128 --out "$ROOT/generations/basic-teacher.json" \
+            --selection-mode greedy
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ['ROOT']);g=root/'generations'
+          teacher=root/'aq-supervised-v2-balanced/trained-model.json'
+          model=g/'model-u128.json'
+          t=json.loads((g/'basic-teacher.json').read_text())
+          s=json.loads((g/'basic-128.json').read_text())
+          d=json.loads((g/'direct-128-vs-teacher.json').read_text())
+          h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          if not (t['model_sha256']==d['teacher_model_sha256']==h(teacher)
+              and s['model_sha256']==d['rnad_model_sha256']==h(model)
+              and d['inference_selection_mode']=='greedy'
+              and d['model_feature_schema']=='rnad-three-phase-features-v2'
+              and d['matches']==128 and d['pairs']==64
+              and t['matches']==s['matches']==256
+              and t['pairs']==s['pairs']==128 and
+              all(x['wins']==sum(z['won'] for z in x['rows'])
+                  for x in (t,s,d))):
+              raise ValueError('Invalid same-seed authoritatively paired research')
+          expected={(n,seat) for n in range(1102801,1102929) for seat in (0,1)}
+          for x in (t,s):
+              if {(z['seed'],z['candidateSeat']) for z in x['rows']}!=expected:
+                  raise ValueError('Unmatched frozen Basic evaluation rows')
+          allow=(d['win_rate']>=.50 and s['win_rate']>=t['win_rate']-.03)
+          summary={'schema':'rnad-003-v2-128-generation-research-v1',
+              'same_seed_teacher_basic_wins':t['wins'],
+              'same_seed_student_basic_wins':s['wins'],
+              'student_vs_teacher_direct_wins':d['wins'],
+              'student_vs_teacher_direct_matches':128,
+              'candidate_for_further_training':allow,
+              'strength_difference_confirmed':False,
+              'is_champion':False}
+          (g/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(json.dumps(summary),flush=True)
+          PY
+      - name: Archive immutable full-state optimizer and frozen teacher, even if a later evaluation fails
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-v2-continued-128-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/rnad003-v2-continuation/summary.json
+            ${{ runner.temp }}/rnad003-v2-continuation/generations/
+            ${{ runner.temp }}/rnad003-v2-continuation/selfplay/report.json
+            ${{ runner.temp }}/rnad003-v2-continuation/selfplay/final-model.json
+            ${{ runner.temp }}/rnad003-v2-continuation/selfplay/checkpoints/latest.json
+            ${{ runner.temp }}/rnad003-v2-continuation/selfplay/checkpoints/checkpoint-u*.pt
+            ${{ runner.temp }}/rnad003-v2-continuation/aq-supervised-v2-balanced/trained-model.json
+          if-no-files-found: warn
+          retention-days: 30
