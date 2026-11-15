@@ -14,7 +14,7 @@ const own=Array.from({length:6},(_,i)=>({
 const raw=()=>({phase:'selection',round:2,score:[0,0],budget:13,grant:10,
   self:{credits:13,team:structuredClone(own)},
   opponent:{species:[],privateMoves:['hidden']}})
-const legal=[['p0','p1','p2'],['p2','p3','p4']];
+const legal=[['p0','p2','p4'],['p1','p3','p5']];
 test('v2 semantic encoder is finite, fixed-dimension, and schema-isolated',()=>{
   const obs=projectRnadObservation(raw(),{seat:0});
   const enc=encodeRnadThreePhaseDecisionV2(obs,legal);
