@@ -16,7 +16,7 @@ jobs:
       contents: read
       actions: read
     env:
-      GH_TOKEN: \${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
       GH_REPO: cueikusuta/p-RL1024
       RNAD_PIN: d9efa8936e9fd400eed626bb38bbbe81cbf28348
       ROOT: artifacts/generations
@@ -248,7 +248,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: rnad-002-generations-\${{ github.run_id }}-\${{ github.run_attempt }}
+          name: rnad-002-generations-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/generations/generations/
             artifacts/generations/study-report.json
