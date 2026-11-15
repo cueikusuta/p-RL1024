@@ -1,21 +1,14 @@
-name: I1 ten-host 20-model optimized ARM64 CPU fast 256
+name: I1 concurrent ten-trainer plus aggregator ARM64 CPU fast 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
     paths:
       - '.github/workflows/i975-cpu-matrix-fast.yml'
-      - 'scripts/run-hosted-batch.mjs'
-      - 'models/aq-runner.mjs'
-      - 'scripts/optimized/**'
-      - 'scripts/run-experiment.mjs'
       - 'scripts/wait-hosted-artifacts.mjs'
-      - 'scripts/merge-hosted-training.mjs'
-      - 'scripts/hosted-proof.mjs'
-      - 'test/hosted-proof.test.js'
   workflow_dispatch:
 permissions: {}
 jobs:
-  train-and-aggregate:
+  train:
     if: github.repository == 'cueikusuta/p-RL1024'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 330
@@ -26,12 +19,11 @@ jobs:
         index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     permissions:
       contents: read
-      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Select cached Node and verify snapshot / shard evidence
+      - name: Select Node 22 and verify research snapshot/sha rules
         id: cached-node
         shell: bash
         run: |
@@ -43,43 +35,26 @@ jobs:
               echo "$cached" >> "$GITHUB_PATH"
               "$cached/node" scripts/verify-snapshot.mjs
               "$cached/node" --test test/hosted-proof.test.js test/hosted-shards.test.js
-              echo "hit=true" >> "$GITHUB_OUTPUT"
+              echo 'hit=true' >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
-          echo "hit=false" >> "$GITHUB_OUTPUT"
+          echo 'hit=false' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.cached-node.outputs.hit != 'true'
         with:
           node-version: '22'
-      - name: Verify snapshot and Match provenance (fallback Node)
+      - name: Verify snapshot and SHA rules with fallback Node
         if: steps.cached-node.outputs.hit != 'true'
         run: |
           node scripts/verify-snapshot.mjs
           node --test test/hosted-proof.test.js test/hosted-shards.test.js
-      - name: Overlap peer artifact download with local two-model training
+      - name: Train two independent 12-13 Match models
         env:
           JOB_INDEX: ${{ matrix.index }}
-          GH_TOKEN: ${{ github.token }}
-          RL_SHARDS: '10'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          if [[ "$JOB_INDEX" == "0" ]]; then
-            (
-              node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
-            ) > artifacts/peer-download.log 2>&1 &
-            peer_pid=$!
-            trap 'kill "$peer_pid" 2>/dev/null || true' EXIT
-          fi
-          node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 2 --shards 20 --total 256 --seed 975020 --out artifacts
-          if [[ "$JOB_INDEX" == "0" ]]; then
-            wait "$peer_pid"
-            cat artifacts/peer-download.log
-          fi
-      - name: Preserve peer model and checkpoint evidence
-        if: always() && matrix.index != 0
+        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 2 --shards 20 --total 256 --seed 975020 --out artifacts
+      - name: Upload complete two-model checkpoint and evaluation evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: i1-fast-matrix-${{ github.run_id }}-shard-${{ matrix.index }}
@@ -87,23 +62,61 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
-      - name: Stage every shard and verify all 256 Matches (leader only)
-        if: matrix.index == 0
+  aggregate:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Select Node 22 and verify source snapshot
+        id: cached-node
         shell: bash
+        run: |
+          shopt -s nullglob
+          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
+          if (( ${#node_dirs[@]} )); then
+            cached="${node_dirs[${#node_dirs[@]}-1]}"
+            if "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"; then
+              echo "$cached" >> "$GITHUB_PATH"
+              "$cached/node" scripts/verify-snapshot.mjs
+              echo 'hit=true' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo 'hit=false' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.cached-node.outputs.hit != 'true'
+        with:
+          node-version: '22'
+      - name: Verify snapshot with fallback Node
+        if: steps.cached-node.outputs.hit != 'true'
+        run: node scripts/verify-snapshot.mjs
+      - name: Collect all ten complete peer evidence artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RL_SHARDS: '10'
+          RL_FIRST_ARTIFACT_INDEX: '0'
+        run: node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
+      - name: Verify 256 four-win Matches, weights, seeds, paired digests and checkpoints
         run: |
           set -euo pipefail
           shopt -s nullglob
-          mkdir -p all-shards
-          for dir in peer-artifacts/*/shard-* artifacts/shard-*; do
+          mkdir -p all-shards artifacts
+          for dir in peer-artifacts/*/shard-*; do
             cp -a "$dir" "all-shards/$(basename "$dir")"
           done
           node scripts/merge-hosted-training.mjs --dir all-shards --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 20 --seed 975020 --out artifacts/training-aggregate.json
-      - name: Preserve aggregate and leader model/checkpoints
-        if: always() && matrix.index == 0
+      - name: Upload validated aggregate SHA manifest
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: i1-fast-matrix-aggregate-${{ github.run_id }}
-          path: artifacts/
+          path: artifacts/training-aggregate.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

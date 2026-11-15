@@ -15,8 +15,10 @@ if(!Number.isSafeInteger(shardCount)||shardCount<2||shardCount>20)
 if(process.argv.length!==4||process.argv[2]!=='--download'||!process.argv[3])
   throw new Error('Expected --download output-directory');
 const destination=process.argv[3];
-const expected=Array.from({length:shardCount-1},(_,i)=>
-  `i1-fast-matrix-${runId}-shard-${i+1}`);
+const firstIndex=Number(process.env.RL_FIRST_ARTIFACT_INDEX??1);
+if(![0,1].includes(firstIndex))throw new Error('Invalid first artifact index');
+const expected=Array.from({length:shardCount-firstIndex},(_,i)=>
+  `i1-fast-matrix-${runId}-shard-${i+firstIndex}`);
 const expectedNames=new Set(expected);
 const downloaded=new Set(),jobs=[];
 const url=`https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`;
