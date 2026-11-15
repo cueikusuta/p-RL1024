@@ -1,0 +1,42 @@
+name: RNAD-002 public-belief AQ teacher accepted Match and Basic probe
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/rnad/aq-teacher-policy.mjs'
+      - 'scripts/rnad/probe-aq-teacher.mjs'
+      - '.github/workflows/rnad-aq-belief-probe.yml'
+permissions: {}
+concurrency:
+  group: rnad-aq-belief-probe-i5
+  cancel-in-progress: true
+jobs:
+  acceptance:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Check exact public adapter and accepted-only plan hooks
+        run: |
+          node --check scripts/rnad/aq-teacher-policy.mjs
+          node --check scripts/rnad/probe-aq-teacher.mjs
+          node scripts/verify-snapshot.mjs
+          mkdir -p artifacts/aq-belief
+          node scripts/rnad/probe-aq-teacher.mjs --seed 994801 --pairs 64 \
+            --out artifacts/aq-belief/paired.json
+      - name: Retain independent seat-swapped comparison
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-aq-belief-${{ github.run_id }}
+          path: artifacts/aq-belief/paired.json
+          if-no-files-found: warn
+          retention-days: 30
