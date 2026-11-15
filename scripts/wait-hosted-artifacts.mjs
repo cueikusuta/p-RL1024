@@ -2,7 +2,7 @@
 // peer artifact as soon as GitHub publishes it. Keep all checkpoint files and
 // never mark the leader aggregate valid until every download succeeds.
 import {spawn} from 'node:child_process';
-import {mkdirSync} from 'node:fs';
+import {mkdirSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 const repo=process.env.GITHUB_REPOSITORY;
 const runId=process.env.GITHUB_RUN_ID;
@@ -23,7 +23,7 @@ const expected=Array.from({length:shardCount-firstIndex},(_,i)=>
 const expectedNames=new Set(expected);
 const downloaded=new Set(),jobs=[];
 const url=`https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`;
-function download(name) {
+function downloadOnce(name) {
   const output=join(destination,name);
   mkdirSync(output,{recursive:true});
   return new Promise((resolve,reject)=>{
@@ -38,6 +38,20 @@ function download(name) {
     });
   });
 }
+// GitHub can list a freshly uploaded immutable artifact before its ZIP is
+// retrievable. Do not accept an incomplete extract; retry with a clean dir.
+async function download(name){
+  for(let attempt=0;attempt<5;attempt++) {
+    try {return await downloadOnce(name);}
+    catch(error) {
+      rmSync(join(destination,name),{recursive:true,force:true});
+      if(attempt===4)throw error;
+      console.warn('FAST_PEER_RETRY '+name+' attempt='+String(attempt+1));
+      await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));
+    }
+  }
+}
+
 for(let attempt=0;attempt<240&&downloaded.size<expected.length;attempt++) {
   const response=await fetch(url,{headers:{
     Authorization:`Bearer ${token}`,Accept:'application/vnd.github+json',
