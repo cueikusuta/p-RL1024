@@ -2,10 +2,8 @@
 // peer artifact as soon as GitHub publishes it. Keep all checkpoint files and
 // never mark the leader aggregate valid until every download succeeds.
 import {spawn} from 'node:child_process';
-import {createHash} from 'node:crypto';
-import {mkdirSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdirSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
-import {tmpdir} from 'node:os';
 const repo=process.env.GITHUB_REPOSITORY;
 const runId=process.env.GITHUB_RUN_ID;
 const runAttempt=process.env.GITHUB_RUN_ATTEMPT;
@@ -25,53 +23,31 @@ const expected=Array.from({length:shardCount-firstIndex},(_,i)=>
 const expectedNames=new Set(expected);
 const downloaded=new Set(),jobs=[];
 const url=`https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`;
-function unzipArchive(path,output) {
+function downloadOnce(name) {
+  const output=join(destination,name);
+  mkdirSync(output,{recursive:true});
   return new Promise((resolve,reject)=>{
-    const child=spawn('unzip',['-q',path,'-d',output],{stdio:'inherit'});
+    const child=spawn('gh',['run','download',runId,'--repo',repo,
+      '--name',name,'--dir',output],{stdio:'inherit',env:process.env});
     let failed=false;
-    child.once('error',e=>{failed=true;reject(e);});
+    child.once('error',error=>{failed=true;reject(error);});
     child.once('close',(code,signal)=>{
       if(failed)return;
-      if(code!==0)reject(new Error('Artifact unzip failed '+code+'/'+signal));
-      else resolve();
+      if(code!==0)reject(new Error('Artifact download failed: '+name+' '+code+'/'+signal));
+      else resolve(name);
     });
   });
 }
-async function downloadOnce(artifact) {
-  const {name,digest,size_in_bytes,archive_download_url}=artifact;
-  if(typeof archive_download_url!=='string'||
-     !archive_download_url.startsWith(`https://api.github.com/repos/${repo}/actions/artifacts/`)||
-     !/^sha256:[a-f0-9]{64}$/.test(digest??'')||
-     !Number.isSafeInteger(size_in_bytes)||size_in_bytes<1||size_in_bytes>50000000)
-    throw new Error('Invalid artifact identity or digest: '+name);
-  const response=await fetch(archive_download_url,{headers:{
-    Authorization:`Bearer ${token}`,Accept:'application/vnd.github+json',
-    'X-GitHub-Api-Version':'2022-11-28'
-  }});
-  if(!response.ok)throw new Error('Artifact ZIP not yet available '+name+' HTTP '+response.status);
-  const bytes=Buffer.from(await response.arrayBuffer());
-  if(bytes.length!==size_in_bytes ||
-     'sha256:'+createHash('sha256').update(bytes).digest('hex')!==digest)
-    throw new Error('Artifact ZIP digest mismatch: '+name);
-  const output=join(destination,name);
-  const archive=join(tmpdir(),`i1-${runId}-${runAttempt}-${name}.zip`);
-  mkdirSync(output,{recursive:true});
-  try{
-    writeFileSync(archive,bytes,{flag:'wx'});
-    await unzipArchive(archive,output);
-    return name;
-  }finally{rmSync(archive,{force:true});}
-}
-// GitHub may list the immutable artifact before its ZIP is available.
-// A failed attempt must leave no partial extraction accepted as valid.
-async function download(artifact) {
-  for(let attempt=0;attempt<5;attempt++){
-    try{return await downloadOnce(artifact);}
-    catch(error){
-      rmSync(join(destination,artifact.name),{recursive:true,force:true});
+// GitHub can list a freshly uploaded immutable artifact before its ZIP is
+// retrievable. Do not accept an incomplete extract; retry with a clean dir.
+async function download(name){
+  for(let attempt=0;attempt<5;attempt++) {
+    try {return await downloadOnce(name);}
+    catch(error) {
+      rmSync(join(destination,name),{recursive:true,force:true});
       if(attempt===4)throw error;
-      console.warn('FAST_PEER_RETRY '+artifact.name+' '+String(error));
-      await new Promise(resolve=>setTimeout(resolve,300*(attempt+1)));
+      console.warn('FAST_PEER_RETRY '+name+' attempt='+String(attempt+1));
+      await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));
     }
   }
 }
@@ -89,7 +65,7 @@ for(let attempt=0;attempt<240&&downloaded.size<expected.length;attempt++) {
     downloaded.add(artifact.name);
     console.log('FAST_PEER_READY '+artifact.name);
     // Record errors rather than creating a detached unhandled rejection.
-    jobs.push(download(artifact).then(()=>({ok:true,name:artifact.name}),
+    jobs.push(download(artifact.name).then(()=>({ok:true,name:artifact.name}),
       error=>({ok:false,name:artifact.name,error:String(error)})));
   }
   if(downloaded.size===expected.length)break;

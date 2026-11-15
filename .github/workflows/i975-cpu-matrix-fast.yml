@@ -1,4 +1,4 @@
-name: I1 concurrent eight-trainer plus aggregator ARM64 CPU fast 256
+name: I1 concurrent fourteen-trainer plus aggregator ARM64 CPU fast 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
@@ -14,29 +14,38 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 14
       matrix:
-        index: [0, 1, 2, 3, 4, 5, 6, 7]
+        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Train isolated 32-Match model using runner's cached Node 22
-        env:
-          JOB_INDEX: ${{ matrix.index }}
+      - name: Select Node 22 for isolated CPU training
+        id: cached-node
         shell: bash
         run: |
           shopt -s nullglob
           node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
-          if (( ${#node_dirs[@]} == 0 )); then
-            echo 'ERROR: GitHub-hosted ARM64 toolcache missing Node 22' >&2
-            exit 1
+          if (( ${#node_dirs[@]} )); then
+            cached="${node_dirs[${#node_dirs[@]}-1]}"
+            if "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"; then
+              echo "$cached" >> "$GITHUB_PATH"
+              echo 'hit=true' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
-          selected="${node_dirs[${#node_dirs[@]}-1]}/node"
-          "$selected" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"
-          "$selected" scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 8 --total 256 --seed 975020 --out artifacts
+          echo 'hit=false' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.cached-node.outputs.hit != 'true'
+        with:
+          node-version: '22'
+      - name: Train one isolated 12-13 Match model
+        env:
+          JOB_INDEX: ${{ matrix.index }}
+        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 14 --total 256 --seed 975020 --out artifacts
       # Artifact name identifies both workflow run and re-run attempt.
       - name: Upload complete shard checkpoint and evaluation evidence
         if: always()
@@ -45,7 +54,7 @@ jobs:
           name: i1-fast-matrix-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.index }}
           path: artifacts/
           if-no-files-found: error
-          compression-level: 1
+          compression-level: 0
           retention-days: 14
   aggregate:
     if: github.repository == 'cueikusuta/p-RL1024'
@@ -58,26 +67,38 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Verify source and collect complete peer artifacts using cached Node 22
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RL_SHARDS: '8'
-          RL_FIRST_ARTIFACT_INDEX: '0'
+      - name: Select Node 22 and verify source snapshot
+        id: cached-node
         shell: bash
         run: |
           shopt -s nullglob
           node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
-          if (( ${#node_dirs[@]} == 0 )); then
-            echo 'ERROR: GitHub-hosted ARM64 toolcache missing Node 22' >&2
-            exit 1
+          if (( ${#node_dirs[@]} )); then
+            cached="${node_dirs[${#node_dirs[@]}-1]}"
+            if "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"; then
+              echo "$cached" >> "$GITHUB_PATH"
+              "$cached/node" scripts/verify-snapshot.mjs
+              "$cached/node" --test test/hosted-proof.test.js test/hosted-shards.test.js
+              echo 'hit=true' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
-          cached="${node_dirs[${#node_dirs[@]}-1]}"
-          "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"
-          export PATH="$cached:$PATH"
-          echo "$cached" >> "$GITHUB_PATH"
+          echo 'hit=false' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.cached-node.outputs.hit != 'true'
+        with:
+          node-version: '22'
+      - name: Verify snapshot and proofs with fallback Node
+        if: steps.cached-node.outputs.hit != 'true'
+        run: |
           node scripts/verify-snapshot.mjs
           node --test test/hosted-proof.test.js test/hosted-shards.test.js
-          node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
+      - name: Collect all fourteen complete peer evidence artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RL_SHARDS: '14'
+          RL_FIRST_ARTIFACT_INDEX: '0'
+        run: node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
       - name: Verify 256 four-win Matches, weights, seeds, paired digests and checkpoints
         run: |
           set -euo pipefail
@@ -86,7 +107,7 @@ jobs:
           for dir in peer-artifacts/*/shard-*; do
             cp -a "$dir" "all-shards/$(basename "$dir")"
           done
-          node scripts/merge-hosted-training.mjs --dir all-shards --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 8 --seed 975020 --out artifacts/training-aggregate.json
+          node scripts/merge-hosted-training.mjs --dir all-shards --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 14 --seed 975020 --out artifacts/training-aggregate.json
       - name: Upload validated aggregate SHA manifest
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
