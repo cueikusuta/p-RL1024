@@ -8,6 +8,8 @@ import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
 import {encodeRnadDecision,RNAD_FEATURE_SCHEMA} from '../../src/ml/rnad-features.js';
 import {encodeRnadThreePhaseDecision,RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
+import {encodeRnadThreePhaseDecisionV2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
+  from '../../src/ml/rnad-phase-features-v2.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
 function argsMap(argv){
@@ -20,22 +22,28 @@ function argsMap(argv){
   return r;
 }
 export function createLearningTrajectory({seed,modelPath,magnetPath,
-  matchId='rnad-match-'+seed,epsilon=.02,threePhase=false}={}){
+  matchId='rnad-match-'+seed,epsilon=.02,threePhase=false,
+  featuresV2=false}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff)
     throw new TypeError('Invalid bounded RNAD seed');
   const neural=new RNADMixedPolicy({
     model:new PersistentRNADInference(modelPath),
     magnet:new PersistentRNADInference(magnetPath),epsilon
   });
-  if(typeof threePhase!=='boolean'||neural.model.featureSchema!==(
-      threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA))
+  const featureSchema=featuresV2?RNAD_THREE_PHASE_FEATURE_SCHEMA_V2:
+    threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA;
+  if(typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
+    (featuresV2&&!threePhase)||neural.model.featureSchema!==featureSchema)
     throw new TypeError('RNAD model and rollout feature schemas disagree');
   const result=runRnadAcceptanceSmoke({
-    seed,matchId,experimentId:threePhase?'RNAD-002-3phase':'RNAD-001',
+    seed,matchId,experimentId:featuresV2?'RNAD-003-3phase-v2':
+      threePhase?'RNAD-002-3phase':'RNAD-001',
     sourceSha:verifiedRunningSourceSha(),
     engineSnapshotSha:provenance.sourceCommit,
-    opponentPolicyVersion:threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner',
-    policyVersion:threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner',
+    opponentPolicyVersion:featuresV2?'RNAD-003-three-phase-v2':
+      threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner',
+    policyVersion:featuresV2?'RNAD-003-three-phase-v2':
+      threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner',
     phasePolicy:threePhase?(args=>neural.choose(args)):null,
     policy:args=>neural.choose(args)
   });
@@ -48,8 +56,9 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
       !['draft','selection','battle'].includes(row.phase)||
       (!threePhase&&row.phase!=='battle'))
       throw new Error('Invalid authority timeline/seat boundary');
-    const encoded=threePhase?
-      encodeRnadThreePhaseDecision(row.observation,row.legal_actions):
+    const encoded=featuresV2?
+      encodeRnadThreePhaseDecisionV2(row.observation,row.legal_actions):
+      threePhase?encodeRnadThreePhaseDecision(row.observation,row.legal_actions):
       encodeRnadDecision(row.observation,row.legal_actions);
     const actionIndex=row.legal_actions.findIndex(a=>
       JSON.stringify(a)===JSON.stringify(row.accepted_action));
@@ -71,9 +80,10 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
   }
   const payoff0=result.winner===0?1:-1;
   events.at(-1).reward=[payoff0,-payoff0];
-  return {schema:threePhase?'rnad-accepted-three-phase-training-match-v1':
+  return {schema:featuresV2?'rnad-accepted-three-phase-v2-training-match-v1':
+      threePhase?'rnad-accepted-three-phase-training-match-v1':
       'rnad-accepted-training-match-v1',
-    feature_schema:threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA,
+    feature_schema:featureSchema,
     match_id:matchId,
     source_sha:verifiedRunningSourceSha(),
     engine_sha:provenance.sourceCommit,seed,completed:true,
@@ -85,10 +95,12 @@ if(process.argv[1]?.endsWith('/export-trajectory.mjs')){
   if(!a.model||!a.magnet||!a.out||!a.seed)
     throw new Error('Usage: --model MODEL.json --magnet REF.json --seed N --out FILE');
   const seed=Number(a.seed);
-  if(a['three-phase']!==undefined&&a['three-phase']!=='true')
-    throw new TypeError('Invalid --three-phase flag');
+  if((a['three-phase']!==undefined&&a['three-phase']!=='true')||
+     (a['features-v2']!==undefined&&a['features-v2']!=='true'))
+    throw new TypeError('Invalid three-phase/v2 flag');
   const match=createLearningTrajectory({seed,modelPath:a.model,magnetPath:a.magnet,
-    threePhase:a['three-phase']==='true'});
+    threePhase:a['three-phase']==='true',
+    featuresV2:a['features-v2']==='true'});
   writeFileSync(a.out,JSON.stringify(match)+'\n',{flag:'wx'});
   process.stderr.write(JSON.stringify({seed,winner:match.winner,score:match.score,
     rounds:match.rounds,events:match.events.length})+'\n');

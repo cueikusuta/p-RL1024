@@ -9,22 +9,25 @@ import {runRnadAcceptanceSmoke,verifiedRunningSourceSha}
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
 import {RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
+import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
+  from '../../src/ml/rnad-phase-features-v2.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 import {pairedHoeffding95} from './aggregate-eval.mjs';
 
 const sha256=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
-const createPolicy=path=>new RNADMixedPolicy({
+const createPolicy=(path,selectionMode='sample')=>new RNADMixedPolicy({
   model:new PersistentRNADInference(path),
-  magnet:new PersistentRNADInference(path),epsilon:0
+  magnet:new PersistentRNADInference(path),epsilon:0,selectionMode
 });
 
 export function directPairedNeuralEval({
-  teacherPath,rnadPath,seed=988501,pairs=64}={}){
+  teacherPath,rnadPath,seed=988501,pairs=64,selectionMode='sample'}={}){
   if(typeof teacherPath!=='string'||!teacherPath||
     typeof rnadPath!=='string'||!rnadPath||
     !Number.isSafeInteger(seed)||seed<1||
     !Number.isSafeInteger(pairs)||pairs<1||pairs>100||
-    seed+pairs-1>0xffffffff)
+    seed+pairs-1>0xffffffff||
+    !['sample','greedy'].includes(selectionMode))
     throw new TypeError('Invalid bounded neural-versus-neural evaluation');
   const teacherSha=sha256(teacherPath),rnadSha=sha256(rnadPath);
   if(teacherSha===rnadSha)
@@ -32,15 +35,16 @@ export function directPairedNeuralEval({
   const family=new PersistentRNADInference(teacherPath).featureSchema;
   if(family!==new PersistentRNADInference(rnadPath).featureSchema)
     throw new Error('Cannot directly compare different actor feature schemas');
-  const threePhase=family===RNAD_THREE_PHASE_FEATURE_SCHEMA;
+  const threePhase=[RNAD_THREE_PHASE_FEATURE_SCHEMA,
+    RNAD_THREE_PHASE_FEATURE_SCHEMA_V2].includes(family);
   const rows=[];
   let wins=0;
   for(let offset=0;offset<pairs;offset++){
     const sampleSeed=seed+offset;
     for(const rnadSeat of [0,1]){
       // Do not reuse GRU memory between matches or models.
-      const teacher=createPolicy(teacherPath);
-      const rnad=createPolicy(rnadPath);
+      const teacher=createPolicy(teacherPath,selectionMode);
+      const rnad=createPolicy(rnadPath,selectionMode);
       const version=threePhase?
         ['RNAD-002-teacher','RNAD-002-selfplay']:
         ['RNAD-001-teacher','RNAD-001-selfplay'];
@@ -71,7 +75,7 @@ export function directPairedNeuralEval({
   return {schema:'rnad-direct-neural-paired-match-v1',
     source_sha:verifiedRunningSourceSha(),engine_sha:provenance.sourceCommit,
     teacher_model_sha256:teacherSha,rnad_model_sha256:rnadSha,
-    model_feature_schema:family,
+    model_feature_schema:family,inference_selection_mode:selectionMode,
     seed,pairs,matches,wins,win_rate:wins/matches,
     paired_seed_hoeffding_95pct:ci95,
     improvement_statistically_established:ci95[0]>.5,
@@ -80,12 +84,13 @@ export function directPairedNeuralEval({
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const argv=process.argv.slice(2);
-  if(argv.length!==10||argv.some((v,i)=>i%2===0&&!v.startsWith('--')))
+  if(![10,12].includes(argv.length)||
+    argv.some((v,i)=>i%2===0&&!v.startsWith('--')))
     throw new Error('Usage: --teacher FILE --rnad FILE --seed N --pairs N --out FILE');
   const params={};
   for(let i=0;i<argv.length;i+=2){
     const key=argv[i].slice(2);
-    if(!['teacher','rnad','seed','pairs','out'].includes(key)||
+    if(!['teacher','rnad','seed','pairs','out','selection-mode'].includes(key)||
       Object.hasOwn(params,key))throw new Error('Unknown duplicate CLI argument');
     params[key]=argv[i+1];
   }
@@ -93,7 +98,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     !Object.hasOwn(params,'rnad'))throw new Error('Missing required input');
   const result=directPairedNeuralEval({
     teacherPath:params.teacher,rnadPath:params.rnad,
-    seed:Number(params.seed),pairs:Number(params.pairs)});
+    seed:Number(params.seed),pairs:Number(params.pairs),
+    selectionMode:params['selection-mode']??'sample'});
   writeFileSync(params.out,JSON.stringify(result,null,2)+'\n',{flag:'wx'});
   console.log(JSON.stringify({matches:result.matches,wins:result.wins,
     win_rate:result.win_rate,ci95:result.paired_seed_hoeffding_95pct,

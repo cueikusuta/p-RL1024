@@ -10,21 +10,29 @@ from pathlib import Path
 import torch
 
 from scripts.rnad.neural import (RNADNetwork,BATTLE_FEATURE_SCHEMA,
-                                 THREE_PHASE_FEATURE_SCHEMA)
+                                 THREE_PHASE_FEATURE_SCHEMA,
+                                 THREE_PHASE_FEATURE_SCHEMA_V2)
 from scripts.rnad.train import state_hash, current_git_sha, frozen_engine_sha
 
 
-def verify(*, root, seed, matches=16, three_phase=False):
+def verify(*, root, seed, matches=16, three_phase=False,
+           features_v2=False):
     if not (1 <= seed <= 0xffffffff and 1 <= matches <= 16 and
             seed+matches-1 <= 0xffffffff):
         raise ValueError("Invalid bounded learning run")
     p=Path(root)
-    schema=(THREE_PHASE_FEATURE_SCHEMA if three_phase
+    if type(features_v2) is not bool or (features_v2 and not three_phase):
+        raise ValueError("V2 requires a true 3-phase policy")
+    schema=(THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
+            THREE_PHASE_FEATURE_SCHEMA if three_phase
             else BATTLE_FEATURE_SCHEMA)
-    model_id='RNAD-002-3phase' if three_phase else 'RNAD-001'
-    report_schema=('rnad-three-phase-training-report-v1' if three_phase
+    model_id=('RNAD-003-3phase-v2' if features_v2 else
+              'RNAD-002-3phase' if three_phase else 'RNAD-001')
+    report_schema=('rnad-three-phase-v2-training-report-v1' if features_v2
+                   else 'rnad-three-phase-training-report-v1' if three_phase
                    else 'rnad-smoke-training-report-v1')
-    trace_schema=('rnad-accepted-three-phase-training-match-v1' if three_phase
+    trace_schema=('rnad-accepted-three-phase-v2-training-match-v1' if features_v2
+                  else 'rnad-accepted-three-phase-training-match-v1' if three_phase
                   else 'rnad-accepted-training-match-v1')
     report=json.loads((p/"report.json").read_text())
     index=json.loads((p/"checkpoints"/"latest.json").read_text())
@@ -123,7 +131,9 @@ if __name__=="__main__":
     parser.add_argument("--seed",type=int,required=True)
     parser.add_argument("--matches",type=int,default=16)
     parser.add_argument("--three-phase",action="store_true")
+    parser.add_argument("--features-v2",action="store_true")
     args=parser.parse_args()
     print(json.dumps(verify(root=args.out,seed=args.seed,
                             matches=args.matches,
-                            three_phase=args.three_phase),indent=2))
+                            three_phase=args.three_phase,
+                            features_v2=args.features_v2),indent=2))

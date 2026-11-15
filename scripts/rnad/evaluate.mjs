@@ -8,6 +8,8 @@ import {runRnadAcceptanceSmoke,stage0FixedPolicy,verifiedRunningSourceSha}
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
 import {RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
+import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
+  from '../../src/ml/rnad-phase-features-v2.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 import {pairedHoeffding95} from './aggregate-eval.mjs';
 
@@ -33,7 +35,8 @@ export function evaluatePaired({modelPath,seed=987613,pairs=1}={}){
         model:new PersistentRNADInference(modelPath),
         magnet:new PersistentRNADInference(modelPath),
         epsilon:0});
-      const neuralThreePhase=net.model.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA;
+      const neuralThreePhase=[RNAD_THREE_PHASE_FEATURE_SCHEMA,
+        RNAD_THREE_PHASE_FEATURE_SCHEMA_V2].includes(net.model.featureSchema);
       const outcome=runRnadAcceptanceSmoke({
         seed:gameSeed,matchId:'eval-'+gameSeed+'-'+candidateSeat,
         experimentId:'RNAD-001-heldout',

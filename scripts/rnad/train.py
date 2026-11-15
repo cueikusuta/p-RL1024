@@ -17,7 +17,8 @@ import torch
 
 from scripts.rnad.neural import (RNADNetwork, freeze_magnet, export_json,
                                  load_exported_json, BATTLE_FEATURE_SCHEMA,
-                                 THREE_PHASE_FEATURE_SCHEMA)
+                                 THREE_PHASE_FEATURE_SCHEMA,
+                                 THREE_PHASE_FEATURE_SCHEMA_V2)
 from scripts.rnad.two_player import rnad_targets, neurd_policy_loss
 from scripts.rnad.checkpoint import save_checkpoint, restore_checkpoint
 
@@ -41,12 +42,14 @@ def state_hash(net):
     return digest.hexdigest()
 
 
-def run_match(seed, model, magnet, directory, *, three_phase=False):
+def run_match(seed, model, magnet, directory, *,
+              three_phase=False,features_v2=False):
     directory.mkdir(parents=True,exist_ok=True)
     model_path=directory/'actor.json'
     magnet_path=directory/'magnet.json'
     output=directory/(f'accepted-seed{seed}.json')
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA if three_phase
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
+                    THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
     export_json(model,model_path,feature_schema=feature_schema)
     export_json(magnet,magnet_path,feature_schema=feature_schema)
@@ -57,10 +60,13 @@ def run_match(seed, model, magnet, directory, *, three_phase=False):
              '--seed',str(seed),'--out',str(output)]
     if three_phase:
         command.extend(['--three-phase','true'])
+    if features_v2:
+        command.extend(['--features-v2','true'])
     subprocess.run(command,check=True,timeout=1800)
     row=json.loads(output.read_text())
     if (row.get('schema')!=(
-        'rnad-accepted-three-phase-training-match-v1' if three_phase
+        'rnad-accepted-three-phase-v2-training-match-v1' if features_v2
+        else 'rnad-accepted-three-phase-training-match-v1' if three_phase
         else 'rnad-accepted-training-match-v1') or
         row.get('feature_schema')!=feature_schema or
         row.get('completed') is not True or
@@ -163,22 +169,26 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
 
 
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
-          eta=.2,magnet_period=4,initial_model=None,three_phase=False):
+          eta=.2,magnet_period=4,initial_model=None,three_phase=False,
+          features_v2=False):
     if (not isinstance(seed,int) or not 1 <= seed <= 0xffffffff or
         not isinstance(matches,int) or not 1 <= matches <= 16 or
         not isinstance(eta,(float,int)) or not math.isfinite(float(eta)) or
         not 0 < eta <= 1 or
         type(magnet_period) is not int or not 1 <= magnet_period <= 256 or
-        type(three_phase) is not bool):
+        type(three_phase) is not bool or
+        type(features_v2) is not bool or (features_v2 and not three_phase)):
         raise ValueError('Training must bound seed, matches, eta and magnet period')
     torch.set_num_threads(1)
     path=Path(out)
     path.mkdir(parents=True,exist_ok=True)
     torch.manual_seed(seed);random.seed(seed)
     net=RNADNetwork()
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA if three_phase
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
+                    THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
-    model_id='RNAD-002-3phase' if three_phase else 'RNAD-001'
+    model_id=('RNAD-003-3phase-v2' if features_v2 else
+              'RNAD-002-3phase' if three_phase else 'RNAD-001')
     initialization_sha256=(
         load_exported_json(net,initial_model,
                            expected_feature_schema=feature_schema)
@@ -215,7 +225,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
     summaries=[]
     for _ in range(matches):
         data=run_match(counter,net,magnet,path/'rollouts',
-                       three_phase=three_phase)
+                       three_phase=three_phase,features_v2=features_v2)
         summary=train_match(net,target,magnet,optimizer,scheduler,data,eta=eta)
         completed+=1
         ids.append(data['match_id'])
@@ -233,7 +243,9 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                 'engine_snapshot_sha':frozen_engine_sha(),
                 'training_code_sha':current_git_sha(),
                 'observation_schema_version':feature_schema,
-                'opponent_policy_version':'RNAD-001-selfplay',
+                'opponent_policy_version':(
+                    'RNAD-003-v2-selfplay' if features_v2
+                    else 'RNAD-001-selfplay'),
                 'completed_matches':completed,
                 'accepted_decisions':summary['accepted_decisions']+
                     (sum(x['accepted_decisions'] for x in summaries)
@@ -249,7 +261,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         summaries.append({'seed':data['seed'],'winner':data['winner'],
                           'rounds':data['rounds'],**summary})
     export_json(net,path/'final-model.json',feature_schema=feature_schema)
-    report={'schema':'rnad-three-phase-training-report-v1' if three_phase
+    report={'schema':'rnad-three-phase-v2-training-report-v1' if features_v2
+            else 'rnad-three-phase-training-report-v1' if three_phase
             else 'rnad-smoke-training-report-v1',
             'feature_schema':feature_schema,'model_id':model_id,
             'initialization_sha256':initialization_sha256,
@@ -274,9 +287,11 @@ if __name__=='__main__':
     parser.add_argument('--resume',action='store_true')
     parser.add_argument('--initial-model',default=None)
     parser.add_argument('--three-phase',action='store_true')
+    parser.add_argument('--features-v2',action='store_true')
     args=parser.parse_args()
     print(json.dumps(train(seed=args.seed,matches=args.matches,
                            out=args.out,resume=args.resume,
                            initial_model=args.initial_model,
-                           three_phase=args.three_phase),
+                           three_phase=args.three_phase,
+                           features_v2=args.features_v2),
                      indent=2))
