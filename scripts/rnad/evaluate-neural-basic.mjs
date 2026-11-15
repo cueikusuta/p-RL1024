@@ -75,16 +75,22 @@ export function evaluateThreePhaseAgainstBasic({
     ci95:pairedHoeffding95(wins,pairs),rows,champion_promoted:false};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
-  const a=process.argv.slice(2);
-  if(![8,10].includes(a.length)||a[0]!=='--model'||a[2]!=='--seed'||
-    a[4]!=='--pairs'||a[6]!=='--out'||
-    (a.length===10&&(a[8]!=='--selection-mode'||
-      !['sample','greedy'].includes(a[9]))))
-    throw new Error('Usage --model P --seed N --pairs N --out P [--selection-mode greedy]');
-  const report=evaluateThreePhaseAgainstBasic({modelPath:a[1],
-    seed:Number(a[3]),pairs:Number(a[5]),
-    selectionMode:a.length===10?a[9]:'sample'});
-  writeFileSync(a[7],JSON.stringify(report,null,2)+'\n',{flag:'wx'});
+  const a=process.argv.slice(2),opts=new Map();
+  const allowed=new Set(['--model','--seed','--pairs','--out','--selection-mode']);
+  if(![8,10].includes(a.length))throw new Error('Invalid paired evaluation CLI');
+  for(let i=0;i<a.length;i+=2){
+    if(!allowed.has(a[i])||opts.has(a[i])||typeof a[i+1]!=='string')
+      throw new Error('Invalid or duplicate paired evaluation option');
+    opts.set(a[i],a[i+1]);
+  }
+  if(!opts.has('--model')||!opts.has('--seed')||
+    !opts.has('--pairs')||!opts.has('--out'))
+    throw new Error('Required --model, --seed, --pairs and --out');
+  const report=evaluateThreePhaseAgainstBasic({
+    modelPath:opts.get('--model'),
+    seed:Number(opts.get('--seed')),pairs:Number(opts.get('--pairs')),
+    selectionMode:opts.get('--selection-mode')??'sample'});
+  writeFileSync(opts.get('--out'),JSON.stringify(report,null,2)+'\n',{flag:'wx'});
   console.log(JSON.stringify({matches:report.matches,wins:report.wins,
     win_rate:report.win_rate,ci95:report.ci95}));
 }

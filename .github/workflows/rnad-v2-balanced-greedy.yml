@@ -70,7 +70,8 @@ jobs:
           b=json.loads((r/'reports/v2-balanced-greedy.json').read_text())
           sha=hashlib.sha256((r/'balanced/aq-supervised-v2-balanced/trained-model.json').read_bytes()).hexdigest()
           if (a['schema']!=b['schema'] or
-              a['inference_selection_mode']!=b['inference_selection_mode']!='greedy' or
+              a['inference_selection_mode']!='greedy' or
+              b['inference_selection_mode']!='greedy' or
               b['model_sha256']!=sha or a['model_sha256']==sha or
               a['pairs']!=b['pairs'] or a['pairs']!=128 or
               a['matches']!=b['matches'] or b['matches']!=256 or
