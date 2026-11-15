@@ -80,7 +80,7 @@ def verify(root,source_sha):
     ckpt=root/"selfplay"/"checkpoints"
     name=manifest.get("checkpoint_file","")
     if not isinstance(name,str) or not re.fullmatch(
-            r"checkpoint-u256-[0-9a-f]{64}\\.pt",name):
+            r"checkpoint-u256-[0-9a-f]{64}\.pt",name):
         raise AssertionError("Missing completed Match checkpoint filename")
     snapshot=ckpt/name
     if not snapshot.is_file() or hashlib.sha256(snapshot.read_bytes()).hexdigest()!=manifest.get("checkpoint_sha256"):
