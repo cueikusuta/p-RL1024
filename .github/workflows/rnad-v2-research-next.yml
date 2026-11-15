@@ -1,8 +1,8 @@
 name: RNAD-003 phase learning and independent population recheck
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-v2-research-next.yml']
+  # The initial hosted run was launched on PR #6 as #43755157523.
+  # Expensive teacher/pretraining and 1,000+ Match evaluations must not
+  # repeat automatically on every subsequent Draft PR commit.
   workflow_dispatch:
 permissions: {}
 concurrency:
