@@ -49,10 +49,13 @@ def verify(root,source_sha):
     teacher_file=root/"teacher"/"trained-model.json"
     rnad_file=root/"selfplay"/"final-model.json"
     exact_init_sha=hashlib.sha256(teacher_file.read_bytes()).hexdigest()
+    expected_engine=json.loads(Path("provenance/manifest.json").read_text())["sourceCommit"]
     if (research.get("schema")!="rnad-optional-warmstart-256-research-v1" or
         research.get("source_sha")!=source_sha or
         teacher.get("source_sha")!=source_sha or
         selfplay.get("source_sha")!=source_sha or
+        teacher.get("engine_sha")!=expected_engine or
+        selfplay.get("engine_sha")!=expected_engine or
         research.get("teacher_matches")!=32 or
         research.get("teacher_updates")!=128 or
         research.get("selfplay_matches")!=256 or
@@ -98,7 +101,7 @@ def verify(root,source_sha):
             "model_id":"RNAD-001",
             "source_sha":source_sha,
             "training_code_sha":source_sha,
-            "engine_snapshot_sha":research["engine_sha"],
+            "engine_snapshot_sha":expected_engine,
             "observation_schema_version":"rnad-battle-features-v1",
             "initialization_sha256":exact_init_sha})
     if (state_hash(net)!=research["rnad_trained_sha256"] or
