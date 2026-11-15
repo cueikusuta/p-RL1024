@@ -36,3 +36,22 @@
 4. Do not start large-scale training or promote any Champion until the above and independent-review gates pass.
 
 **No reported workflow success from an older head may be used as proof of the current code.** No PPO+KL surrogate is registered as R-NaD. Prior RL-Linear/RL-Deep and Issue #1 performance branch are unchanged.
+
+## 2026-11-15 hosted-only execution extension (pending runner validation)
+
+User requirement is absolute for this research series: **GitHub-hosted `ubuntu-latest` only**. The old self-hosted recommendation is obsolete.
+
+New work on existing PR #6:
+
+- `scripts/rnad/export_checkpoint.py`: validate SHA, source/engine and completed-match metadata, load PyTorch weights, export frozen evaluation Actor without changing the trained policy.
+- `scripts/rnad/release-checkpoint.sh`: versioned GitHub Release asset transport of immutable SHA-256-named completed-match checkpoints. Upload is append-only (no clobber), requires the unique `rnad-001-<16-hex-source>-s<seed>` research tag and a separately serialized authenticated workflow. Download validates archive entry names; the Python loader independently verifies the SHA. GitHub Actions artifacts are only a 30-day recovery cache, not the checkpoint authority.
+- `.github/workflows/rnad-scale.yml`: **manual, main-only, post-independent-review** GitHub-hosted 16-Match batches (up to 4 per run, 2,048 overall), one writer globally, source SHA pinned to a reviewed main ancestor, 330-minute limit, immutable GitHub Release checkpoint per completed batch and recovery artifact on failure. This is scale **infrastructure, not evidence that 256 or 2,048 training matches ran**.
+- `.github/workflows/rnad-eval.yml`: manual main-only GitHub-hosted read/verify checkpoint and up to 50 independent seed pairs with both candidate seats, immutable per-model/release report upload.
+- `scripts/rnad/aggregate-eval.mjs`: batch-report aggregation with exact model/engine/opponent SHA, duplicate/unpaired seed rejection, >=1,000 full matches and an **independent paired-seed Hoeffding 95% confidence lower bound** above 0.5 as *eligibility for independent Champion review only*. No auto-promotion.
+- `src/ml/legal-action-adapter.js`: public opponent reveal and scalar fields fail closed if supplied nested arbitrary objects. This is defense in depth; actor observations must still be generated from the seat-scoped Match authority.
+- `test/rnad-receipts.test.js`: real Match verifies unforgeable/nonreusable receipt identities and opposite-seat mismatch. `test/rnad-evaluation.test.js` covers duplicate held-out seeds and insufficient strength.
+- `scripts/rnad/two_player.py`: local NeuRD proposed-logit clipping gate now explicitly documented as an **approximate neural coordinate update**, not exact nonlinear Adam parameter projection. Independent paper-level review is mandatory.
+
+**Known verified evidence:** Previous old HEAD `7a50e358cdd09d1f9b969119e8b42900cbff3f03` RNAD Stage0 Node CI run `43656271010` succeeded. In the current session a pure JavaScript V8 smoke directly evaluated the checked-in `toy-rnad.mjs` mathematical module: RPS exact exploitability 1.76 → 0.0000313, Matching Pennies 1.68 → 0.000000172, hidden-type Bayesian game 0.8 → 0.0000725; checked-in `aggregate-eval.mjs` rejected duplicate seeds and gave CI95 [0.4393,0.5607] for 1,000 50%-win paired outcomes. A zero-weight GRU forward gate matched an independent Torch CPU calculation to <2e-8. **These checks are not substitutes for current-HEAD GitHub Actions PyTorch/ONNX/full-match CI.**
+
+**Unverified / blocked:** As of this checkpoint, GitHub Actions had not produced a new run after 00:03 UTC despite subsequent PR commits, so no actual hosted neural learner/ONNX parity/checkpoint-resume/smoke/256/2048 results can honestly be claimed. The connected GitHub tool has no new-workflow-dispatch action. A browser attempt to start the GitHub-hosted workflow reached an unsigned-out GitHub session and could not dispatch; user GitHub sign-in/Actions permission is required to execute it. Do **not** imply that any 1–16 match neural training or 1,000-match Champion evaluation ran. **PR remains Draft; main merge forbidden until latest-HEAD CI, separate ChatGPT Chat independent review, and remediation of any P0/P1.**
