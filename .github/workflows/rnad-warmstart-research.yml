@@ -1,10 +1,7 @@
 name: RNAD-001 256 Match after optional teacher warm-start (hosted)
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/research_warmstart.py'
-      - '.github/workflows/rnad-warmstart-research.yml'
+  # Already verified on run 43682343141. No automatic CPU-heavy reruns.
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-001-warmstart-256-${{ github.ref }}
