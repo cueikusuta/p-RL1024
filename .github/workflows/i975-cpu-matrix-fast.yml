@@ -65,8 +65,7 @@ jobs:
           mkdir -p artifacts
           if [[ "$JOB_INDEX" == "0" ]]; then
             (
-              node scripts/wait-hosted-artifacts.mjs
-              gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern "i1-fast-matrix-${GITHUB_RUN_ID}-shard-*" --dir peer-artifacts
+              node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
             ) > artifacts/peer-download.log 2>&1 &
             peer_pid=$!
             trap 'kill "$peer_pid" 2>/dev/null || true' EXIT
