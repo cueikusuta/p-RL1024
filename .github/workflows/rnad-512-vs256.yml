@@ -6,10 +6,10 @@ on:
 permissions: {}
 concurrency:
   group: rnad-512-vs256-i5
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   paired-direct:
-    if: github.repository == 'cueikusuta/p-RL1024'
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.sha == '09cfa1cd042ca88e19d43429fdd104d6a7d33c34'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     permissions:

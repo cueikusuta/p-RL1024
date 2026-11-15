@@ -1,10 +1,6 @@
 name: RNAD-002 stronger built-in teacher baseline probe
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/probe-strong-teacher.mjs'
-      - '.github/workflows/rnad-strong-teacher-probe.yml'
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-strong-teacher-probe-i5

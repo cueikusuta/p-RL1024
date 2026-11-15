@@ -1,14 +1,5 @@
 name: RNAD-002 hosted 3-phase Basic teacher plus 16 R-NaD Matches
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/research_threephase_teacher.py'
-      - 'scripts/rnad/train_teacher.py'
-      - 'scripts/rnad/export-teacher.mjs'
-      - 'test/rnad-three-phase-teacher.test.js'
-      - 'scripts/rnad/evaluate-direct.mjs'
-      - '.github/workflows/rnad-three-phase-teacher.yml'
   workflow_dispatch:
 permissions: {}
 concurrency:

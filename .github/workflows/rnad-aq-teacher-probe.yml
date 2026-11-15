@@ -1,11 +1,6 @@
 name: RNAD-002 frozen AQ-Base public teacher authority and paired probe
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/aq-teacher-policy.mjs'
-      - 'scripts/rnad/probe-aq-teacher.mjs'
-      - '.github/workflows/rnad-aq-teacher-probe.yml'
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-aq-teacher-probe-i5
