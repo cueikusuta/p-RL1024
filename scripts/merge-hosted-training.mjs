@@ -3,6 +3,7 @@ import {readFileSync,readdirSync,writeFileSync,mkdirSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {compare} from './verify-evaluation.mjs';
 import {mixSeed} from '../models/aq-runner.mjs';
+import {verifyTrainingCheckpoints} from './hosted-proof.mjs';
 const sha=x=>createHash('sha256').update(x).digest('hex');
 const argv=process.argv.slice(2),arg=new Map();
 if(argv.length%2)throw new Error('Expected pairs');
@@ -39,10 +40,8 @@ for(const artifact of artifacts){
   if(opponent==='AQ-Base-001'&&wins+history.filter(r=>r.studentSeat!==undefined&&r.winner!==r.studentSeat).length!==count)
     throw new Error('Missing AQ outcome');
   trainingWins+=opponent==='AQ-Base-001'||model==='RL-Deep'?wins:training.studentWins??wins;
-  const checkpoints=readdirSync(folder).filter(x=>/^training-m\d+\.json$/.test(x)).map(name=>{
-    const data=readFileSync(join(folder,name)),cp=JSON.parse(data),{checkpointSha256,...state}=cp;
-    if(checkpointSha256&&sha(JSON.stringify(state))!==checkpointSha256)throw new Error('Checkpoint SHA mismatch');
-    return {name,fileSha256:sha(data),stateSha256:checkpointSha256??null};
+  const checkpoints=verifyTrainingCheckpoints(folder,{
+    model,opponent,count,seed:rootSeed,sourceSha256:training.sourceSha256
   });
   rows.push({artifact,offset,count,seedStart:rootSeed,seedEnd:rootSeed+count-1,
     durationSeconds:t.durationSeconds,startedUnix:t.startedUnix,finishedUnix:t.finishedUnix,
@@ -54,10 +53,10 @@ for(const artifact of artifacts){
 }
 if(offset!==m)throw new Error('Missing planned training matches');
 const start=Math.min(...rows.map(x=>x.startedUnix)),finish=Math.max(...rows.map(x=>x.finishedUnix));
-const report={schema:'p-rl1024-hosted-training-aggregate-v1',model,opponent,seedRoot:base,totalMatches:m,
+const evidence={schema:'p-rl1024-hosted-training-aggregate-v1',model,opponent,seedRoot:base,totalMatches:m,
   shards:n,mode:'independent-shard-models-not-continuous-single-model',
   studentWins:trainingWins,studentLosses:m-trainingWins,
-  wallclockSeconds:finish-start,shardReports:rows,
-  manifestSha256:sha(JSON.stringify(rows))};
+  wallclockSeconds:finish-start,shardReports:rows};
+const report={...evidence,manifestSha256:sha(JSON.stringify(evidence))};
 mkdirSync(dirname(out),{recursive:true});writeFileSync(out,JSON.stringify(report,null,2)+'\n');
 console.log('HOSTED_TRAIN_AGGREGATE '+JSON.stringify(report));

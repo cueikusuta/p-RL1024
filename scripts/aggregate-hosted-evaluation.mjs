@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {readFileSync,readdirSync,mkdirSync,writeFileSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {mixSeed} from '../models/aq-runner.mjs';
+import {verifyReportTiming} from './hosted-proof.mjs';
 const sha=s=>createHash('sha256').update(s).digest('hex');
 const args=process.argv.slice(2);
 if(args.length!==6||args[0]!=='--serial'||args[2]!=='--shards'||args[4]!=='--out')throw new Error('Expected --serial file --shards directory --out file');
@@ -9,6 +10,7 @@ const serial=JSON.parse(readFileSync(args[1],'utf8'));
 const shardDirs=readdirSync(args[3],{withFileTypes:true}).filter(x=>x.isDirectory()).map(x=>x.name);
 const shards=shardDirs.map(x=>JSON.parse(readFileSync(join(args[3],x,'report.json'),'utf8'))).sort((a,b)=>a.offset-b.offset);
 function verify(r){
+  verifyReportTiming(r);
   if(r.schema!=='p-rl1024-hosted-frozen-evaluation-v1'||r.opponent!=='AQ-Base-001'||
     !['RL-Linear','RL-Deep'].includes(r.model)||r.modelStatus!=='deterministic-initial-frozen'||
     !Number.isSafeInteger(r.offset)||r.offset<0||!Number.isSafeInteger(r.count)||r.count<1||
@@ -44,7 +46,7 @@ const digest=sha(JSON.stringify(all));
 if(digest!==serial.outcomeDigestSha256||JSON.stringify(all)!==JSON.stringify(serial.records))
   throw new Error('Serial and parallel outcome digest diverged');
 const parallelStart=Math.min(...shards.map(x=>x.startedAtMs));
-const parallelFinish=Math.max(...shards.map(x=>x.startedAtMs+x.durationMs));
+const parallelFinish=Math.max(...shards.map(verifyReportTiming));
 const parallelSpanMs=parallelFinish-parallelStart;
 const speedup=serial.durationMs/parallelSpanMs;
 const report={schema:'p-rl1024-hosted-evaluation-aggregate-v1',model:serial.model,opponent:serial.opponent,
