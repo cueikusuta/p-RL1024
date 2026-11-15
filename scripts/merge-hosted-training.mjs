@@ -27,7 +27,8 @@ for(const [index,artifact] of artifacts.entries()){
     sha(bytes)!==proof.modelFileSha256)throw new Error('Weight or evaluation SHA mismatch: '+artifact);
   const t=JSON.parse(readFileSync(join(root,artifact,'wallclock-shard.json')));
   const count=t.count,rootSeed=base+offset,history=training.history||training.matches;
-  verifyShardClock(t,{model,opponent,index,offset,count,seed:rootSeed,runId:process.env.GITHUB_RUN_ID});
+  verifyShardClock(t,{model,opponent,index,offset,count,seed:rootSeed,
+    runId:process.env.GITHUB_RUN_ID,runAttempt:process.env.GITHUB_RUN_ATTEMPT});
   if(!Number.isSafeInteger(count)||count<9||count>256||
     training.completedMatches!==count||training.seedRoot!==rootSeed||
     !Array.isArray(history)||history.length!==count||
