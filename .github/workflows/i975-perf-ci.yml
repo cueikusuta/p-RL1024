@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/i975.yml'
       - '.github/workflows/i975-perf-ci.yml'
+      - 'scripts/run-experiment.mjs'
+      - 'test/fast-inline.test.js'
       - 'scripts/train-vs-aq.mjs'
       - 'models/aq-runner.mjs'
       - 'scripts/optimized/**'
@@ -24,6 +26,8 @@ on:
     paths:
       - '.github/workflows/i975.yml'
       - '.github/workflows/i975-perf-ci.yml'
+      - 'scripts/run-experiment.mjs'
+      - 'test/fast-inline.test.js'
       - 'scripts/train-vs-aq.mjs'
       - 'models/aq-runner.mjs'
       - 'scripts/optimized/**'
@@ -58,7 +62,7 @@ jobs:
       - name: Verify source snapshot
         run: node scripts/verify-snapshot.mjs
       - name: Verify optimized model contracts
-        run: node --test test/parallel-frozen-deep.test.js test/fast-deep-features.test.js test/hosted-shards.test.js test/hosted-proof.test.js
+        run: node --test test/parallel-frozen-deep.test.js test/fast-deep-features.test.js test/hosted-shards.test.js test/hosted-proof.test.js test/fast-inline.test.js
       - name: Verify frozen AQ full-Match equivalence across three repeats
         run: node scripts/benchmark-aq-draft.mjs
       - name: Verify original versus optimized online training and model SHA
