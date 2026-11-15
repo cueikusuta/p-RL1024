@@ -65,6 +65,19 @@ class RnadMathTest(unittest.TestCase):
         self.assertGreater(logits.grad[1].item(),0)
         # No behavior/ratio/clip PPO surrogate is used.
 
+    def test_neurd_proposed_logit_boundary_is_respected(self):
+        logits=torch.tensor([1.99,-1.99],requires_grad=True)
+        advantage=torch.tensor([10.,-10.])
+        loss=neurd_policy_loss(logits,advantage,beta=2.0,
+                               logit_step=.1,q_clip=10.)
+        loss.backward()
+        self.assertTrue(torch.allclose(logits.grad,torch.zeros_like(logits)))
+        logits2=torch.tensor([0.1,-0.1],requires_grad=True)
+        neurd_policy_loss(logits2,advantage,beta=2.0,
+                          logit_step=.01).backward()
+        self.assertTrue(torch.isfinite(logits2.grad).all())
+        self.assertGreater(float(logits2.grad.abs().sum()),0)
+
     def test_invalid_probability_and_zero_sum_fail_closed(self):
         with self.assertRaises(ValueError):
             rnad_targets([step(0,(1,1))])
