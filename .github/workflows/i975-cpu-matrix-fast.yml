@@ -82,7 +82,7 @@ jobs:
           name: i1-fast-matrix-${{ github.run_id }}-shard-${{ matrix.index }}
           path: artifacts/
           if-no-files-found: error
-          compression-level: 1
+          compression-level: 0
           retention-days: 14
       - name: Stage every shard and verify all 256 Matches (leader only)
         if: matrix.index == 0
@@ -102,5 +102,5 @@ jobs:
           name: i1-fast-matrix-aggregate-${{ github.run_id }}
           path: artifacts/
           if-no-files-found: error
-          compression-level: 1
+          compression-level: 0
           retention-days: 14
