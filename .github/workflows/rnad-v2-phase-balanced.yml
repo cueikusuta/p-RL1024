@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   phase-balanced:
-    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.sha == 'f0d1c4d2be8d9a1487fb75df1f5b6b9ed577259c'
+    if: github.repository == 'cueikusuta/p-RL1024'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:

@@ -1,8 +1,6 @@
 name: RNAD-002 exact full-state generation 512 to 1024 and paired evaluation
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-continue-1024.yml']
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-002-generation512-to1024-i5
