@@ -22,7 +22,7 @@ const ownPokemon=p=>fields(p,ownKeys);
 const opponentBattleKeys=['speciesId','types','hpPercent','status','remaining',
   'stages','publicObservation'];
 const publicObservationKeys=['appearanceId','usedMoves','observedItemIds',
-  'observedAbilityIds','moves','itemIds','abilityIds'];
+  'observedAbilityIds'];
 const fieldKeys=['weather','terrain','trickRoomTurns','sideEffects'];
 const ownBattleKeys=['active','canSwitch','canMega','needsSwitch',
   'confirmed','remaining','side','hazards','screens'];
@@ -66,7 +66,15 @@ export function projectRnadObservation(view,{seat,context=null}={}){
     if(!Array.isArray(view.self.team))throw new TypeError('Missing own battle team');
     result.self=fields(view.self,ownBattleKeys);
     result.self.team=view.self.team.map(ownPokemon);
-    result.opponent=fields(view.opponent,opponentBattleKeys);
+    result.opponent=fields(view.opponent,opponentBattleKeys.filter(x=>x!=='stages'));
+    if(view.opponent?.stages!==undefined){
+      const stageNames=['atk','def','spa','spd','spe','accuracy','evasion'];
+      const raw=view.opponent.stages;
+      if(!object(raw))throw new TypeError('Invalid public opponent stages');
+      result.opponent.stages=fields(raw,stageNames);
+      if(Object.values(result.opponent.stages).some(x=>!Number.isFinite(x)))
+        throw new TypeError('Invalid opponent stage value');
+    }
     if(Object.hasOwn(result.opponent,'publicObservation'))
       result.opponent.publicObservation=fields(
         result.opponent.publicObservation,publicObservationKeys);
