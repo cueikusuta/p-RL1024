@@ -30,7 +30,7 @@ test('fail closed on mismatched model, opponent, seed, duplicate and forged scor
     b=>b.engine_sha='b'.repeat(40),
     b=>b.opponent_id='stage0',
     b=>b.rows[1].seed=b.rows[0].seed+10,
-    b=>b.rows[3].won=b.rows[2].won,
+    b=>b.rows[3].won=!b.rows[3].won,
     b=>b.rows[4].score=[4,4],
     b=>b.rows[5].rounds=0,
     b=>b.win_rate=.123,
