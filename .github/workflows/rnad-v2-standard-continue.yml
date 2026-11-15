@@ -1,9 +1,7 @@
 name: RNAD-003 standard v2 exact-state 128 to 256 continuation
 on:
-  pull_request:
-    branches: [main]
-    # One initial bounded experiment; switch to manual-only after launch.
-    paths: ['.github/workflows/rnad-v2-standard-continue.yml']
+  # Initial 128→256 experiment already launched as PR run 43752012559.
+  # Avoid re-running expensive full-state training on every PR sync.
   workflow_dispatch:
 permissions: {}
 concurrency:
