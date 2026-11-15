@@ -1,9 +1,9 @@
 name: RNAD-003 bounded research queue — 36 independent CPU studies
 on:
-  # Retry of verified model preparation after a Python print() typo.
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-research-queue-i5.yml']
+  # Queue #43756892480: 4 independent teacher variations.
+  # Queue retry #43757054212: prepared 32 independently seeded evaluations.
+  # Later expensive runs are intentionally manual-only; pull_request paths
+  # would retrigger the entire PR's matrix on every ordinary commit.
   workflow_dispatch:
 permissions: {}
 jobs:
