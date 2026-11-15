@@ -1,4 +1,4 @@
-name: I1 concurrent seventeen-trainer plus aggregator ARM64 CPU fast 256
+name: I1 concurrent nineteen-trainer plus aggregator ARM64 CPU fast 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
@@ -15,9 +15,9 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 17
+      max-parallel: 19
       matrix:
-        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
     permissions:
       contents: read
     steps:
@@ -46,7 +46,7 @@ jobs:
       - name: Train one isolated 12-13 Match model
         env:
           JOB_INDEX: ${{ matrix.index }}
-        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 17 --total 256 --seed 975020 --out artifacts
+        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 19 --total 256 --seed 975020 --out artifacts
       # Artifact name identifies both workflow run and re-run attempt.
       - name: Upload complete shard checkpoint and evaluation evidence
         if: always()
@@ -94,10 +94,10 @@ jobs:
         run: |
           node scripts/verify-snapshot.mjs
           node --test test/hosted-proof.test.js test/hosted-shards.test.js
-      - name: Collect all seventeen complete peer evidence artifacts
+      - name: Collect all nineteen complete peer evidence artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          RL_SHARDS: '17'
+          RL_SHARDS: '19'
           RL_FIRST_ARTIFACT_INDEX: '0'
         run: node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
       - name: Verify 256 four-win Matches, weights, seeds, paired digests and checkpoints
@@ -108,7 +108,7 @@ jobs:
           for dir in peer-artifacts/*/shard-*; do
             cp -a "$dir" "all-shards/$(basename "$dir")"
           done
-          node scripts/merge-hosted-training.mjs --dir all-shards --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 17 --seed 975020 --out artifacts/training-aggregate.json
+          node scripts/merge-hosted-training.mjs --dir all-shards --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 19 --seed 975020 --out artifacts/training-aggregate.json
       - name: Upload validated aggregate SHA manifest
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
