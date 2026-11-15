@@ -104,7 +104,6 @@ jobs:
             artifacts/teacher-ab-a.json artifacts/teacher-ab-b.json \
             artifacts/rnad-ab-a.json artifacts/rnad-ab-b.json \
             artifacts/paired-128-ab.json
-            artifacts/direct-teacher-vs-rnad.json
       - name: Direct teacher-vs-RNAD paired full-Match evaluation (64 held-out seeds, both seats)
         run: |
           node scripts/rnad/evaluate-direct.mjs \
@@ -118,6 +117,7 @@ jobs:
           name: rnad-001-heldout-ab-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/paired-128-ab.json
+            artifacts/direct-teacher-vs-rnad.json
             artifacts/teacher-ab-*.json
             artifacts/rnad-ab-*.json
           if-no-files-found: warn
