@@ -1,8 +1,6 @@
 name: RNAD-003 full-Match 256-game greedy versus sampling, same AQ-supervised v1/v2
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-supervised-greedy-eval.yml']
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-003-supervised-greedy-vs-sample

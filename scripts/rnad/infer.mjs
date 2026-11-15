@@ -111,28 +111,49 @@ export class PersistentRNADInference{
     return this.infer(f.state,f.actions,seat,opts);
   }
 }
+export function argmaxRnad(xs){
+  if(!Array.isArray(xs)||xs.length<1||xs.some(x=>!finite(x)))
+    throw new TypeError('Greedy RNAD policy requires finite logits');
+  let best=0;
+  for(let i=1;i<xs.length;i++)if(xs[i]>xs[best])best=i;
+  return best;
+}
 export class RNADMixedPolicy {
-  constructor({model,magnet,epsilon=0.02}){
+  constructor({model,magnet,epsilon=0.02,selectionMode='sample'}){
     if(!(model instanceof PersistentRNADInference)||
       !(magnet instanceof PersistentRNADInference)||
       model.featureSchema!==magnet.featureSchema||
-      !finite(epsilon)||epsilon<0||epsilon>.5)
-      throw new TypeError('Invalid RNAD behavior/magnet');
+      !finite(epsilon)||epsilon<0||epsilon>.5||
+      !['sample','greedy'].includes(selectionMode)||
+      (selectionMode==='greedy'&&epsilon!==0))
+      throw new TypeError('Invalid RNAD behavior/magnet or evaluation mode');
     this.model=model;this.magnet=magnet;this.epsilon=epsilon;
+    this.selectionMode=selectionMode;
   }
   reset(){this.model.reset();this.magnet.reset();}
   choose({observation,legalActions,seat,rng}){
-    if(!rng||typeof rng.integer!=='function')
-      throw new TypeError('RNAD policy requires deterministic seat RNG');
+    if(this.selectionMode==='sample'&&
+      (!rng||typeof rng.integer!=='function'))
+      throw new TypeError('Sampling RNAD policy requires deterministic seat RNG');
     const current=this.model.inferProjected(observation,legalActions,seat);
     const anchor=this.magnet.inferProjected(observation,legalActions,seat);
     const pi=softmaxRnad(current.logits),reference=softmaxRnad(anchor.logits);
     const probs=pi.map(x=>(1-this.epsilon)*x+this.epsilon/pi.length);
-    const sample=rng.integer(0x1000000)/0x1000000;
-    let cursor=0,idx=probs.length-1;
-    for(let i=0;i<probs.length;i++){cursor+=probs[i];if(sample<cursor){idx=i;break;}}
+    let idx;
+    if(this.selectionMode==='greedy'){
+      idx=argmaxRnad(current.logits);
+    }else{
+      const sample=rng.integer(0x1000000)/0x1000000;
+      let cursor=0;
+      idx=probs.length-1;
+      for(let i=0;i<probs.length;i++){
+        cursor+=probs[i];
+        if(sample<cursor){idx=i;break;}
+      }
+    }
     return {action:legalActions[idx],
-      behaviorLogProbability:Math.log(probs[idx]),
+      // Greedy deployment is a point mass, NOT the prior softmax behavior.
+      behaviorLogProbability:this.selectionMode==='greedy'?0:Math.log(probs[idx]),
       referenceLogProbability:Math.log(reference[idx]),
       predictedValue:current.value};
   }
