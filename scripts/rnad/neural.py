@@ -15,6 +15,8 @@ STATE_FEATURES = 32
 ACTION_FEATURES = 16
 HIDDEN = 128
 MODEL_SCHEMA = "rnad-small-gru-v1"
+BATTLE_FEATURE_SCHEMA = "rnad-battle-features-v1"
+THREE_PHASE_FEATURE_SCHEMA = "rnad-three-phase-features-v1"
 
 
 class RNADNetwork(nn.Module):
@@ -57,7 +59,9 @@ def freeze_magnet(model):
     return reference
 
 
-def export_json(model, path):
+def export_json(model, path, *, feature_schema=BATTLE_FEATURE_SCHEMA):
+    if feature_schema not in (BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA):
+        raise ValueError("Invalid RNAD export feature schema")
     # All model parameters have exact names and dimensions; no Python eval.
     state = {key: {"shape": list(tensor.shape),
                    "values": tensor.detach().cpu().flatten().tolist()}
@@ -65,6 +69,10 @@ def export_json(model, path):
     payload = {"schema": MODEL_SCHEMA, "state_features": STATE_FEATURES,
                "action_features": ACTION_FEATURES, "hidden": model.hidden_size,
                "weights": state}
+    # Preserve byte-for-byte legacy battle-only exports. New three-phase
+    # weights MUST identify the distinct observation/action encoding.
+    if feature_schema != BATTLE_FEATURE_SCHEMA:
+        payload["feature_schema"] = feature_schema
     Path(path).write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n")
     return payload
 
@@ -108,7 +116,7 @@ def compare_onnx(model, onnx_path):
     return maxima
 
 
-def load_exported_json(model, path):
+def load_exported_json(model, path, *, expected_feature_schema=BATTLE_FEATURE_SCHEMA):
     """Import a STRICT versioned finite model from same-job trusted JSON.
 
     Returns the SHA256 of JSON bytes to bind all later checkpoints to the
@@ -120,7 +128,8 @@ def load_exported_json(model, path):
         payload.get("hidden")!=model.hidden_size or
         payload.get("state_features")!=STATE_FEATURES or
         payload.get("action_features")!=ACTION_FEATURES or
-        not isinstance(payload.get("weights"),dict)):
+        not isinstance(payload.get("weights"),dict) or
+        payload.get("feature_schema",BATTLE_FEATURE_SCHEMA) != expected_feature_schema):
         raise ValueError("Invalid warm-start model schema/dimensions")
     reference=model.state_dict()
     if set(payload["weights"])!=set(reference):
