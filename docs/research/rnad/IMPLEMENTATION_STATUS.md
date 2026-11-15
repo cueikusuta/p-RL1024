@@ -1,3 +1,17 @@
+# RNAD-003 follow-up: phase learning, teacher quality and independent A/B (2026-11-16)
+
+Goal #5 / existing Draft PR #6, all GitHub-hosted `ubuntu-latest`, no Champion or main merge. The following is a **research plan/implementation**, not a claim of performance improvement.
+
+1. **Draft/Selection action representation**: `scripts/rnad/feature_diagnostics.py` reads only completed, source-matched public/seat-local v2 teacher examples; counts exact feature-vector collisions and whether the accepted choice shares identical action features with an earlier legal candidate. This diagnoses an information bottleneck before changing the model schema. Earlier v2 vector semantics/checkpoints remain immutable. A future v3 feature schema requires new model weights; existing v2 cannot be relabeled silently.
+2. **Teacher / imitation loss**: `train_teacher.py` adds the opt-in `phase_profile=draft-selection` (normalized 2:2:1 Draft:Selection:Battle gradient weights) and `label_smoothing=.025`. The default v2 1:1:1 weights, no smoothing, and existing training behavior remain intact. It can reuse **validated same-source, same-seed authority-accepted teacher traces**, keeping control and intervention identical except for learning loss. Invalid/mismatched source/teacher/schema traces fail closed. The supervised model is **not** R-NaD and cannot be a Champion.
+3. **Held-out teacher and Basic outcomes**: [phase-focus study workflow](../../../.github/workflows/rnad-v2-research-next.yml) trains control/focused policies on 64 identical teacher full Matches, tests each against separate unseen 16 teacher Matches for per-phase top1/CE, Basic on the same 64 paired seeds, and direct 64 independent head-to-head seed pairs. Both models are archived with source/model identities, no promotions. Smaller samples are diagnostic.
+4. **Independent re-evaluation of normal vs gacha**: The same workflow's separate job restores archived normal v2 generation 128 and 256 (standard [#43752012559](https://github.com/cueikusuta/p-RL1024/actions/runs/43752012559)) and gacha c019/c005 survivors ([#43751083532](https://github.com/cueikusuta/p-RL1024/actions/runs/43751083532)). It binds source, original model and candidate SHA before executing **new** 128 seed-pairs per model vs Basic and new 128 paired seed blocks directly versus each frozen standard model. These seed windows `1601101+` and `1602101+` do not intersect earlier 110..., 130..., 140... research, teacher 151... or candidate selection. Candidate IDs were selected from prior study; no further selection uses these new results as unbiased final Champion evidence.
+5. **Avoid overlapping GPU/server and hidden-state side effects**: fixed engine, fixed train code, v2 only, pinned GitHub-hosted CPU; original RNAD-001 and RNAD-002 untouched, no actual game server or private opponent set leakage. Existing saved complete-state optimizer/magnet/RNG checkpoints remain frozen; teacher and genetic candidates use separate initialization, training and seed blocks.
+
+Retain independent reviewer by another ChatGPT Chat session before integration, all current-HEAD contracts green, and full model/score/checkpoint provenance validation. Results remain pending until real training/evaluation steps and archived artifacts are checked. Workflow is manual-only after first bounded launch to avoid costly repeats on routine Draft PR updates.
+
+---
+
 # RNAD-003: ordinary exact-state R-NaD learning continues in parallel (2026-11-16)
 
 **Both research tracks continue independently** under Issue #5 / Draft PR #6:
