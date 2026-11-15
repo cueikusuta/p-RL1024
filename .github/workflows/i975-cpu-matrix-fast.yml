@@ -45,7 +45,7 @@ jobs:
           name: i1-fast-matrix-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.index }}
           path: artifacts/
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 1
           retention-days: 14
   aggregate:
     if: github.repository == 'cueikusuta/p-RL1024'
