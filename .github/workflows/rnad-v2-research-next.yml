@@ -1,0 +1,357 @@
+name: RNAD-003 phase learning and independent population recheck
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-v2-research-next.yml']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-003-next-study-i5
+  cancel-in-progress: false
+
+jobs:
+  teacher-phase-focus:
+    if: github.repository == 'cueikusuta/p-RL1024' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      ROOT: artifacts/rnad-v2-focus
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Pinned CPU and supervised loss and feature diagnostic contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p 'rnad_phase_focus_test.py' -v
+          python -m unittest discover -s test -p 'rnad_feature_diagnostics_test.py' -v
+      - name: Reference teacher - 64 authority-accepted Matches and original equal-phase objective
+        run: |
+          python -m scripts.rnad.train_teacher \
+            --three-phase --teacher aq-public-belief --features-v2 --phase-balanced \
+            --seed 1510001 --matches 64 --epochs 4 --out "$ROOT/control"
+      - name: Diagnose draft/selection feature vector ambiguity using identical accepted teacher traces
+        run: |
+          python -m scripts.rnad.feature_diagnostics \
+            --root "$ROOT/control/teacher-matches" --seed 1510001 --matches 64 \
+            --out "$ROOT/feature-collisions.json"
+      - name: Focus draft and selection imitation gradients on the identical trusted Match trajectories
+        run: |
+          python -m scripts.rnad.train_teacher \
+            --three-phase --teacher aq-public-belief --features-v2 --phase-balanced \
+            --phase-profile draft-selection --label-smoothing 0.025 \
+            --seed 1510001 --matches 64 --epochs 4 \
+            --reuse-teacher-traces "$ROOT/control/teacher-matches" \
+            --out "$ROOT/focused"
+      - name: Held-out 16 completed teacher Matches for reference model
+        run: |
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --features-v2 --model "$ROOT/control/trained-model.json" \
+            --seed 1510301 --matches 16 --out "$ROOT/heldout-control"
+      - name: Same held-out 16 completed teacher Matches for focused model
+        run: |
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --features-v2 --model "$ROOT/focused/trained-model.json" \
+            --seed 1510301 --matches 16 --out "$ROOT/heldout-focused"
+      - name: Same unseen 64 paired seeds against frozen Basic, greedy
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/control/trained-model.json" \
+            --seed 1511101 --pairs 64 --selection-mode greedy \
+            --out "$ROOT/control-basic.json"
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/focused/trained-model.json" \
+            --seed 1511101 --pairs 64 --selection-mode greedy \
+            --out "$ROOT/focused-basic.json"
+      - name: Frozen focused-versus-control direct paired 64 seed blocks, greedy
+        run: |
+          node scripts/rnad/evaluate-direct.mjs \
+            --teacher "$ROOT/control/trained-model.json" \
+            --rnad "$ROOT/focused/trained-model.json" \
+            --seed 1512101 --pairs 64 --selection-mode greedy \
+            --out "$ROOT/focused-v-control.json"
+      - name: Verify exact source/teacher/model/seed phase metrics and label-reuse provenance
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          from scripts.rnad.train import current_git_sha,frozen_engine_sha
+          from scripts.rnad.neural import THREE_PHASE_FEATURE_SCHEMA_V2
+          from scripts.rnad.train_teacher import AQ_WEIGHTS_SHA256
+          p=Path(os.environ['ROOT']);load=lambda s:json.loads((p/s).read_text())
+          sh=lambda path:hashlib.sha256(path.read_bytes()).hexdigest()
+          a=load('control/teacher-report.json');b=load('focused/teacher-report.json')
+          f=load('feature-collisions.json')
+          held=[load('heldout-control/heldout-imitation.json'),
+                load('heldout-focused/heldout-imitation.json')]
+          basic=[load('control-basic.json'),load('focused-basic.json')]
+          direct=load('focused-v-control.json')
+          models=[p/'control/trained-model.json',p/'focused/trained-model.json']
+          for x in (a,b,f,*held,*basic,direct):
+              if x.get('source_sha')!=current_git_sha() or x.get('engine_sha')!=frozen_engine_sha():
+                  raise ValueError('Untrusted source or engine identity')
+          if not (a['teacher_weights_sha256']==b['teacher_weights_sha256']==
+              f['teacher_weights_sha256']==AQ_WEIGHTS_SHA256
+              and a['seed']==b['seed']==1510001
+              and a['teacher_completed_matches']==b['teacher_completed_matches']==64
+              and a['phase_balanced'] is b['phase_balanced'] is True
+              and a['phase_profile']=='equal' and b['phase_profile']=='draft-selection'
+              and a['label_smoothing']==0 and b['label_smoothing']==0.025
+              and a['reused_authority_accepted_teacher_traces'] is False
+              and b['reused_authority_accepted_teacher_traces'] is True
+              and f['seed']==1510001 and f['completed_matches']==64
+              and f['feature_schema']==THREE_PHASE_FEATURE_SCHEMA_V2
+              and set(f['stats'])=={'draft','selection','battle'}
+              and f['is_champion'] is False):
+              raise ValueError('Teacher ablation study not comparable')
+          for i,x in enumerate(held):
+              if not (x['student_model_sha256']==sh(models[i])
+                  and x['matches']==16 and x['seed']==1510301
+                  and x['teacher_model_sha256']==AQ_WEIGHTS_SHA256
+                  and set(x['phases'])=={'draft','selection','battle'}
+                  and all(0<=v['top1_accuracy']<=1 and v['examples']>0
+                          for v in x['phases'].values())):
+                  raise ValueError('Missing or incomparable unseen teacher labels')
+          for i,x in enumerate(basic):
+              if not (x['model_sha256']==sh(models[i])
+                  and x['inference_selection_mode']=='greedy'
+                  and x['pairs']==64 and x['matches']==128
+                  and x['wins']==sum(y['won'] for y in x['rows'])
+                  and {(y['seed'],y['candidateSeat']) for y in x['rows']}==
+                      {(s,seat) for s in range(1511101,1511165) for seat in (0,1)}):
+                  raise ValueError('Unpaired Basic outcome')
+          if not (direct['teacher_model_sha256']==sh(models[0])
+              and direct['rnad_model_sha256']==sh(models[1])
+              and direct['pairs']==64 and direct['matches']==128
+              and direct['wins']==sum(y['won'] for y in direct['rows'])
+              and direct['improvement_statistically_established'] is False
+              or (direct.get('paired_seed_hoeffding_95pct',[0])[0]>.5)):
+              raise ValueError('Invalid direct teacher comparison')
+          if {(y['seed'],y['rnadSeat']) for y in direct['rows']}!= {
+              (s,seat) for s in range(1512101,1512165) for seat in (0,1)}:
+              raise ValueError('Direct outcome seed/seat mismatch')
+          report={'schema':'rnad-003-phase-focus-teacher-ab-v1',
+              'source_sha':current_git_sha(),'engine_sha':frozen_engine_sha(),
+              'control_basic_wins_128':basic[0]['wins'],
+              'focused_basic_wins_128':basic[1]['wins'],
+              'focus_direct_wins_128':direct['wins'],
+              'direct_paired_ci95':direct['paired_seed_hoeffding_95pct'],
+              'heldout_phase_top1':{phase:{
+                'control':held[0]['phases'][phase]['top1_accuracy'],
+                'focused':held[1]['phases'][phase]['top1_accuracy']}
+                for phase in ('draft','selection','battle')},
+              'feature_diagnostic':f['stats'],
+              'new_champion_proven':False,'is_champion':False}
+          (p/'study-report.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\n')
+          print(json.dumps(report,flush=True))
+          PY
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-phase-focus-${{ github.run_id }}
+          path: |
+            artifacts/rnad-v2-focus/control/teacher-report.json
+            artifacts/rnad-v2-focus/control/trained-model.json
+            artifacts/rnad-v2-focus/focused/teacher-report.json
+            artifacts/rnad-v2-focus/focused/trained-model.json
+            artifacts/rnad-v2-focus/feature-collisions.json
+            artifacts/rnad-v2-focus/heldout-control/heldout-imitation.json
+            artifacts/rnad-v2-focus/heldout-focused/heldout-imitation.json
+            artifacts/rnad-v2-focus/control-basic.json
+            artifacts/rnad-v2-focus/focused-basic.json
+            artifacts/rnad-v2-focus/focused-v-control.json
+            artifacts/rnad-v2-focus/study-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  independent-rank:
+    if: github.repository == 'cueikusuta/p-RL1024' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024')
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: cueikusuta/p-RL1024
+      ROOT: /tmp/rnad-independent-followup
+      SOURCE_SHA: f08a9587d6a7033546eab00ffa6479399ca71c2f
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: f08a9587d6a7033546eab00ffa6479399ca71c2f
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Restore archived models from both independent research branches
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          node scripts/verify-snapshot.mjs
+          mkdir -p "$ROOT/standard" "$ROOT/population" "$ROOT/eval"
+          gh run download 43752012559 --repo "$GH_REPO" \
+            --name rnad-003-standard-v2-256-43752012559-1 \
+            --dir "$ROOT/standard"
+          gh run download 43751083532 --repo "$GH_REPO" \
+            --name rnad-003-population-43751083532-1 \
+            --dir "$ROOT/population"
+      - name: Strictly bind prior model/checkpoint hashes and selected candidate provenance
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path(os.environ['ROOT']);sh=lambda x:hashlib.sha256(x.read_bytes()).hexdigest()
+          standard=json.loads((p/'standard/generations/standard-256-result.json').read_text())
+          pop=json.loads((p/'population/population-report.json').read_text())
+          m128=p/'standard/generations/model-u128.json'
+          m256=p/'standard/generations/model-u256.json'
+          target={z['id']:z for z in pop['finalists']}
+          if not (standard['schema']=='rnad-003-standard-v2-256-generation-v1'
+              and standard['source_sha']==os.environ['SOURCE_SHA']
+              and standard['is_champion'] is False
+              and standard['generation']==256
+              and standard['origin_run_id']==43747882146
+              and sh(m128)==standard['base128_model_sha256']==pop['origin_model_file_sha256']
+              and sh(m256)==standard['model256_sha256']
+              and pop['population']==100
+              and pop['champion_promoted'] is False
+              and set(('c019','c005')).issubset(target)):
+              raise ValueError('Missing exact source-bound cross-study model provenance')
+          for ident in ('c019','c005'):
+              model=p/'population/training'/ident/'final-model.json'
+              if not model.is_file() or sh(model)!=target[ident]['trained_model_sha256']:
+                  raise ValueError('Mutation candidate model artifact hash mismatch')
+          print(json.dumps({'baseline_sha':sh(m128),'gen256_sha':sh(m256),
+              'c019_sha':target['c019']['trained_model_sha256'],
+              'c005_sha':target['c005']['trained_model_sha256']}),flush=True)
+          PY
+      - name: Evaluate 128 generation, 256 generation and top two mutants on SAME 128 untouched seed pairs
+        run: |
+          set -euo pipefail
+          for item in base128 base256 c019 c005; do
+            case "$item" in
+              base128) MODEL="$ROOT/standard/generations/model-u128.json" ;;
+              base256) MODEL="$ROOT/standard/generations/model-u256.json" ;;
+              *) MODEL="$ROOT/population/training/$item/final-model.json" ;;
+            esac
+            node scripts/rnad/evaluate-neural-basic.mjs \
+              --model "$MODEL" --seed 1601101 --pairs 128 \
+              --selection-mode greedy --out "$ROOT/eval/$item-v-basic.json"
+          done
+      - name: Independently compare both survivor mutations vs 128 and 256 on separate new paired seeds
+        run: |
+          set -euo pipefail
+          for candidate in c019 c005; do
+            for base in base128 base256; do
+              if [ "$base" = base128 ]; then
+                TEACHER="$ROOT/standard/generations/model-u128.json"
+              else
+                TEACHER="$ROOT/standard/generations/model-u256.json"
+              fi
+              for block in 0 1; do
+                seed=$((1602101+64*block))
+                node scripts/rnad/evaluate-direct.mjs \
+                  --teacher "$TEACHER" \
+                  --rnad "$ROOT/population/training/$candidate/final-model.json" \
+                  --seed "$seed" --pairs 64 --selection-mode greedy \
+                  --out "$ROOT/eval/$candidate-v-$base-block-$block.json"
+              done
+            done
+          done
+      - name: Enforce complete paired seed blocks, immutable outcome/provenance and publish NO champion
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path(os.environ['ROOT']);e=p/'eval'
+          sh=lambda x:hashlib.sha256(x.read_bytes()).hexdigest()
+          def read(name):return json.loads((e/name).read_text())
+          model={
+              'base128':p/'standard/generations/model-u128.json',
+              'base256':p/'standard/generations/model-u256.json',
+              'c019':p/'population/training/c019/final-model.json',
+              'c005':p/'population/training/c005/final-model.json'}
+          engine=json.loads(Path('provenance/manifest.json').read_text())['sourceCommit']
+          out={'schema':'rnad-003-independent-population-vs-standard-v1',
+               'source_sha':os.environ['SOURCE_SHA'],'engine_sha':engine,
+               'basic':{},'direct':{},'independent_holdout':True,
+               'significance_or_champion_confirmed':False,'is_champion':False}
+          def checkrows(rows,seed,pairs,key):
+              expected={(s,z) for s in range(seed,seed+pairs) for z in (0,1)}
+              seen=set()
+              for row in rows:
+                  k=(row.get('seed'),row.get(key));score=row.get('score')
+                  if (k not in expected or k in seen or
+                      type(row.get('won')) is not bool or
+                      not isinstance(score,list) or len(score)!=2 or
+                      any(type(x)!=int or not 0<=x<=4 for x in score) or
+                      max(score)!=4 or
+                      score[k[1] if row['won'] else 1-k[1]]!=4):
+                      raise ValueError('Invalid/reused seat or inconsistent Match result')
+                  seen.add(k)
+              if seen!=expected:raise ValueError('Missing held-out seat or seed')
+          for ident,path in model.items():
+              q=read(f'{ident}-v-basic.json')
+              if not (q['schema']=='rnad-three-phase-vs-basic-paired-v1'
+                  and q['source_sha']==os.environ['SOURCE_SHA']
+                  and q['engine_sha']==engine
+                  and q['model_sha256']==sh(path)
+                  and q['inference_selection_mode']=='greedy'
+                  and q['opponent_id']=='basic-all-phases'
+                  and q['pairs']==128 and q['matches']==256
+                  and q['wins']==sum(x['won'] for x in q['rows'])
+                  and q['champion_promoted'] is False):
+                  raise ValueError('Wrong model/basic evaluation')
+              checkrows(q['rows'],1601101,128,'candidateSeat')
+              out['basic'][ident]={'wins':q['wins'],'matches':256,
+                  'win_rate':q['win_rate']}
+          for candidate in ('c019','c005'):
+              for baseline in ('base128','base256'):
+                  chunks=[read(f'{candidate}-v-{baseline}-block-{i}.json')
+                          for i in (0,1)]
+                  total=0
+                  for i,q in enumerate(chunks):
+                      if not (q['schema']=='rnad-direct-neural-paired-match-v1'
+                          and q['source_sha']==os.environ['SOURCE_SHA']
+                          and q['engine_sha']==engine
+                          and q['teacher_model_sha256']==sh(model[baseline])
+                          and q['rnad_model_sha256']==sh(model[candidate])
+                          and q['model_feature_schema']=='rnad-three-phase-features-v2'
+                          and q['inference_selection_mode']=='greedy'
+                          and q['seed']==1602101+i*64
+                          and q['pairs']==64 and q['matches']==128
+                          and q['wins']==sum(x['won'] for x in q['rows'])
+                          and q['is_champion'] is False):
+                          raise ValueError('Wrong direct evaluation/outcome source')
+                      checkrows(q['rows'],1602101+i*64,64,'rnadSeat')
+                      total+=q['wins']
+                  out['direct'][f'{candidate}-v-{baseline}']={
+                      'wins':total,'matches':256,'win_rate':total/256}
+          (e/'study-report.json').write_text(json.dumps(out,indent=2,allow_nan=False)+'\n')
+          print(json.dumps(out,flush=True))
+          PY
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-independent-recheck-${{ github.run_id }}
+          path: |
+            /tmp/rnad-independent-followup/eval/
+          if-no-files-found: warn
+          retention-days: 30
