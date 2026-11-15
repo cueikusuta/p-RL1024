@@ -1,10 +1,9 @@
 name: RNAD-003 bounded 100-variant evolutionary screening
 on:
-  pull_request:
-    branches: [main]
-    # One bounded research trigger on introducing/changing THIS workflow.
-    # Routine commits to population code must not re-run expensive trials.
-    paths: ['.github/workflows/rnad-population-study.yml']
+  # First bounded experiment was launched on PR #6 at HEAD 0f7ebaf.
+  # Keep future expensive 100-candidate training MANUAL-ONLY; PR paths filters
+  # inspect the WHOLE PR diff, not just the latest commit, so they do not
+  # prevent repeated training when other files change.
   workflow_dispatch:
 permissions: {}
 concurrency:
