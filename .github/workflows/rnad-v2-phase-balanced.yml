@@ -1,0 +1,67 @@
+name: RNAD-003 GitHub-hosted AQ teacher semantic v2 phase-balanced 128 Matches
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/rnad-v2-phase-balanced.yml'
+permissions: {}
+concurrency:
+  group: rnad-003-v2-phase-balanced-research-i5
+  cancel-in-progress: false
+jobs:
+  phase-balanced:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Pin hosted CPU training runtime and verify original freeze
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          python test/rnad-phase-balanced-loss.test.py
+          node --test test/rnad-three-phase-features-v2.test.js
+      - name: Train 128 accepted AQ public-teacher full Matches, 4 epochs and equal gradient by phase
+        run: |
+          python -m scripts.rnad.train_teacher \
+            --three-phase --teacher aq-public-belief --features-v2 --phase-balanced \
+            --seed 996001 --matches 128 --epochs 4 \
+            --out artifacts/aq-supervised-v2-balanced
+      - name: Independent 16-Match held-out teacher imitation, per phase
+        run: |
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --features-v2 --model artifacts/aq-supervised-v2-balanced/trained-model.json \
+            --seed 996301 --matches 16 --out artifacts/aq-v2-balanced-heldout
+      - name: Frozen Basic opponent across same 128 seed pairs, both seats
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model artifacts/aq-supervised-v2-balanced/trained-model.json \
+            --seed 997001 --pairs 128 \
+            --out artifacts/aq-supervised-v2-balanced/basic-heldout.json
+      - name: Preserve semantic v2 balanced teacher and independent evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-v2-balanced-${{ github.run_id }}
+          path: |
+            artifacts/aq-supervised-v2-balanced/teacher-report.json
+            artifacts/aq-supervised-v2-balanced/trained-model.json
+            artifacts/aq-supervised-v2-balanced/basic-heldout.json
+            artifacts/aq-v2-balanced-heldout/heldout-imitation.json
+          if-no-files-found: warn
+          retention-days: 30

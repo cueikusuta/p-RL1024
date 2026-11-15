@@ -10,10 +10,10 @@ on:
 permissions: {}
 concurrency:
   group: rnad-003-semantic-v2-supervised-i5
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   teacher-v2:
-    if: github.repository == 'cueikusuta/p-RL1024'
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.sha == '39948501caf06965855b1ee3516a3b32c447f691'
     runs-on: ubuntu-latest
     timeout-minutes: 160
     permissions:

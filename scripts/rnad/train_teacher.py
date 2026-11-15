@@ -66,12 +66,34 @@ def collect(seed, count, folder, *, three_phase=False,
     return traces
 
 
+def phase_balanced_mean_loss(events, *, enabled=False):
+    """Each completed Match gives each phase an equal mean-gradient weight.
+
+    Standard mode is byte-for-byte the earlier event-mean objective. Each
+    event is (phase, differentiable scalar loss), never a privileged state.
+    """
+    if not events or any(phase not in ('draft','selection','battle')
+                         for phase,_ in events):
+        raise ValueError("Missing or malformed accepted event losses")
+    if not enabled:
+        return torch.stack([loss for _,loss in events]).mean()
+    grouped={p:[] for p in ('draft','selection','battle')}
+    for phase,loss in events:
+        grouped[phase].append(loss)
+    if any(not losses for losses in grouped.values()):
+        raise ValueError("Phase-balanced training requires all three phases")
+    return torch.stack([torch.stack(grouped[p]).mean()
+        for p in ('draft','selection','battle')]).mean()
+
+
 def train(*,seed=975601,out="artifacts/rnad-teacher",
           three_phase=False,matches=32,epochs=4,
-          teacher='basic-stage0',features_v2=False):
+          teacher='basic-stage0',features_v2=False,phase_balanced=False):
     if (type(seed) is not int or type(matches) is not int or
         type(epochs) is not int or type(three_phase) is not bool or
         type(features_v2) is not bool or (features_v2 and not three_phase) or
+        type(phase_balanced) is not bool or
+        (phase_balanced and not three_phase) or
         not 1<=matches<=256 or not 1<=epochs<=6 or
         teacher not in ('basic-stage0','aq-public-belief') or
         (teacher=='aq-public-belief' and not three_phase) or
@@ -98,6 +120,8 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
         cumulative=0.
         n=0
         correct=0
+        phase_correct={p:0 for p in ('draft','selection','battle')}
+        phase_count={p:0 for p in ('draft','selection','battle')}
         for index in order:
             match=traces[index]
             memory=[model.initial_memory() for _ in range(2)]
@@ -116,10 +140,16 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                 memory[seat]=h.detach()
                 loss=F.cross_entropy(logits,torch.tensor([event["choice"]]))
                 target=torch.tensor([float(event["terminal_target"])])
-                losses.append(loss+0.05*F.mse_loss(value,target))
-                correct+=int(int(logits[0].argmax())==event["choice"])
+                phase=event.get("phase")
+                if phase not in phase_count:
+                    raise ValueError("Unexpected supervised event phase")
+                losses.append((phase,loss+0.05*F.mse_loss(value,target)))
+                matched=int(int(logits[0].argmax())==event["choice"])
+                correct+=matched
+                phase_correct[phase]+=matched
+                phase_count[phase]+=1
                 n+=1
-            batch_loss=torch.stack(losses).mean()
+            batch_loss=phase_balanced_mean_loss(losses,enabled=phase_balanced)
             if not torch.isfinite(batch_loss):
                 raise ValueError("Nonfinite teacher learning loss")
             optimizer.zero_grad(set_to_none=True)
@@ -131,7 +161,11 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
         if not n:raise ValueError("Empty teacher learning epoch")
         row={"epoch":epoch+1,"mean_loss":cumulative/n,
              "imitation_top1_accuracy":correct/n,
-             "accepted_examples":n,"model_sha256":state_hash(model)}
+             "accepted_examples":n,
+             "phase_example_counts":phase_count,
+             "phase_top1_accuracy":{p:phase_correct[p]/phase_count[p]
+                 if phase_count[p] else None for p in phase_count},
+             "model_sha256":state_hash(model)}
         if not (math.isfinite(row["mean_loss"]) and
                 math.isfinite(row["imitation_top1_accuracy"])):
             raise ValueError("Nonfinite imitation metrics")
@@ -144,6 +178,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
     report={"schema":("rnad-three-phase-imitation-report-v1" if three_phase
                       else "rnad-optional-stage0-imitation-report-v1"),
             "feature_schema":feature_schema,
+            "phase_balanced":phase_balanced,
             "source_sha":current_git_sha(),"engine_sha":frozen_engine_sha(),
             "teacher_id":("rnad-aq-public-belief-v2"
                           if teacher=="aq-public-belief" else
@@ -169,10 +204,12 @@ if __name__=="__main__":
     p.add_argument("--epochs",type=int,default=4)
     p.add_argument("--three-phase",action="store_true")
     p.add_argument("--features-v2",action="store_true")
+    p.add_argument("--phase-balanced",action="store_true")
     p.add_argument("--teacher",choices=["basic-stage0","aq-public-belief"],
                    default="basic-stage0")
     args=p.parse_args()
     print(json.dumps(train(out=args.out,seed=args.seed,matches=args.matches,
                            epochs=args.epochs,three_phase=args.three_phase,
                            teacher=args.teacher,
-                           features_v2=args.features_v2),indent=2))
+                           features_v2=args.features_v2,
+                           phase_balanced=args.phase_balanced),indent=2))
