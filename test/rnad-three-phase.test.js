@@ -61,3 +61,15 @@ test('three-phase illegal proposed draft candidate cannot forge accepted record'
       {...safePolicy(ctx),action:['forged-instance']}:
       safePolicy(ctx)}),/not in the exact legal set/);
 });
+
+test('a three-phase Actor can face a Basic-stage frozen Battle opponent',()=>{
+  const result=runRnadAcceptanceSmoke({...base,maxRounds:1,
+    phasePolicies:[safePolicy,null],policy:stage0FixedPolicy});
+  assert.equal(result.completed,false);
+  assert.equal(result.rounds,1);
+  assert.equal(result.trajectories,null);
+  assert.equal(result.agentStats[0].battle.accepted_decisions,
+    result.actionCounts[0]+2);
+  assert.equal(result.agentStats[1].battle.accepted_decisions,
+    result.actionCounts[1]);
+});

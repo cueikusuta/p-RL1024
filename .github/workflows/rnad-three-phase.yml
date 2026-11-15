@@ -54,6 +54,27 @@ jobs:
       - name: Prove 3-phase Match training stop-resume bitwise equivalence
         run: |
           python -m scripts.rnad.verify_resume --three-phase --seed 975123
+      - name: Verify mixed-seat evaluation with frozen Stage0 opponent
+        run: |
+          node scripts/rnad/evaluate.mjs \
+            --model artifacts/rnad-3phase/final-model.json \
+            --seed 988781 --pairs 2 --out artifacts/rnad-3phase/paired-smoke.json
+      - name: Train exactly 16 real complete four-win three-phase Matches
+        run: |
+          python -m scripts.rnad.train \
+            --three-phase --seed 975141 --matches 16 \
+            --out artifacts/rnad-3phase-16
+      - name: Verify all 16 unique authority-accepted full phase trajectories
+        run: |
+          python -m scripts.rnad.verify_smoke \
+            --three-phase --seed 975141 --matches 16 \
+            --out artifacts/rnad-3phase-16
+      - name: Held-out 8-seed paired full-Match evaluation (diagnostic only)
+        run: |
+          node scripts/rnad/evaluate.mjs \
+            --model artifacts/rnad-3phase-16/final-model.json \
+            --seed 988783 --pairs 8 \
+            --out artifacts/rnad-3phase-16/heldout.json
       - name: Retain non-Champion research checkpoint evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -64,5 +85,11 @@ jobs:
             artifacts/rnad-3phase/final-model.json
             artifacts/rnad-3phase/checkpoints/latest.json
             artifacts/rnad-3phase/checkpoints/checkpoint-*.pt
+            artifacts/rnad-3phase/paired-smoke.json
+            artifacts/rnad-3phase-16/report.json
+            artifacts/rnad-3phase-16/final-model.json
+            artifacts/rnad-3phase-16/checkpoints/latest.json
+            artifacts/rnad-3phase-16/checkpoints/checkpoint-u16-*.pt
+            artifacts/rnad-3phase-16/heldout.json
           if-no-files-found: warn
           retention-days: 30
