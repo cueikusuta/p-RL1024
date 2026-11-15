@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.14.0'
+          node-version: '22'
       - name: Verify snapshot and shard evidence rules
         run: |
           node scripts/verify-snapshot.mjs
@@ -67,3 +67,4 @@ jobs:
           path: artifacts/
           if-no-files-found: error
           retention-days: 14
+          compression-level: 1
