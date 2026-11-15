@@ -93,6 +93,16 @@ jobs:
           ref: ${{ steps.screen.outputs.source_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Restore original Node 22.14 matching frozen training
+        if: steps.screen.outputs.proceed == 'yes'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Restore original Python 3.11 matching frozen PyTorch state
+        if: steps.screen.outputs.proceed == 'yes'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
       - name: Pinned source and CPU environment check
         if: steps.screen.outputs.proceed == 'yes'
         run: |
