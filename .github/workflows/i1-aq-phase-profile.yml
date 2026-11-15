@@ -2,7 +2,7 @@ name: I1 AQ CPU phase profiler
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
-    paths: ['.github/workflows/i1-aq-phase-profile.yml']
+    paths: ['.github/workflows/i1-aq-phase-profile.yml', 'scripts/profile-aq-training.mjs']
   workflow_dispatch:
 permissions: {}
 jobs:
