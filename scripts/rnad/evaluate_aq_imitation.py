@@ -8,8 +8,9 @@ import math
 from pathlib import Path
 import torch
 import torch.nn.functional as F
-from scripts.rnad.neural import RNADNetwork,load_exported_json,THREE_PHASE_FEATURE_SCHEMA,
-                                 THREE_PHASE_FEATURE_SCHEMA_V2
+from scripts.rnad.neural import (RNADNetwork, load_exported_json,
+                                 THREE_PHASE_FEATURE_SCHEMA,
+                                 THREE_PHASE_FEATURE_SCHEMA_V2)
 from scripts.rnad.train import current_git_sha,frozen_engine_sha
 from scripts.rnad.train_teacher import collect,AQ_WEIGHTS_SHA256
 
