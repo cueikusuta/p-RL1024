@@ -75,7 +75,7 @@ test('only authoritative commit records a decision; rejection discards proposal'
   assert.equal(c.stats().accepted_decisions,0);
   assert.throws(()=>c.propose({...args,action:{kind:'switch',index:0}}),/not in/);
   c.propose(args);
-  assert.throws(()=>c.commit(actions[0]),/authority.*receipt/i);
+  assert.throws(()=>c.commit(actions[0]),/authorit.*receipt/i);
   assert.equal(c.stats().accepted_decisions,0);
   assert.throws(()=>c.finish({completed:true,winner:0,score:[4,2]}),/Expected/);
   c.reject();
@@ -91,10 +91,10 @@ test('opponent seat receives negative terminal reward and cannot cross seats',()
     behaviorLogProbability:Math.log(1/60),
     referenceLogProbability:Math.log(1/60),predictedValue:0});
   // A second seat cannot self-certify an accepted action or terminal result.
-  assert.throws(()=>c.commit(action,Object.freeze({})),/authority.*receipt/i);
+  assert.throws(()=>c.commit(action,Object.freeze({})),/authorit.*receipt/i);
   assert.equal(c.stats().accepted_decisions,0);
   c.reject();
-  assert.throws(()=>c.finish({completed:true,winner:0,score:[4,3]},Object.freeze({})),/authority.*receipt/i);
+  assert.throws(()=>c.finish({completed:true,winner:0,score:[4,3]},Object.freeze({})),/authorit.*receipt/i);
 });
 
 test('untrusted cross-round handoff and draft history cannot reach actor',()=>{
