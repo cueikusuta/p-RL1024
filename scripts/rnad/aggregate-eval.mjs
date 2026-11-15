@@ -11,6 +11,17 @@ export function wilson(successes,total){
   const radius=z*Math.sqrt(p*(1-p)/total+z2/(4*total*total))/norm;
   return [Math.max(0,center-radius),Math.min(1,center+radius)];
 }
+// Hoeffding bound on INDEPENDENT SEED BLOCKS, treating each swapped-seat
+// seed as one bounded [0,1] pair score. Wilson on 2N correlated matches
+// would be overconfident and must not authorize Champion promotion.
+export function pairedHoeffding95(wins,matchedPairs){
+  if(!Number.isInteger(matchedPairs)||matchedPairs<1||
+    !Number.isInteger(wins)||wins<0||wins>2*matchedPairs)
+    throw new TypeError('Invalid paired statistics');
+  const score=wins/(2*matchedPairs);
+  const error=Math.sqrt(Math.log(40)/(2*matchedPairs));
+  return [Math.max(0,score-error),Math.min(1,score+error)];
+}
 export function aggregateIndependentPaired(reports,{minMatches=1000}={}){
   if(!Array.isArray(reports)||!reports.length||!Number.isInteger(minMatches)||
     minMatches<1000)throw new TypeError('Insufficient Champion evidence inputs');
@@ -46,11 +57,12 @@ export function aggregateIndependentPaired(reports,{minMatches=1000}={}){
   if([...bySeed.values()].some(set=>set.size!==2))
     throw new Error('Unpaired seed detected');
   const matches=played.size;
-  const ci95=wilson(wins,matches);
+  const ci95=pairedHoeffding95(wins,bySeed.size);
   return {schema:'rnad-champion-eligibility-v1',model_sha256:model,
     engine_sha:engine,opponent_id:opponent,
     unique_paired_seeds:bySeed.size,matches,wins,
-    win_rate:wins/matches,ci95,
+    win_rate:wins/matches,ci95,ci_method:'independent-seed-block-Hoeffding',
+    diagnostic_wilson_ci95:wilson(wins,matches),
     eligible_for_independent_champion_review:matches>=minMatches&&ci95[0]>.5,
     champion_promoted:false};
 }
