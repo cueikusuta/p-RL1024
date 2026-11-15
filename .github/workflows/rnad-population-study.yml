@@ -45,7 +45,7 @@ jobs:
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
           node scripts/verify-snapshot.mjs
-          python -m unittest test.rnad_population_test -v
+          python -m unittest discover -s test -p 'rnad_population_test.py' -v
           python -m scripts.rnad.population_probe --plan-only > /tmp/rnad-population-plan.json
           python - <<'PY'
           import json
