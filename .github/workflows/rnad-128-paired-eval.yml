@@ -107,9 +107,9 @@ jobs:
             artifacts/direct-teacher-vs-rnad.json
       - name: Direct teacher-vs-RNAD paired full-Match evaluation (64 held-out seeds, both seats)
         run: |
-          node scripts/rnad/evaluate-direct.mjs \\
-            --teacher artifacts/from-archived-run/teacher/trained-model.json \\
-            --rnad artifacts/from-archived-run/selfplay/final-model.json \\
+          node scripts/rnad/evaluate-direct.mjs \
+            --teacher artifacts/from-archived-run/teacher/trained-model.json \
+            --rnad artifacts/from-archived-run/selfplay/final-model.json \
             --seed 988501 --pairs 64 --out artifacts/direct-teacher-vs-rnad.json
       - name: Preserve research AB evidence
         if: always()
