@@ -1,4 +1,4 @@
-name: I1 concurrent ten-trainer plus aggregator ARM64 CPU fast 256
+name: I1 concurrent fourteen-trainer plus aggregator ARM64 CPU fast 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
@@ -19,9 +19,9 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 14
       matrix:
-        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     permissions:
       contents: read
     steps:
@@ -47,15 +47,15 @@ jobs:
         if: steps.cached-node.outputs.hit != 'true'
         with:
           node-version: '22'
-      - name: Train one isolated 25-26 Match model
+      - name: Train one isolated 18-19 Match model
         env:
           JOB_INDEX: ${{ matrix.index }}
-          RL_SHARDS: '10'
-        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 10 --total 256 --seed 975020 --out artifacts
+          RL_SHARDS: '14'
+        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 14 --total 256 --seed 975020 --out artifacts
       - name: Validate all training history, independent smoke comparisons and checkpoints
         env:
           JOB_INDEX: ${{ matrix.index }}
-          RL_SHARDS: '10'
+          RL_SHARDS: '14'
         run: node scripts/create-hosted-witness.mjs --index "$JOB_INDEX" --out compact/witness.json
       # Artifact name identifies both workflow run and re-run attempt.
       - name: Upload complete shard checkpoint and evaluation evidence
@@ -112,14 +112,14 @@ jobs:
         run: |
           node scripts/verify-snapshot.mjs
           node --test test/hosted-proof.test.js test/hosted-shards.test.js
-      - name: Collect compact witnesses and verify all ten immutable full archives exist
+      - name: Collect compact witnesses and verify all fourteen immutable full archives exist
         env:
           GH_TOKEN: ${{ github.token }}
-          RL_SHARDS: '10'
+          RL_SHARDS: '14'
         run: node scripts/wait-hosted-witnesses.mjs peer-witnesses
       - name: Aggregate 256 verified full Matches, model hashes, paired digests and checkpoint proofs
         env:
-          RL_SHARDS: '10'
+          RL_SHARDS: '14'
         run: node scripts/merge-hosted-witnesses.mjs peer-witnesses artifacts/training-aggregate.json
       - name: Upload validated aggregate SHA manifest
         if: always()
