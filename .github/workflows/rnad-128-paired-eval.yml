@@ -1,0 +1,82 @@
+name: RNAD-001 held-out paired AB on archived warm-start models
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/rnad/verify_warmstart_artifact.py'
+      - 'scripts/rnad/compare_warmstart_eval.mjs'
+      - '.github/workflows/rnad-128-paired-eval.yml'
+permissions: {}
+concurrency:
+  group: rnad-001-archived-eval-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  paired-ab:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest # GitHub-hosted only; no self-hosted runner.
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: cueikusuta/p-RL1024
+      RNAD_SOURCE_SHA: 22797c508bfc8004a7219a496bbaac5cd7714000
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 22797c508bfc8004a7219a496bbaac5cd7714000
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify code provenance before using archived weights
+        run: |
+          test "$(git rev-parse HEAD)" = "$RNAD_SOURCE_SHA"
+          node scripts/verify-snapshot.mjs
+      - name: Download immutable hosted learning evidence (old run, exact artifact)
+        run: |
+          gh run download 43682343141 --repo "$GH_REPO" \
+            --name rnad-001-warmstart-256-43682343141-1 \
+            --dir artifacts/from-archived-run
+      - name: Validate archived model weights and accepted Match evidence
+        run: |
+          python scripts/rnad/verify_warmstart_artifact.py \
+            --root artifacts/from-archived-run --source-sha "$RNAD_SOURCE_SHA"
+      - name: Teacher-only paired evaluation first independent 64-seed block
+        run: |
+          node scripts/rnad/evaluate.mjs \
+            --model artifacts/from-archived-run/teacher/trained-model.json \
+            --seed 988301 --pairs 64 --out artifacts/teacher-ab-a.json
+      - name: Teacher-only paired evaluation second independent 64-seed block
+        run: |
+          node scripts/rnad/evaluate.mjs \
+            --model artifacts/from-archived-run/teacher/trained-model.json \
+            --seed 988365 --pairs 64 --out artifacts/teacher-ab-b.json
+      - name: Warm-start plus 256 RNAD updates, same first 64 seed pairs
+        run: |
+          node scripts/rnad/evaluate.mjs \
+            --model artifacts/from-archived-run/selfplay/final-model.json \
+            --seed 988301 --pairs 64 --out artifacts/rnad-ab-a.json
+      - name: Warm-start plus 256 RNAD updates, same second 64 seed pairs
+        run: |
+          node scripts/rnad/evaluate.mjs \
+            --model artifacts/from-archived-run/selfplay/final-model.json \
+            --seed 988365 --pairs 64 --out artifacts/rnad-ab-b.json
+      - name: Aggregate matched-seat paired results without auto-promotion
+        run: |
+          node scripts/rnad/compare_warmstart_eval.mjs \
+            artifacts/teacher-ab-a.json artifacts/teacher-ab-b.json \
+            artifacts/rnad-ab-a.json artifacts/rnad-ab-b.json \
+            artifacts/paired-128-ab.json
+      - name: Preserve research AB evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-001-heldout-ab-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/paired-128-ab.json
+            artifacts/teacher-ab-*.json
+            artifacts/rnad-ab-*.json
+          if-no-files-found: warn
+          retention-days: 30
