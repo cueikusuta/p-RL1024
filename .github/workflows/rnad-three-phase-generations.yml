@@ -7,7 +7,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   generation-study:
-    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024'
+    if: github.repository == 'cueikusuta/p-RL1024' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024')
     runs-on: ubuntu-latest # GitHub-hosted ONLY, no self-hosted runners.
     timeout-minutes: 300
     permissions:
