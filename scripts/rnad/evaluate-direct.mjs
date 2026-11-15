@@ -7,6 +7,8 @@ import {pathToFileURL} from 'node:url';
 import {runRnadAcceptanceSmoke,verifiedRunningSourceSha}
   from '../dev/simulator/rnad-match.js';
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
+import {RNAD_THREE_PHASE_FEATURE_SCHEMA}
+  from '../../src/ml/rnad-phase-features.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 import {pairedHoeffding95} from './aggregate-eval.mjs';
 
@@ -27,6 +29,10 @@ export function directPairedNeuralEval({
   const teacherSha=sha256(teacherPath),rnadSha=sha256(rnadPath);
   if(teacherSha===rnadSha)
     throw new Error('Expected different frozen model files');
+  const family=new PersistentRNADInference(teacherPath).featureSchema;
+  if(family!==new PersistentRNADInference(rnadPath).featureSchema)
+    throw new Error('Cannot directly compare different actor feature schemas');
+  const threePhase=family===RNAD_THREE_PHASE_FEATURE_SCHEMA;
   const rows=[];
   let wins=0;
   for(let offset=0;offset<pairs;offset++){
@@ -35,16 +41,20 @@ export function directPairedNeuralEval({
       // Do not reuse GRU memory between matches or models.
       const teacher=createPolicy(teacherPath);
       const rnad=createPolicy(rnadPath);
-      const version=['RNAD-001-teacher','RNAD-001-selfplay'];
+      const version=threePhase?
+        ['RNAD-002-teacher','RNAD-002-selfplay']:
+        ['RNAD-001-teacher','RNAD-001-selfplay'];
+      const perSeatPolicy=ctx=>ctx.seat===rnadSeat?
+        rnad.choose(ctx):teacher.choose(ctx);
       const result=runRnadAcceptanceSmoke({
         seed:sampleSeed,matchId:'direct-neural-'+sampleSeed+'-'+rnadSeat,
-        experimentId:'RNAD-001-direct-heldout',
+        experimentId:threePhase?'RNAD-002-direct-heldout':'RNAD-001-direct-heldout',
         sourceSha:verifiedRunningSourceSha(),
         engineSnapshotSha:provenance.sourceCommit,
         policyVersions:[0,1].map(seat=>
           seat===rnadSeat?version[1]:version[0]),
-        policy:ctx=>ctx.seat===rnadSeat?
-          rnad.choose(ctx):teacher.choose(ctx)
+        phasePolicies:threePhase?[perSeatPolicy,perSeatPolicy]:null,
+        policy:perSeatPolicy
       });
       if(!result.completed||!Array.isArray(result.score)||
         result.score[result.winner]!==4||
@@ -61,6 +71,7 @@ export function directPairedNeuralEval({
   return {schema:'rnad-direct-neural-paired-match-v1',
     source_sha:verifiedRunningSourceSha(),engine_sha:provenance.sourceCommit,
     teacher_model_sha256:teacherSha,rnad_model_sha256:rnadSha,
+    model_feature_schema:family,
     seed,pairs,matches,wins,win_rate:wins/matches,
     paired_seed_hoeffding_95pct:ci95,
     improvement_statistically_established:ci95[0]>.5,
