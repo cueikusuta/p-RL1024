@@ -94,7 +94,7 @@ jobs:
           code=$?
           finished=$(date -u +%s)
           mkdir -p artifacts
-          printf '{"schema":"p-rl1024-hosted-shard-clock-v1","model":"%s","opponent":"%s","seed":%s,"offset":%s,"count":%s,"shardIndex":%s,"durationSeconds":%s,"startedUnix":%s,"finishedUnix":%s,"exitCode":%s,"runId":"%s"}\n' "$RL_MODEL" "$RL_OPPONENT" "$RL_SEED" "$SHARD_OFFSET" "$RL_MATCHES" "$SHARD_INDEX" "$((finished-started))" "$started" "$finished" "$code" "$GITHUB_RUN_ID" > artifacts/wallclock-shard.json
+          printf '{"schema":"p-rl1024-hosted-shard-clock-v1","model":"%s","opponent":"%s","seed":%s,"offset":%s,"count":%s,"shardIndex":%s,"durationSeconds":%s,"startedUnix":%s,"finishedUnix":%s,"exitCode":%s,"runId":"%s","runAttempt":"%s"}\n' "$RL_MODEL" "$RL_OPPONENT" "$RL_SEED" "$SHARD_OFFSET" "$RL_MATCHES" "$SHARD_INDEX" "$((finished-started))" "$started" "$finished" "$code" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > artifacts/wallclock-shard.json
           exit "$code"
       - name: Save results and checkpoint per shard
         if: always()
