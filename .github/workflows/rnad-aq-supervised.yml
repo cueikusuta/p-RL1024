@@ -9,10 +9,10 @@ on:
 permissions: {}
 concurrency:
   group: rnad-003-aq-teacher-supervised-i5
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   aq-pretraining:
-    if: github.repository == 'cueikusuta/p-RL1024'
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.sha == '62632bb7f772361f8175ae03199e0264042eb735'
     runs-on: ubuntu-latest
     timeout-minutes: 160
     permissions:
