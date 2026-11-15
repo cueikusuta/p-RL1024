@@ -2,12 +2,13 @@
 // No automatic Champion promotion; N>=1000 and 95% CI are necessary,
 // not sufficient. Opponent uses the frozen deterministic Stage0 baseline.
 import {readFileSync,writeFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {runRnadAcceptanceSmoke,stage0FixedPolicy,verifiedRunningSourceSha}
   from '../dev/simulator/rnad-match.js';
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
-const wilson=(successes,total)=>{
+export const wilson=(successes,total)=>{
   if(!total)return [0,1];
   const z=1.959963984540054,p=successes/total,z2=z*z;
   const center=(p+z2/(2*total))/(1+z2/total);
@@ -50,10 +51,14 @@ export function evaluatePaired({modelPath,seed=987613,pairs=1}={}){
     }
   }
   const matches=rows.length;
+  const modelSha256=createHash('sha256')
+    .update(readFileSync(modelPath)).digest('hex');
   const [ciLower,ciUpper]=wilson(wins,matches);
   return {schema:'rnad-paired-full-match-eval-v1',
     source_sha:verifiedRunningSourceSha(),
-    engine_sha:provenance.sourceCommit,seed,pairs,matches,
+    engine_sha:provenance.sourceCommit,
+    model_sha256:modelSha256,opponent_id:'stage0-fixed-untrained',
+    seed,pairs,matches,
     wins,win_rate:wins/matches,ci95:[ciLower,ciUpper],
     rounds,rows,is_champion:false,
     eligible_for_promotion_consideration:matches>=1000&&ciLower>.5};
