@@ -12,7 +12,7 @@ if(!Number.isSafeInteger(shardCount)||shardCount<2||shardCount>20)
 const expected=Array.from({length:shardCount-1},(_,i)=>`i1-fast-matrix-${runId}-shard-${i+1}`);
 const url=`https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`;
 let found=false;
-for(let attempt=0;attempt<60;attempt++){
+for(let attempt=0;attempt<240;attempt++){
   const response=await fetch(url,{headers:{
     Authorization:`Bearer ${token}`,Accept:'application/vnd.github+json',
     'X-GitHub-Api-Version':'2022-11-28'
@@ -24,6 +24,6 @@ for(let attempt=0;attempt<60;attempt++){
     console.log('FAST_PEER_ARTIFACTS_READY '+JSON.stringify(expected));
     found=true;break;
   }
-  await new Promise(resolve=>setTimeout(resolve,2000));
+  await new Promise(resolve=>setTimeout(resolve,500));
 }
 if(!found)throw new Error('Timeout waiting for all three finished peer shard artifacts');
