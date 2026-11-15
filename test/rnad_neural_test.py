@@ -5,6 +5,8 @@ from scripts.rnad.neural import RNADNetwork, export_json, export_onnx, compare_o
 from scripts.rnad.two_player import rnad_targets, neurd_policy_loss
 import tempfile
 from pathlib import Path
+import subprocess
+import json
 
 
 def step(actor, reward=(0.0,0.0), pi=(.5,.5), magnet=(.5,.5),
@@ -93,6 +95,25 @@ class NeuralParityTest(unittest.TestCase):
             export_onnx(net,Path(temp)/'network.onnx')
             maxima=compare_onnx(net,Path(temp)/'network.onnx')
             self.assertLess(max(maxima),1e-4)
+            fixture_state=torch.randn(1,32)
+            fixture_actions=torch.randn(1,5,16)
+            fixture_memory=torch.randn(1,128)
+            with torch.no_grad():
+                expected=net(fixture_state,fixture_actions,fixture_memory)
+            fixture={'state':fixture_state[0].tolist(),
+                     'actions':fixture_actions[0].tolist(),
+                     'memory':fixture_memory[0].tolist()}
+            (Path(temp)/'fixture.json').write_text(json.dumps(fixture))
+            response=subprocess.run(['node','scripts/rnad/infer-check.mjs',
+                                    str(Path(temp)/'network.json'),
+                                    str(Path(temp)/'fixture.json')],
+                                    check=True,capture_output=True,text=True)
+            got=json.loads(response.stdout)
+            self.assertLess(max(abs(a-b) for a,b in zip(
+                expected[0][0].tolist(),got['logits'])),1e-4)
+            self.assertLess(abs(float(expected[1][0])-got['value']),1e-4)
+            self.assertLess(max(abs(a-b) for a,b in zip(
+                expected[2][0].tolist(),got['memory'])),1e-4)
 
 
 if __name__=='__main__':
