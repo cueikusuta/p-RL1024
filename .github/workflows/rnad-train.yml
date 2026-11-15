@@ -54,7 +54,7 @@ jobs:
         run: |
           node scripts/verify-snapshot.mjs
           python -m unittest discover -s test -p 'rnad_*_test.py' -v
-          node --test test/rnad-toy.test.js test/rnad-authority-match.test.js test/rnad-full-match.test.js
+          node --test test/rnad-toy.test.js test/rnad-receipts.test.js test/rnad-authority-match.test.js test/rnad-full-match.test.js
       - name: Validate bounded inputs
         env:
           RNAD_MATCHES: ${{ inputs.matches || '1' }}
