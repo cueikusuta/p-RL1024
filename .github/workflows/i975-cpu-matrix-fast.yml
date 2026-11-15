@@ -1,4 +1,4 @@
-name: I1 one-stage four-host 16-model CPU fast 256
+name: I1 one-stage eight-host 16-model CPU fast 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
@@ -18,9 +18,9 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix:
-        index: [0, 1, 2, 3]
+        index: [0, 1, 2, 3, 4, 5, 6, 7]
     permissions:
       contents: read
       actions: read
@@ -35,12 +35,12 @@ jobs:
         run: |
           node scripts/verify-snapshot.mjs
           node --test test/hosted-proof.test.js test/hosted-shards.test.js
-      - name: Run four independent 16-Match learners concurrently per host
+      - name: Run two independent 16-Match learners concurrently per host
         env:
           JOB_INDEX: ${{ matrix.index }}
         shell: bash
         run: |
-          node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 4 --shards 16 --total 256 --seed 975020 --out artifacts
+          node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 2 --shards 16 --total 256 --seed 975020 --out artifacts
       - name: Preserve peer model and checkpoint evidence
         if: always() && matrix.index != 0
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -54,7 +54,7 @@ jobs:
         if: matrix.index == 0
         env:
           GH_TOKEN: ${{ github.token }}
-          RL_SHARDS: '4'
+          RL_SHARDS: '8'
         run: node scripts/wait-hosted-artifacts.mjs
       - name: Download peer checkpoint evidence (leader only)
         if: matrix.index == 0

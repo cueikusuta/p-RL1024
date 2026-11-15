@@ -17,7 +17,7 @@ const sub=opponent==='AQ-Base-001'?model+'-vs-aq':model==='RL-Linear'?'i975':'rl
 const rows=[];
 let offset=0,trainingWins=0,sourceFingerprint=null,sourceCommit=null;
 for(const [index,artifact] of artifacts.entries()){
-  if(!artifact.endsWith('-shard-'+index))throw new Error('Missing or duplicate shard index');
+  if(artifact!=='shard-'+index&&!artifact.endsWith('-shard-'+index))throw new Error('Missing or duplicate shard index');
   const folder=join(root,artifact,sub);
   const trainingPath=join(folder,'training.json'),bytes=readFileSync(trainingPath);
   const training=JSON.parse(bytes),proof=JSON.parse(readFileSync(join(folder,'comparison.json')));
