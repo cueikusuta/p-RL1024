@@ -9,18 +9,28 @@ import math
 from pathlib import Path
 import torch
 
-from scripts.rnad.neural import RNADNetwork
+from scripts.rnad.neural import (RNADNetwork,BATTLE_FEATURE_SCHEMA,
+                                 THREE_PHASE_FEATURE_SCHEMA)
 from scripts.rnad.train import state_hash, current_git_sha, frozen_engine_sha
 
 
-def verify(*, root, seed, matches=16):
+def verify(*, root, seed, matches=16, three_phase=False):
     if not (1 <= seed <= 0xffffffff and 1 <= matches <= 16 and
             seed+matches-1 <= 0xffffffff):
         raise ValueError("Invalid bounded learning run")
     p=Path(root)
+    schema=(THREE_PHASE_FEATURE_SCHEMA if three_phase
+            else BATTLE_FEATURE_SCHEMA)
+    model_id='RNAD-002-3phase' if three_phase else 'RNAD-001'
+    report_schema=('rnad-three-phase-training-report-v1' if three_phase
+                   else 'rnad-smoke-training-report-v1')
+    trace_schema=('rnad-accepted-three-phase-training-match-v1' if three_phase
+                  else 'rnad-accepted-training-match-v1')
     report=json.loads((p/"report.json").read_text())
     index=json.loads((p/"checkpoints"/"latest.json").read_text())
-    if (report.get("schema")!="rnad-smoke-training-report-v1"
+    if (report.get("schema")!=report_schema
+        or report.get("feature_schema")!=schema
+        or report.get("model_id")!=model_id
         or report.get("is_champion") is not False
         or report.get("completed_matches")!=matches
         or report.get("updates")!=matches
@@ -30,7 +40,9 @@ def verify(*, root, seed, matches=16):
         or index.get("checkpoint_sha256")!=report.get("last_match_checkpoint_sha")
         or index.get("metadata",{}).get("completed_matches")!=matches
         or index.get("metadata",{}).get("updates")!=matches
-        or index.get("metadata",{}).get("initial_seed")!=seed):
+        or index.get("metadata",{}).get("initial_seed")!=seed
+        or index.get("metadata",{}).get("model_id")!=model_id
+        or index.get("metadata",{}).get("observation_schema_version")!=schema):
         raise ValueError("Incorrect accepted Match or checkpoint evidence")
     initial_seed=seed
     torch.manual_seed(initial_seed)
@@ -53,7 +65,8 @@ def verify(*, root, seed, matches=16):
         trace=json.loads((p/"rollouts"/f"accepted-seed{match_seed}.json").read_text())
         events=trace.get("events",[])
         match_id=f"rnad-match-{match_seed}"
-        if (trace.get("schema")!="rnad-accepted-training-match-v1"
+        if (trace.get("schema")!=trace_schema
+            or trace.get("feature_schema")!=schema
             or trace.get("source_sha")!=current_git_sha()
             or trace.get("engine_sha")!=frozen_engine_sha()
             or trace.get("seed")!=match_seed
@@ -62,9 +75,18 @@ def verify(*, root, seed, matches=16):
             or trace.get("score",[])[trace["winner"]]!=4
             or not events
             or len(events)!=summary.get("accepted_decisions")
-            or len(events)!=sum(trace.get("action_counts",[]))):
+            or len(events)!=sum(trace.get("action_counts",[]))+
+              (4*trace["rounds"] if three_phase else 0)):
             raise ValueError("Untrusted, partial or mismatched Match")
-        for item in events:
+        if three_phase:
+            for stage in ('draft','selection'):
+                if sum(event.get('phase')==stage for event in events)!=2*trace['rounds']:
+                    raise ValueError('Missing accepted phase decisions')
+            if sum(event.get('phase')=='battle' for event in events)!=sum(trace['action_counts']):
+                raise ValueError('Missing accepted battle decisions')
+        elif any(event.get('phase')!='battle' for event in events):
+            raise ValueError('Unexpected phase in Battle-only evaluation')
+         for item in events:
             if (item.get("actor") not in (0,1)
                 or item.get("reward") not in ([0,0],[1,-1],[-1,1])
                 or len(item.get("state",[]))!=32
@@ -83,7 +105,9 @@ def verify(*, root, seed, matches=16):
         or md.get("completed_match_ids")!=completed_ids
         or observed_seats!={0,1}):
         raise ValueError("Accepted action total or seat coverage mismatch")
-    return {"schema":"rnad-16-match-smoke-gate-v1",
+    return {"schema":("rnad-three-phase-16-match-smoke-gate-v1" if three_phase
+                       else "rnad-16-match-smoke-gate-v1"),
+            "three_phase":three_phase,
             "completed_matches":matches,"optimizer_updates":matches,
             "accepted_actions":action_sum,"actor_seats":sorted(observed_seats),
             "source_sha":current_git_sha(),
@@ -98,6 +122,8 @@ if __name__=="__main__":
     parser.add_argument("--out",required=True)
     parser.add_argument("--seed",type=int,required=True)
     parser.add_argument("--matches",type=int,default=16)
+    parser.add_argument("--three-phase",action="store_true")
     args=parser.parse_args()
     print(json.dumps(verify(root=args.out,seed=args.seed,
-                            matches=args.matches),indent=2))
+                            matches=args.matches,
+                            three_phase=args.three_phase),indent=2))
