@@ -45,3 +45,8 @@ test('actor policy cannot receive an authority commit callback or raw Match',()=
   }});
   assert.equal(seen,true);
 });
+
+test('provenance mismatch rejects data before a simulation can start',()=>{
+  assert.throws(()=>runRnadAcceptanceSmoke({...opts,
+    engineSnapshotSha:'0'.repeat(40)}),/Invalid RNAD smoke provenance or policy/);
+});
