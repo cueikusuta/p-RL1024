@@ -138,8 +138,10 @@ jobs:
               and direct['rnad_model_sha256']==sh(models[1])
               and direct['pairs']==64 and direct['matches']==128
               and direct['wins']==sum(y['won'] for y in direct['rows'])
-              and direct['improvement_statistically_established'] is False
-              or (direct.get('paired_seed_hoeffding_95pct',[0])[0]>.5)):
+              and direct['seed']==1512101
+              and direct['model_feature_schema']==THREE_PHASE_FEATURE_SCHEMA_V2
+              and direct['inference_selection_mode']=='greedy'
+              and direct['is_champion'] is False):
               raise ValueError('Invalid direct teacher comparison')
           if {(y['seed'],y['rnadSeat']) for y in direct['rows']}!= {
               (s,seat) for s in range(1512101,1512165) for seat in (0,1)}:
