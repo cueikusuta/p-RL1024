@@ -92,6 +92,12 @@ PY
 upload)
   [[ -f "$folder/latest.json" ]] ||
     { echo "No validated completed-Match checkpoint" >&2; exit 2; }
+  # P1: provenance must be verified BEFORE touching an existing immutable
+  # release as well as before creating a new tag. A matching checksum alone
+  # cannot bind the checkpoint to the expected source/seed/model/schema.
+  : "${RNAD_SOURCE_SHA:?Pinned source SHA is required for every upload}"
+  python scripts/rnad/release-upload-preflight.py \
+    "$folder" "$tag" "$RNAD_SOURCE_SHA"
   info="$(python -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$folder/latest.json")"
   name="$(jq -r '.checkpoint_file' <<< "$info")"
   sha="$(jq -r '.checkpoint_sha256' <<< "$info")"
