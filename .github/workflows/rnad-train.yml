@@ -77,6 +77,9 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           python -m scripts.rnad.train --matches 1 --seed 975021 --out artifacts/rnad-001 --resume
+      - name: Compare uninterrupted vs interrupted complete Match training
+        if: github.event_name == 'pull_request'
+        run: python -m scripts.rnad.verify_resume --seed 975023
       - name: Paired held-out full Match evaluation (diagnostic only)
         run: |
           node scripts/rnad/evaluate.mjs --model artifacts/rnad-001/final-model.json --seed 987613 --pairs 1 --out artifacts/rnad-001/heldout.json
