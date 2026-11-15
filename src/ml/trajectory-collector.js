@@ -2,6 +2,7 @@
 // Call commit() only *after* authoritative Match/Battle acceptance.
 import {RNAD_OBSERVATION_SCHEMA,validateRnadLegalActions}
   from './legal-action-adapter.js';
+import {consumePhaseAuthorityReceipt} from '../../scripts/dev/simulator/phase-match.js';
 
 export const RNAD_TRAJECTORY_SCHEMA='rnad-trajectory-v1';
 const phases=new Set(['draft','selection','battle']);
@@ -47,9 +48,11 @@ export function createRnadTrajectoryCollector({
       reference_log_probability:referenceLogProbability,
       predicted_value:predictedValue};
   }
-  function commit(acceptedAction){
+  function commit(acceptedAction,authorityReceipt){
     if(finished||!pending||key(acceptedAction)!==key(pending.accepted_action))
       throw new Error('No matching authoritative accepted action');
+    consumePhaseAuthorityReceipt(authorityReceipt,{kind:pending.phase,seat,
+      round:pending.round,action:acceptedAction});
     records.push(pending);
     lastRound=pending.round;
     pending=null;
@@ -59,10 +62,12 @@ export function createRnadTrajectoryCollector({
     if(finished||!pending)throw new Error('No pending RNAD action');
     pending=null;
   }
-  function finish({completed,winner,score}={}){
+  function finish({completed,winner,score}={},authorityReceipt){
     if(finished||pending||completed!==true||![0,1].includes(winner)||
       !Array.isArray(score)||score.length!==2||score[winner]!==4||!score.every(x=>Number.isInteger(x)&&x>=0&&x<=4)||score[1-winner]>=4)
       throw new Error('Expected completed authoritative four-win Match');
+    consumePhaseAuthorityReceipt(authorityReceipt,{kind:'finish',seat,
+      round:Math.max(...records.map(r=>r.round),0),action:{winner,score}});
     finished=true;
     const terminal=winner===seat?1:-1;
     return {schema:RNAD_TRAJECTORY_SCHEMA,...meta,completed:true,
