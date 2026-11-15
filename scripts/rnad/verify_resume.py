@@ -13,6 +13,18 @@ def verify(seed=975023):
         b=Path(root)/'interrupted'
         uninterrupted=train(seed=seed,matches=2,out=str(a))
         train(seed=seed,matches=1,out=str(b))
+        # Changing the objective or magnet schedule cannot silently
+        # continue an existing policy series under the same model label.
+        for changed in ({'eta':.05},{'magnet_period':5}):
+            try:
+                train(seed=seed,matches=1,out=str(b),resume=True,
+                      **changed)
+            except ValueError as exc:
+                if 'checkpoint' not in str(exc).lower() and 'identity' not in str(exc).lower():
+                    raise
+            else:
+                raise AssertionError(
+                    'Checkpoint accepted a changed R-NaD learning schedule')
         resumed=train(seed=seed,matches=1,out=str(b),resume=True)
         fields=('model_sha256','magnet_sha256',
                 'completed_matches','updates')
