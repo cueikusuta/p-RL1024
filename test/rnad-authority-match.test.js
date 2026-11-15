@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runRnadAcceptanceSmoke,stage0FixedPolicy}
+import {runRnadAcceptanceSmoke,stage0FixedPolicy,verifiedRunningSourceSha}
   from '../scripts/dev/simulator/rnad-match.js';
 
 const opts={
   seed:22003,matchId:'test-22003',experimentId:'contract',
-  sourceSha:'0123456789abcdef0123456789abcdef01234567',
+  sourceSha:verifiedRunningSourceSha(),
   engineSnapshotSha:'ea81165993110ee9fb3a09dcb97c6708c0d7397b'
 };
 test('authoritative Match records only post-accepted actions for BOTH seats',()=>{
