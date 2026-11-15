@@ -24,21 +24,29 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Train isolated shard using preinstalled ARM64 Node 22
-        env:
-          JOB_INDEX: ${{ matrix.index }}
+      - name: Select Node 22 for isolated CPU training
+        id: cached-node
         shell: bash
         run: |
-          set -euo pipefail
           shopt -s nullglob
-          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin/node)
-          if (( ${#node_dirs[@]} == 0 )); then
-            echo 'No preinstalled Node 22: refusing unverified fallback' >&2
-            exit 1
+          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
+          if (( ${#node_dirs[@]} )); then
+            cached="${node_dirs[${#node_dirs[@]}-1]}"
+            if "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"; then
+              echo "$cached" >> "$GITHUB_PATH"
+              echo 'hit=true' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
-          selected="${node_dirs[${#node_dirs[@]}-1]}"
-          "$selected" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"
-          "$selected" scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 18 --total 256 --seed 975020 --out artifacts
+          echo 'hit=false' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.cached-node.outputs.hit != 'true'
+        with:
+          node-version: '22'
+      - name: Train one isolated 12-13 Match model
+        env:
+          JOB_INDEX: ${{ matrix.index }}
+        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 18 --total 256 --seed 975020 --out artifacts
       # Artifact name identifies both workflow run and re-run attempt.
       - name: Upload complete shard checkpoint and evaluation evidence
         if: always()
@@ -60,25 +68,38 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Verify source and collect 18 peer artifacts on preinstalled ARM64 Node 22
+      - name: Select Node 22 and verify source snapshot
+        id: cached-node
+        shell: bash
+        run: |
+          shopt -s nullglob
+          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin)
+          if (( ${#node_dirs[@]} )); then
+            cached="${node_dirs[${#node_dirs[@]}-1]}"
+            if "$cached/node" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"; then
+              echo "$cached" >> "$GITHUB_PATH"
+              "$cached/node" scripts/verify-snapshot.mjs
+              "$cached/node" --test test/hosted-proof.test.js test/hosted-shards.test.js
+              echo 'hit=true' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo 'hit=false' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.cached-node.outputs.hit != 'true'
+        with:
+          node-version: '22'
+      - name: Verify snapshot and proofs with fallback Node
+        if: steps.cached-node.outputs.hit != 'true'
+        run: |
+          node scripts/verify-snapshot.mjs
+          node --test test/hosted-proof.test.js test/hosted-shards.test.js
+      - name: Collect all eighteen complete peer evidence artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           RL_SHARDS: '18'
           RL_FIRST_ARTIFACT_INDEX: '0'
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          node_dirs=(/opt/hostedtoolcache/node/22.*/arm64/bin/node)
-          if (( ${#node_dirs[@]} == 0 )); then
-            echo 'No preinstalled Node 22: refusing unverified fallback' >&2
-            exit 1
-          fi
-          selected="${node_dirs[${#node_dirs[@]}-1]}"
-          "$selected" -e "if(process.versions.node.split('.')[0]!=='22')process.exit(1)"
-          "$selected" scripts/verify-snapshot.mjs
-          "$selected" --test test/hosted-proof.test.js test/hosted-shards.test.js
-          "$selected" scripts/wait-hosted-artifacts.mjs --download peer-artifacts
+        run: node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
       - name: Verify 256 four-win Matches, weights, seeds, paired digests and checkpoints
         run: |
           set -euo pipefail
