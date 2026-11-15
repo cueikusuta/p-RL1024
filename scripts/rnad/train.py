@@ -209,6 +209,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         counter=(counter%0xffffffff)+1
         summaries.append({'seed':data['seed'],'winner':data['winner'],
                           'rounds':data['rounds'],**summary})
+    export_json(net,path/'final-model.json')
     report={'schema':'rnad-smoke-training-report-v1',
             'source_sha':current_git_sha(),'engine_sha':frozen_engine_sha(),
             'completed_matches':completed,'updates':completed,
