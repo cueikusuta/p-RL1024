@@ -22,7 +22,12 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: cueikusuta/p-RL1024
-      RNAD_SOURCE_SHA: db1e88cf6f02d7dd23e1948f60ea47e03992c40f
+      # PR Actions use synthetic merge checkouts (github.sha), not
+      # head.sha. The archive recorded this exact executed merge SHA.
+      RNAD_SOURCE_SHA: ca3e69afc1208c5fc68e1cd6d5403f032348e988
+      # GitHub verified this merge tree is byte-identical to db1e88
+      # (both tree SHA 2db085b8446b97e4968b3f0c98e3c1b5ed18c7b8).
+      RNAD_CODE_REF_SHA: db1e88cf6f02d7dd23e1948f60ea47e03992c40f
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -55,7 +60,7 @@ jobs:
             scripts/dev/simulator/phase-agents.js \
             scripts/rnad/infer.mjs scripts/rnad/evaluate.mjs \
             scripts/rnad/neural.py provenance/manifest.json; do
-            test "$(git rev-parse "$RNAD_SOURCE_SHA:$path")" = \
+            test "$(git rev-parse "$RNAD_CODE_REF_SHA:$path")" = \
                  "$(git rev-parse "HEAD:$path")"
           done
           node scripts/verify-snapshot.mjs
