@@ -21,7 +21,7 @@ for(const [index,artifact] of artifacts.entries()){
   trainingWins+=verified.row.studentWins;
   sourceFingerprint=verified.sourceFingerprint;
   sourceCommit=verified.sourceCommit;
-  offset+=count;
+  offset+=verified.row.count;
 }
 if(offset!==m)throw new Error('Missing planned training matches');
 const start=Math.min(...rows.map(x=>x.startedUnix)),finish=Math.max(...rows.map(x=>x.finishedUnix));
