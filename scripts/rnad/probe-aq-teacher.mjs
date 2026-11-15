@@ -29,6 +29,9 @@ export function benchmarkAQTeacher({seed=994601,pairs=32}={}){
           throw new TypeError('Wrong frozen teacher phase');
         return choose({observation:projected,
           legalActions:rnadLegalActions(view),seat,round}).action;
+      },
+      accepted:({action,round})=>{
+        choose.accepted?.({seat:candidateSeat,round,action});
       }
     });
     const candidate=createBuiltinPhaseAgents({
