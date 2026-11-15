@@ -40,6 +40,8 @@ jobs:
     if: github.repository == 'cueikusuta/p-RL1024'
     runs-on: ubuntu-latest
     timeout-minutes: 330
+    env:
+      NODE_OPTIONS: --max-semi-space-size=64
     permissions:
       contents: read
     steps:
