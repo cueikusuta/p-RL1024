@@ -42,12 +42,25 @@ async function runFastWorker(script,argv,env=process.env) {
   });
 }
 const fastWorker=process.env.RL_FAST_WORKER==='1';
+const fastInline=process.env.RL_FAST_INLINE==='1';
+if(fastInline&&!fastWorker)throw new Error('Inline training requires isolated fast Worker');
+// A fast Worker can sequentially run training and frozen evaluations in one
+// module realm. Save argv through awaited imports: no concurrent globals.
+async function runInline(script,argv,tag){
+  const old=process.argv;
+  const url=new URL('./'+script.replace(/^scripts\\//,''),import.meta.url);
+  url.searchParams.set('inline',tag);
+  process.argv=[process.execPath,url.pathname,...argv];
+  try {await import(url.href);} finally {process.argv=old;}
+}
 const model=`${dir}/training.json`;
 const trainArgs=['--matches',String(matches),'--seed',String(seed),'--checkpoint-every','8','--out',model];
 if(opponent.id==='AQ-Base-001')trainArgs.unshift('--model',selected.id);
 else if(selected.id==='RL-Linear')trainArgs.unshift('--all-phases','true');
-if(fastWorker)await runFastWorker(opponent.id==='AQ-Base-001'?'scripts/train-vs-aq.mjs':selected.trainingEntry,trainArgs);
-else run(opponent.id==='AQ-Base-001'?'scripts/train-vs-aq.mjs':selected.trainingEntry,trainArgs);
+const trainer=opponent.id==='AQ-Base-001'?'scripts/train-vs-aq.mjs':selected.trainingEntry;
+if(fastInline)await runInline(trainer,trainArgs,'training');
+else if(fastWorker)await runFastWorker(trainer,trainArgs);
+else run(trainer,trainArgs);
 (selected.id==='RL-Linear'?loadModel:loadDeepModel)(JSON.stringify(JSON.parse(readFileSync(model,'utf8')).model));
 const evaluator=opponent.id==='AQ-Base-001'?'scripts/evaluate-vs-aq.mjs':selected.id==='RL-Linear'?'scripts/evaluate-linear.mjs':'scripts/evaluate-deep.mjs';
 function evaluateIndependent(name) {
@@ -66,7 +79,10 @@ function evaluateIndependent(name) {
 }
 // Run the two independent smoke evaluations concurrently on distinct Node
 // processes, preserving both 4-Match outcomes and the normalized digest gate.
-await Promise.all(['a','b'].map(evaluateIndependent));
+if(fastInline){
+  for(const name of ['a','b'])await runInline(evaluator,['--model',model,'--purpose','smoke',
+    '--blocks','2','--out',dir+'/eval-'+name+'.json'],'eval-'+name);
+} else await Promise.all(['a','b'].map(evaluateIndependent));
 const read = name => JSON.parse(readFileSync(`${dir}/${name}`,'utf8'));
 const proof=compare(read('eval-a.json'),read('eval-b.json'));
 if(modelId==='RL-Linear'&&opponentId==='V2E'&&matches===9&&seed===975020 &&

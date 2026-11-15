@@ -49,6 +49,7 @@ jobs:
         env:
           JOB_INDEX: ${{ matrix.index }}
           RL_FAST_WORKER: '1'
+          RL_FAST_INLINE: '1'
         run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 18 --total 256 --seed 975020 --out artifacts
       - name: Pack complete shard evidence with fast lossless gzip
         if: success()
@@ -113,6 +114,7 @@ jobs:
           RL_SHARDS: '18'
           RL_FIRST_ARTIFACT_INDEX: '1'
           RL_FAST_WORKER: '1'
+          RL_FAST_INLINE: '1'
         shell: bash
         run: |
           set -euo pipefail
