@@ -1,4 +1,4 @@
-name: I1 five-host 20-model optimized ARM64 CPU fast 256
+name: I1 ten-host 20-model optimized ARM64 CPU fast 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
@@ -21,9 +21,9 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 10
       matrix:
-        index: [0, 1, 2, 3, 4]
+        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     permissions:
       contents: read
       actions: read
@@ -58,7 +58,7 @@ jobs:
         env:
           JOB_INDEX: ${{ matrix.index }}
           GH_TOKEN: ${{ github.token }}
-          RL_SHARDS: '5'
+          RL_SHARDS: '10'
         shell: bash
         run: |
           set -euo pipefail
@@ -70,7 +70,7 @@ jobs:
             peer_pid=$!
             trap 'kill "$peer_pid" 2>/dev/null || true' EXIT
           fi
-          node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 4 --shards 20 --total 256 --seed 975020 --out artifacts
+          node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 2 --shards 20 --total 256 --seed 975020 --out artifacts
           if [[ "$JOB_INDEX" == "0" ]]; then
             wait "$peer_pid"
             cat artifacts/peer-download.log
