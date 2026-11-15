@@ -109,4 +109,4 @@ if __name__=='__main__':
     p.add_argument('--matches',type=int,required=True)
     p.add_argument('--out',required=True)
     a=p.parse_args()
-    print(json.dumps(run(a.root,a.seed,a.matches,a.out),flush=True))
+    print(json.dumps(run(a.root,a.seed,a.matches,a.out)),flush=True)
