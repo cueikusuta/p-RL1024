@@ -1,9 +1,6 @@
 name: RNAD-003 GitHub-hosted AQ teacher semantic v2 phase-balanced 128 Matches
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/rnad-v2-phase-balanced.yml'
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-003-v2-phase-balanced-research-i5
