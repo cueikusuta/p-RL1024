@@ -158,3 +158,25 @@ test('opponent stage and reveal lists never serialize a nested private set',()=>
   changed.opponent.publicObservation.moves=['OTHER'];
   assert.deepEqual(x,projectRnadObservation(changed,{seat:0}));
 });
+
+test('public reveal primitive-only schema rejects nested adversarial payloads',()=>{
+  const view={requestType:'turn',self:{team:[{speciesId:'own',hp:100,
+    maxHP:100,moves:[]}],active:0},opponent:{speciesId:'foe',
+    hpPercent:90,types:['water'],publicObservation:{
+      appearanceId:'public-visible',usedMoves:['tackle'],observedItemIds:[]}}};
+  const original=projectRnadObservation(view,{seat:0});
+  assert.deepEqual(original.opponent.publicObservation.usedMoves,['tackle']);
+  const hidden=structuredClone(view);
+  hidden.opponent.publicObservation.usedMoves=[
+    {id:'tackle',privateMoves:['SECRET']}];
+  assert.throws(()=>projectRnadObservation(hidden,{seat:0}),
+    /Invalid public revealed/);
+  hidden.opponent.publicObservation.usedMoves=['tackle'];
+  hidden.opponent.types=[{name:'water',privateItem:'SECRET'}];
+  assert.throws(()=>projectRnadObservation(hidden,{seat:0}),
+    /Invalid public opponent types/);
+  hidden.opponent.types=['water'];
+  hidden.opponent.hpPercent={public:90,private:100};
+  assert.throws(()=>projectRnadObservation(hidden,{seat:0}),
+    /Invalid public opponent scalar/);
+});
