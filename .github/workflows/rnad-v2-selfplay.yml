@@ -1,8 +1,8 @@
 name: RNAD-003 GitHub-hosted semantic-v2 warmstart and true 16-Match R-NaD
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-v2-selfplay.yml']
+  # Previous versions were verified on GitHub-hosted CPU; avoid duplicate
+  # costly training every time the large Draft PR receives a commit.
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-003-v2-accepted-selfplay-i5
