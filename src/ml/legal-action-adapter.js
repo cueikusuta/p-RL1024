@@ -24,7 +24,7 @@ const opponentBattleKeys=['speciesId','types','hpPercent','status','remaining',
 const publicObservationKeys=['appearanceId','usedMoves','observedItemIds',
   'observedAbilityIds','moves','itemIds','abilityIds'];
 const fieldKeys=['weather','terrain','trickRoomTurns','sideEffects'];
-const ownBattleKeys=['team','active','canSwitch','canMega','needsSwitch',
+const ownBattleKeys=['active','canSwitch','canMega','needsSwitch',
   'confirmed','remaining','side','hazards','screens'];
 
 export function rnadLegalActions(view){
@@ -63,14 +63,22 @@ export function projectRnadObservation(view,{seat,context=null}={}){
   const result={schema:RNAD_OBSERVATION_SCHEMA,phase,seat};
   if(phase==='battle'){
     Object.assign(result,fields(view,['turn','requestType']));
+    if(!Array.isArray(view.self.team))throw new TypeError('Missing own battle team');
     result.self=fields(view.self,ownBattleKeys);
-    if(Array.isArray(view.self.team))
-      result.self.team=view.self.team.map(ownPokemon);
+    result.self.team=view.self.team.map(ownPokemon);
     result.opponent=fields(view.opponent,opponentBattleKeys);
     if(Object.hasOwn(result.opponent,'publicObservation'))
       result.opponent.publicObservation=fields(
         result.opponent.publicObservation,publicObservationKeys);
-    result.field=fields(view.field,fieldKeys);
+    result.field=fields(view.field,fieldKeys.filter(key=>key!=='sideEffects'));
+    if(Object.hasOwn(view.field??{},'sideEffects')){
+      const effects=view.field.sideEffects;
+      if(!Array.isArray(effects)||effects.length!==2||
+        effects.some(side=>!Array.isArray(side)))
+        throw new TypeError('Invalid visible field side effects');
+      result.field.sideEffects=effects.map(side=>side.map(entry=>
+        fields(entry,['id','layers','duration'])));
+    }
   }else{
     Object.assign(result,fields(view,['round','score','budget','grant']));
     result.self=fields(view.self,['credits','teamCost','selected']);
@@ -78,7 +86,12 @@ export function projectRnadObservation(view,{seat,context=null}={}){
       if(Array.isArray(view.self[key]))result.self[key]=view.self[key].map(ownPokemon);
     }
     result.opponent=fields(view.opponent,['ready','teamConfirmed',
-      'selectionConfirmed','species','carrySpecies','carryover']);
+      'selectionConfirmed']);
+    if(Array.isArray(view.opponent?.species)){
+      if(!view.opponent.species.every(x=>typeof x==='string'))
+        throw new TypeError('Invalid public opponent species');
+      result.opponent.species=[...view.opponent.species];
+    }
   }
   // Only accept history emitted by the seat-scoped, accepted-action pipeline.
   // No arbitrary external object may be smuggled into actor memory.
