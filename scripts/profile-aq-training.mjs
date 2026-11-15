@@ -3,7 +3,7 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 import {performance} from 'node:perf_hooks';
 import {Session} from 'node:inspector';
 import {SeededRandom} from '../src/battle.js';
-import {runStrategyMatch} from '../aq-runtime/scripts/dev/simulator/strategy-match.js';
+import {runStrategyMatch} from './optimized/strategy-match.mjs';
 import {createModel,match,mixSeed} from '../models/aq-runner.mjs';
 import {createSession} from '../models/deep.mjs';
 import {createOpponent} from '../models/aq-base.mjs';
