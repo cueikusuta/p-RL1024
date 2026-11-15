@@ -59,7 +59,7 @@ jobs:
             artifacts/rnad-warmstart/rnad-heldout.json
             artifacts/rnad-warmstart/selfplay/report.json
             artifacts/rnad-warmstart/selfplay/checkpoints/latest.json
-            artifacts/rnad-warmstart/selfplay/checkpoints/checkpoint-*.pt
+            artifacts/rnad-warmstart/selfplay/checkpoints/checkpoint-u256-*.pt
             artifacts/rnad-warmstart/selfplay/final-model.json
           if-no-files-found: warn
           retention-days: 30

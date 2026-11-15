@@ -1,6 +1,11 @@
 name: RNAD-001 held-out paired AB on archived warm-start models
 on:
-  # Restore this after the exact archived teacher model exists.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/rnad/verify_warmstart_artifact.py'
+      - 'scripts/rnad/compare_warmstart_eval.mjs'
+      - '.github/workflows/rnad-128-paired-eval.yml'
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -17,7 +22,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: cueikusuta/p-RL1024
-      RNAD_SOURCE_SHA: 22797c508bfc8004a7219a496bbaac5cd7714000
+      RNAD_SOURCE_SHA: db1e88cf6f02d7dd23e1948f60ea47e03992c40f
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -56,8 +61,8 @@ jobs:
           node scripts/verify-snapshot.mjs
       - name: Download immutable hosted learning evidence (old run, exact artifact)
         run: |
-          gh run download 43682343141 --repo "$GH_REPO" \
-            --name rnad-001-warmstart-256-43682343141-1 \
+          gh run download 43683127479 --repo "$GH_REPO" \
+            --name rnad-001-warmstart-256-43683127479-1 \
             --dir artifacts/from-archived-run
       - name: Validate archived model weights and accepted Match evidence
         run: |
