@@ -1,0 +1,384 @@
+name: RNAD-003 bounded research queue — 36 independent CPU studies
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-research-queue-i5.yml']
+  workflow_dispatch:
+permissions: {}
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ROOT: queue/input
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Verify frozen engine and fetch only completed, proven source models
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          mkdir -p "$ROOT/standard" "$ROOT/population" queue/models
+          gh run download 43752012559 --repo cueikusuta/p-RL1024 --name rnad-003-standard-v2-256-43752012559-1 --dir "$ROOT/standard"
+          gh run download 43751083532 --repo cueikusuta/p-RL1024 --name rnad-003-population-43751083532-1 --dir "$ROOT/population"
+          python - <<'PY'
+          import hashlib,json,os,shutil
+          from pathlib import Path
+          root=Path(os.environ['ROOT'])
+          std=json.loads((root/'standard/generations/standard-256-result.json').read_text())
+          pop=json.loads((root/'population/population-report.json').read_text())
+          sh=lambda f:hashlib.sha256(f.read_bytes()).hexdigest()
+          original='f08a9587d6a7033546eab00ffa6479399ca71c2f'
+          expected={'base128':(root/'standard/generations/model-u128.json',std['base128_model_sha256']),
+                    'base256':(root/'standard/generations/model-u256.json',std['model256_sha256'])}
+          targets={x['id']:x for x in pop['finalists']}
+          for name in ('c019','c005'):
+              expected[name]=(root/'population/training'/name/'final-model.json',targets[name]['trained_model_sha256'])
+          if not (std['schema']=='rnad-003-standard-v2-256-generation-v1'
+              and std['source_sha']==original and std['generation']==256
+              and std['origin_run_id']==43747882146 and std['is_champion'] is False
+              and pop['schema']=='rnad-003-population-100-screen-v1'
+              and pop['origin_source_sha']==original and pop['population']==100
+              and pop['champion_promoted'] is False
+              and std['base128_model_sha256']==pop['origin_model_file_sha256']):
+              raise ValueError('Wrong 128/256/population origin')
+          manifest={'schema':'rnad-i5-queued-evaluation-models-v1',
+                    'source_sha':original,'engine_sha':std['engine_sha'],
+                    'population_run_id':43751083532,'standard_run_id':43752012559,
+                    'models':{},'is_champion':False}
+          for name,(file,want) in expected.items():
+              if not file.is_file() or sh(file)!=want:
+                  raise ValueError('Missing or changed archived model '+name)
+              dst=Path('queue/models')/(name+'.json')
+              shutil.copyfile(file,dst)
+              manifest['models'][name]=sh(dst)
+          (Path('queue/models')/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          print(json.dumps(manifest,flush=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-queue-models-${{ github.run_id }}
+          path: queue/models/
+          if-no-files-found: error
+          retention-days: 30
+
+  basic-shards:
+    needs: prepare
+    if: needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model: [base128, base256, c019, c005]
+        block: [0, 1, 2, 3]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: cueikusuta/p-RL1024
+      SOURCE_SHA: f08a9587d6a7033546eab00ffa6479399ca71c2f
+      MODEL: ${{ matrix.model }}
+      BLOCK: ${{ matrix.block }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: f08a9587d6a7033546eab00ffa6479399ca71c2f
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify exact old actor code and fetch this study's immutable model set
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          node scripts/verify-snapshot.mjs
+          mkdir -p queue/models queue/results
+          gh run download "$GITHUB_RUN_ID" --repo "$GH_REPO" --name "rnad-i5-queue-models-$GITHUB_RUN_ID" --dir queue/models
+      - name: Evaluate one NEW seat-paired seed shard against Basic
+        run: |
+          set -euo pipefail
+          seed=$((1710001+BLOCK*64))
+          node scripts/rnad/evaluate-neural-basic.mjs --model "queue/models/$MODEL.json" --seed "$seed" --pairs 64 --selection-mode greedy --out "queue/results/basic-$MODEL-$BLOCK.json"
+      - name: Verify original source, model hash and complete two-seat real Matches
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path('queue');name=os.environ['MODEL'];block=int(os.environ['BLOCK'])
+          source=os.environ['SOURCE_SHA'];seed=1710001+block*64
+          m=json.loads((root/'models/manifest.json').read_text())
+          path=root/'models'/(name+'.json')
+          sha=hashlib.sha256(path.read_bytes()).hexdigest()
+          rep=json.loads((root/'results'/f'basic-{name}-{block}.json').read_text())
+          if not (m['source_sha']==rep['source_sha']==source
+              and m['engine_sha']==rep['engine_sha']
+              and m['models'][name]==rep['model_sha256']==sha
+              and rep['schema']=='rnad-three-phase-vs-basic-paired-v1'
+              and rep['opponent_id']=='basic-all-phases'
+              and rep['inference_selection_mode']=='greedy'
+              and rep['pairs']==64 and rep['matches']==128
+              and rep['wins']==sum(int(r['won']) for r in rep['rows'])
+              and rep['champion_promoted'] is False
+              and {(r['seed'],r['candidateSeat']) for r in rep['rows']}==
+                  {(s,seat) for s in range(seed,seed+64) for seat in (0,1)}
+              and all(r['score'][r['candidateSeat'] if r['won'] else 1-r['candidateSeat']]==4
+                      for r in rep['rows'])):
+              raise ValueError('Invalid or mixed Basic queue shard')
+          print(json.dumps({'model':name,'block':block,'matches':128,'wins':rep['wins']}),flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-basic-${{ matrix.model }}-${{ matrix.block }}-${{ github.run_id }}
+          path: queue/results/
+          if-no-files-found: error
+          retention-days: 30
+
+  direct-shards:
+    needs: prepare
+    if: needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        candidate: [c019, c005]
+        baseline: [base128, base256]
+        block: [0, 1, 2, 3]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: cueikusuta/p-RL1024
+      SOURCE_SHA: f08a9587d6a7033546eab00ffa6479399ca71c2f
+      CANDIDATE: ${{ matrix.candidate }}
+      BASELINE: ${{ matrix.baseline }}
+      BLOCK: ${{ matrix.block }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: f08a9587d6a7033546eab00ffa6479399ca71c2f
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify frozen engine and source-bound previous models
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          node scripts/verify-snapshot.mjs
+          mkdir -p queue/models queue/results
+          gh run download "$GITHUB_RUN_ID" --repo "$GH_REPO" --name "rnad-i5-queue-models-$GITHUB_RUN_ID" --dir queue/models
+      - name: Evaluate a new 64-pair direct Match block (both seats)
+        run: |
+          set -euo pipefail
+          seed=$((1720001+BLOCK*64))
+          node scripts/rnad/evaluate-direct.mjs \
+            --teacher "queue/models/$BASELINE.json" --rnad "queue/models/$CANDIDATE.json" \
+            --seed "$seed" --pairs 64 --selection-mode greedy \
+            --out "queue/results/direct-$CANDIDATE-$BASELINE-$BLOCK.json"
+      - name: Verify frozen policy hashes and all expected scores/seed seats
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path('queue');c=os.environ['CANDIDATE'];b=os.environ['BASELINE']
+          block=int(os.environ['BLOCK']);seed=1720001+block*64
+          manifest=json.loads((p/'models/manifest.json').read_text())
+          data=json.loads((p/'results'/f'direct-{c}-{b}-{block}.json').read_text())
+          digest=lambda name:hashlib.sha256((p/'models'/(name+'.json')).read_bytes()).hexdigest()
+          if not (manifest['source_sha']==data['source_sha']==os.environ['SOURCE_SHA']
+              and manifest['engine_sha']==data['engine_sha']
+              and manifest['models'][c]==data['rnad_model_sha256']==digest(c)
+              and manifest['models'][b]==data['teacher_model_sha256']==digest(b)
+              and data['schema']=='rnad-direct-neural-paired-match-v1'
+              and data['model_feature_schema']=='rnad-three-phase-features-v2'
+              and data['inference_selection_mode']=='greedy'
+              and data['pairs']==64 and data['matches']==128
+              and data['wins']==sum(int(z['won']) for z in data['rows'])
+              and data['is_champion'] is False
+              and {(z['seed'],z['rnadSeat']) for z in data['rows']}==
+                  {(s,seat) for s in range(seed,seed+64) for seat in (0,1)}
+              and all(z['score'][z['rnadSeat'] if z['won'] else 1-z['rnadSeat']]==4
+                      for z in data['rows'])):
+              raise ValueError('Wrong complete 4-win direct queue report')
+          print(json.dumps({'candidate':c,'baseline':b,'block':block,
+              'matches':128,'wins':data['wins']}),flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-direct-${{ matrix.candidate }}-${{ matrix.baseline }}-${{ matrix.block }}-${{ github.run_id }}
+          path: queue/results/
+          if-no-files-found: error
+          retention-days: 30
+
+  teacher-sweep:
+    if: github.repository == 'cueikusuta/p-RL1024' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == 'cueikusuta/p-RL1024')
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    permissions: {contents: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - {id: equal-0, profile: equal, smoothing: '0'}
+          - {id: equal-025, profile: equal, smoothing: '0.025'}
+          - {id: focus-0, profile: draft-selection, smoothing: '0'}
+          - {id: focus-025, profile: draft-selection, smoothing: '0.025'}
+    env:
+      ID: ${{ matrix.id }}
+      PROFILE: ${{ matrix.profile }}
+      SMOOTHING: ${{ matrix.smoothing }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Pinned hosted CPU and updated phase objective tests
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p 'rnad_phase_focus_test.py' -v
+          python -m unittest discover -s test -p 'rnad_feature_diagnostics_test.py' -v
+      - name: Learn one independently fixed phase-loss variant from 24 complete AQ teacher Matches
+        run: |
+          python -m scripts.rnad.train_teacher \
+            --three-phase --teacher aq-public-belief --features-v2 --phase-balanced \
+            --phase-profile "$PROFILE" --label-smoothing "$SMOOTHING" \
+            --seed 1730001 --matches 24 --epochs 3 --out "queue/teacher/$ID"
+      - name: Validate held-out teacher actions on separate untrained 8 complete Matches
+        run: |
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --features-v2 --model "queue/teacher/$ID/trained-model.json" \
+            --seed 1730301 --matches 8 --out "queue/teacher-heldout/$ID"
+      - name: Test 32 unseen seed pairs against fixed Basic
+        run: |
+          mkdir -p queue/teacher-score
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "queue/teacher/$ID/trained-model.json" \
+            --seed 1731001 --pairs 32 --selection-mode greedy \
+            --out "queue/teacher-score/$ID.json"
+      - name: Bind model bytes and both-seat independent outcome rows
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          name=os.environ['ID'];base=Path('queue/teacher')/name
+          t=json.loads((base/'teacher-report.json').read_text())
+          held=json.loads((Path('queue/teacher-heldout')/name/'heldout-imitation.json').read_text())
+          b=json.loads((Path('queue/teacher-score')/(name+'.json')).read_text())
+          sha=hashlib.sha256((base/'trained-model.json').read_bytes()).hexdigest()
+          if not (t['teacher_completed_matches']==24 and t['seed']==1730001
+              and t['phase_balanced'] is True and t['phase_profile']==os.environ['PROFILE']
+              and t['label_smoothing']==float(os.environ['SMOOTHING'])
+              and t['feature_schema']=='rnad-three-phase-features-v2'
+              and t['is_champion'] is False and t['source_sha']==held['source_sha']==b['source_sha']
+              and t['engine_sha']==held['engine_sha']==b['engine_sha']
+              and b['model_sha256']==held['student_model_sha256']==sha
+              and b['opponent_id']=='basic-all-phases'
+              and b['inference_selection_mode']=='greedy'
+              and b['pairs']==32 and b['matches']==64
+              and b['wins']==sum(int(x['won']) for x in b['rows'])
+              and {(x['seed'],x['candidateSeat']) for x in b['rows']}==
+                  {(s,seat) for s in range(1731001,1731033) for seat in (0,1)}
+              and held['seed']==1730301 and held['matches']==8
+              and set(held['phases'])=={'draft','selection','battle'}):
+              raise ValueError('Invalid or mixed teacher sweep output')
+          print(json.dumps({'variant':name,'basic_wins_64':b['wins'],
+              'phase_top1':{p:v['top1_accuracy'] for p,v in held['phases'].items()},
+              'is_champion':False}),flush=True)
+          PY
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-teacher-${{ matrix.id }}-${{ github.run_id }}
+          path: |
+            queue/teacher/${{ matrix.id }}/teacher-report.json
+            queue/teacher/${{ matrix.id }}/trained-model.json
+            queue/teacher-heldout/${{ matrix.id }}/heldout-imitation.json
+            queue/teacher-score/${{ matrix.id }}.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  aggregate:
+    needs: [prepare, basic-shards, direct-shards]
+    if: needs.prepare.result == 'success' && needs.basic-shards.result == 'success' && needs.direct-shards.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Retrieve only fully completed shards of this queue run
+        run: |
+          set -euo pipefail
+          mkdir -p queue/complete
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 --pattern "rnad-i5-basic-*-$GITHUB_RUN_ID" --dir queue/complete
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 --pattern "rnad-i5-direct-*-$GITHUB_RUN_ID" --dir queue/complete
+      - name: Aggregate by exact seed and seat, never claim a Champion from training exploration
+        run: |
+          python - <<'PY'
+          import json,math
+          from pathlib import Path
+          root=Path('queue/complete')
+          results={'schema':'rnad-003-i5-queue-36-jobs-v1',
+                   'basic':{},'direct':{},'is_champion':False,
+                   'statistical_improvement_confirmed':False,
+                   'same_seed_correlations_preserved':True}
+          def read(path):
+              files=list(root.rglob(path))
+              if len(files)!=1:
+                  raise ValueError('Missing or duplicate completed shard '+path)
+              return json.loads(files[0].read_text())
+          def accumulate(key,items,first):
+              rows=[];total=0;prev_sha=None;engine=None
+              for block in range(4):
+                  rep=read(f'{first}-{key}-{block}.json')
+                  if rep['pairs']!=64 or rep['matches']!=128 or rep['wins']!=sum(r['won'] for r in rep['rows']):
+                      raise ValueError('Incomplete authority Match block')
+                  label=(rep['model_sha256'] if first=='basic' else
+                         rep['teacher_model_sha256']+':'+rep['rnad_model_sha256'])
+                  if prev_sha is not None and label!=prev_sha:
+                      raise ValueError('Source model changed across seed shards')
+                  if engine is not None and engine!=(rep['source_sha'],rep['engine_sha']):
+                      raise ValueError('Frozen engine changed across seed shards')
+                  if rep.get('is_champion',rep.get('champion_promoted',False)) is not False:
+                      raise ValueError('Unexpected promotion in diagnostic queue')
+                  prev_sha=label;engine=(rep['source_sha'],rep['engine_sha'])
+                  seat_key='candidateSeat' if first=='basic' else 'rnadSeat'
+                  seed=1710001+block*64 if first=='basic' else 1720001+block*64
+                  expected={(s,seat) for s in range(seed,seed+64) for seat in (0,1)}
+                  if {(r['seed'],r[seat_key]) for r in rep['rows']}!=expected:
+                      raise ValueError('Missing/duplicated seed seat in queue')
+                  rows+=rep['rows'];total+=rep['wins']
+              if len(rows)!=512:
+                  raise ValueError('Missing queued Matches')
+              return {'wins':total,'matches':512,'win_rate':total/512,
+                      'model_hashes':prev_sha,'source_sha':engine[0],'engine_sha':engine[1]}
+          for model in ('base128','base256','c019','c005'):
+              results['basic'][model]=accumulate(model,None,'basic')
+          for model in ('c019-base128','c019-base256','c005-base128','c005-base256'):
+              results['direct'][model]=accumulate(model,None,'direct')
+          sources={(r['source_sha'],r['engine_sha']) for r in [
+              *results['basic'].values(),*results['direct'].values()]}
+          if len(sources)!=1:
+              raise ValueError('Mixed source and engine in aggregate')
+          path=Path('queue/queued-study-report.json')
+          path.write_text(json.dumps(results,indent=2,allow_nan=False)+'\n')
+          print(json.dumps(results,flush=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-queue-aggregate-${{ github.run_id }}
+          path: queue/queued-study-report.json
+          if-no-files-found: error
+          retention-days: 30
