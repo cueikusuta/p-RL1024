@@ -56,7 +56,8 @@ export function verifyShardClock(x,expected) {
     typeof x.durationSeconds!=='number'||!Number.isFinite(x.durationSeconds)||
     x.durationSeconds<0||
     Math.abs(x.finishedUnix-x.startedUnix-x.durationSeconds)>2||
-    (expected.runId&&x.runId!==expected.runId))
+    (expected.runId&&x.runId!==expected.runId)||
+    (expected.runAttempt&&x.runAttempt!==expected.runAttempt))
     throw new Error('Invalid shard identity or wallclock proof');
 }
 export function verifyReportTiming(report){
