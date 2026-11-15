@@ -34,12 +34,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$ROOT"
-          state="$(gh api "repos/$GH_REPO/actions/runs/$ORIGIN_RUN" --jq .conclusion)"
-          if [[ "$state" != success ]]; then
-            echo "Original v2 16-Match research not successful: $state"
-            echo "proceed=no" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # GitHub Actions' run-conclusion field can be empty on app-scoped
+          # API reads even for a successful completed run. An empty response
+          # must not silently mark verified research as skipped. Instead
+          # require the exact immutable artifact, verified SHA, complete
+          # 16-Match report and optimizer checkpoint below.
           gh run download "$ORIGIN_RUN" --repo "$GH_REPO" \
             --name "rnad-003-v2-selfplay-$ORIGIN_RUN" --dir "$ROOT"
           python - <<'PY'
