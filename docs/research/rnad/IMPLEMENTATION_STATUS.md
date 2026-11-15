@@ -1,3 +1,16 @@
+# RNAD-003: population mutation experiment (2026-11-16)
+
+This is an **exploratory evolutionary screen**, not a proven Population Based Training (PBT) continuous optimizer, an exact full-state resume, or a Champion promotion. Source is Issue #5 / Draft PR #6. Only GitHub-hosted Ubuntu CPU may execute research.
+
+- `scripts/rnad/population_probe.py` generates exactly **100 deterministic v2-compatible policies** from the verified generation-128 model artifact of [run #43747882146](https://github.com/cueikusuta/p-RL1024/actions/runs/43747882146): one untouched control, 32 deliberate action-feature coefficient up/down changes, 32 deliberate state-feature coefficient up/down changes, and 35 random small policy-layer perturbations. The original frozen model and optimizer checkpoint bytes are never changed.
+- Registered early rejection: 2 independent seed pairs (4 complete four-win Matches) per policy versus Basic, then 8 NEW seed pairs for top 16. All matches execute with both seat assignments and greedy deployment. These are noisy candidate-selection signals, **not significance tests**.
+- Only four survivors each get **16 genuine R-NaD accepted full Matches**. These four training jobs start from distinct mutant weights with **new** optimizer/magnet/RNG state. They do **not** claim to resume the original generation-128 optimizer or create a generation-144 model. `train.py` exact state/checkpoint/seed and version contract remains intact; `RNAD-001/002` are untouched.
+- Final **32 unseen seed pairs** separately compare each trained candidate against Basic and directly against the original unmutated generation-128 Actor, both seats, greedy. The original Actor is also assessed against Basic with the identical Basic holdout seeds. At most 64 direct games per finalist is a diagnostic comparison, *not* a reliable small-gain Champion gate. When selecting a finalist after seeing holdout results, a further **completely untouched test set** is needed to correct for multiple comparisons.
+- The experiment is one bounded, SHA/checkpoint-verified [GitHub-hosted workflow](../../../.github/workflows/rnad-population-study.yml), triggered on introduction of that workflow or manually. It does not automatically rerun for ordinary code changes. Research results must not be claimed until the actual job steps, artifact and score/seed/model identities are verified. A failed or skipped run is not successful training.
+- No model auto-promotion, Release upload, `main` merge or conventional PBT optimizer transplant. A full exploit/explore loop with correctly migrated optimizer/magnet/checkpoint state would require separate versioned design and review.
+
+---
+
 # RNAD-003: semantic v2 / strong AQ teacher / greedy deployment (2026-11-16 verified handoff)
 
 > This entry supersedes earlier "Draft/Selection not learned" statements below. All experiments are **GitHub-hosted `ubuntu-latest`**, never self-hosted. Existing Issue #5 and Draft PR #6 remain open. No main merge or Champion promotion. Sampled-policy and greedy-policy results are NOT interchangeable; likewise Basic, Stage0, and AQ-Base are different opponents.
