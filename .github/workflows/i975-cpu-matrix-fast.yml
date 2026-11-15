@@ -1,4 +1,4 @@
-name: I1 concurrent sixteen-trainer plus aggregator ARM64 CPU fast 256
+name: I1 concurrent eighteen-trainer plus aggregator ARM64 CPU fast 256
 on:
   push:
     branches: ['research/gha-cpu-shards-20261115']
@@ -6,10 +6,8 @@ on:
       - '.github/workflows/i975-cpu-matrix-fast.yml'
       - '.github/workflows/i975.yml'
       - 'scripts/wait-hosted-artifacts.mjs'
-      - 'scripts/hosted-shard-evidence.mjs'
-      - 'scripts/create-hosted-witness.mjs'
-      - 'scripts/merge-hosted-witnesses.mjs'
-      - 'scripts/wait-hosted-witnesses.mjs'
+      - 'scripts/hosted-proof.mjs'
+      - 'scripts/merge-hosted-training.mjs'
   workflow_dispatch:
 permissions: {}
 jobs:
@@ -19,9 +17,9 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 16
+      max-parallel: 18
       matrix:
-        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
     permissions:
       contents: read
     steps:
@@ -47,16 +45,10 @@ jobs:
         if: steps.cached-node.outputs.hit != 'true'
         with:
           node-version: '22'
-      - name: Train one isolated 16-Match model
+      - name: Train one isolated 12-13 Match model
         env:
           JOB_INDEX: ${{ matrix.index }}
-          RL_SHARDS: '16'
-        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 16 --total 256 --seed 975020 --out artifacts
-      - name: Validate all training history, independent smoke comparisons and checkpoints
-        env:
-          JOB_INDEX: ${{ matrix.index }}
-          RL_SHARDS: '16'
-        run: node scripts/create-hosted-witness.mjs --index "$JOB_INDEX" --out compact/witness.json
+        run: node scripts/run-hosted-batch.mjs --job-index "$JOB_INDEX" --parallel 1 --shards 18 --total 256 --seed 975020 --out artifacts
       # Artifact name identifies both workflow run and re-run attempt.
       - name: Upload complete shard checkpoint and evaluation evidence
         if: always()
@@ -64,14 +56,6 @@ jobs:
         with:
           name: i1-fast-matrix-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.index }}
           path: artifacts/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-      - name: Upload compact SHA witness for quick cross-runner aggregation
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: i1-fast-witness-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.index }}
-          path: compact/witness.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -112,15 +96,21 @@ jobs:
         run: |
           node scripts/verify-snapshot.mjs
           node --test test/hosted-proof.test.js test/hosted-shards.test.js
-      - name: Collect compact witnesses and verify all sixteen immutable full archives exist
+      - name: Collect all eighteen complete peer evidence artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          RL_SHARDS: '16'
-        run: node scripts/wait-hosted-witnesses.mjs peer-witnesses
-      - name: Aggregate 256 verified full Matches, model hashes, paired digests and checkpoint proofs
-        env:
-          RL_SHARDS: '16'
-        run: node scripts/merge-hosted-witnesses.mjs peer-witnesses artifacts/training-aggregate.json
+          RL_SHARDS: '18'
+          RL_FIRST_ARTIFACT_INDEX: '0'
+        run: node scripts/wait-hosted-artifacts.mjs --download peer-artifacts
+      - name: Verify 256 four-win Matches, weights, seeds, paired digests and checkpoints
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p all-shards artifacts
+          for dir in peer-artifacts/*/shard-*; do
+            cp -a "$dir" "all-shards/$(basename "$dir")"
+          done
+          node scripts/merge-hosted-training.mjs --dir all-shards --model RL-Deep --opponent AQ-Base-001 --total 256 --shards 18 --seed 975020 --out artifacts/training-aggregate.json
       - name: Upload validated aggregate SHA manifest
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
