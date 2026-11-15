@@ -127,3 +127,18 @@ test('contradictory completed Match score cannot finish',()=>{
   assert.throws(()=>c.finish({completed:true,winner:0,score:[4,4]}),/four-win/);
   assert.throws(()=>c.finish({completed:true,winner:0,score:[4,-1]}),/four-win/);
 });
+
+test('nested arena data and opponent public species are recursively allowlisted',()=>{
+  const view={phase:'turn',requestType:'turn',
+    self:{team:[{speciesId:'own',hp:100,maxHP:100,moves:[]}],active:0},
+    opponent:{speciesId:'visible',hpPercent:90},
+    field:{weather:'rain',sideEffects:[[{id:'stealthrock',layers:1,hiddenSet:'SECRET'}],[]]}};
+  const projected=projectRnadObservation(view,{seat:0});
+  assert.equal(projected.phase,'battle');
+  assert.deepEqual(projected.field.sideEffects,[[{id:'stealthrock',layers:1}],[]]);
+  assert.ok(!JSON.stringify(projected).includes('SECRET'));
+  assert.throws(()=>projectRnadObservation({...view,self:{team:{hidden:'SECRET'}}},{seat:0}),
+    /Missing own battle team/);
+  const phase={phase:'selection',self:{team},opponent:{species:[{secret:'SECRET'}]}};
+  assert.throws(()=>projectRnadObservation(phase,{seat:0}),/Invalid public opponent species/);
+});
