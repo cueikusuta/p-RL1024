@@ -1,7 +1,8 @@
 """Verify provenance and exact floated weights in an archived RNAD warmstart run.
 
-Read-only verification. Model export is sufficient for inference/evaluation,
-NOT for optimizer-state continuation: do not claim checkpoint durability.
+Read-only verification. Requires the full immutable completed-Match PyTorch
+checkpoint file, independently validates bytes, optimizer/scheduler state and
+exported-policy weights against the versioned SHA256 manifest.
 """
 import argparse
 import hashlib
@@ -30,8 +31,11 @@ def tensor_hash(model_path):
             math.prod(shape)!=len(values) or
             not all(type(x) in (int,float) and math.isfinite(x) for x in values)):
             raise ValueError("Invalid model weight data")
-        h.update(name.encode("utf8")+b"\x00")
-        h.update(str(tuple(shape)).encode("ascii")+b"\x00")
+        # Existing train.state_hash() uses the *literal two-byte* separator
+        # backslash + ASCII zero, not a NUL. Preserve historical digests.
+        sep=bytes([92,48])
+        h.update(name.encode("utf8")+sep)
+        h.update(str(tuple(shape)).encode("ascii")+sep)
         h.update(struct.pack("<"+"f"*len(values),*values))
     return h.hexdigest()
 
@@ -63,6 +67,44 @@ def verify(root,source_sha):
         tensor_hash(rnad_file)!=research.get("rnad_trained_sha256") or
         selfplay.get("model_sha256")!=research.get("rnad_trained_sha256")):
         raise AssertionError("Invalid archived RNAD model/teacher/provenance")
+    # A trained-policy export is NOT a restorable training checkpoint.
+    # Verify the exact on-disk PyTorch payload, its optimizer state and
+    # the identical Policy weights. No arbitrary pickle loading:
+    # restore_checkpoint uses torch.load(..., weights_only=True).
+    import copy
+    import re
+    import torch
+    from scripts.rnad.neural import RNADNetwork, freeze_magnet
+    from scripts.rnad.checkpoint import restore_checkpoint
+    from scripts.rnad.train import state_hash
+    ckpt=root/"selfplay"/"checkpoints"
+    name=manifest.get("checkpoint_file","")
+    if not isinstance(name,str) or not re.fullmatch(
+            r"checkpoint-u256-[0-9a-f]{64}\\.pt",name):
+        raise AssertionError("Missing completed Match checkpoint filename")
+    snapshot=ckpt/name
+    if not snapshot.is_file() or hashlib.sha256(snapshot.read_bytes()).hexdigest()!=manifest.get("checkpoint_sha256"):
+        raise AssertionError("Missing or corrupted full optimizer checkpoint")
+    torch.set_num_threads(1)
+    net=RNADNetwork()
+    target=copy.deepcopy(net)
+    magnet=freeze_magnet(net)
+    optimizer=torch.optim.Adam(net.parameters(),lr=3e-4)
+    scheduler=torch.optim.lr_scheduler.StepLR(optimizer,step_size=100,gamma=.98)
+    restored=restore_checkpoint(
+        ckpt,policy=net,value=target,magnet=magnet,
+        optimizer=optimizer,scheduler=scheduler,restore_rng=False,
+        expected={
+            "model_id":"RNAD-001",
+            "source_sha":source_sha,
+            "training_code_sha":source_sha,
+            "engine_snapshot_sha":research["engine_sha"],
+            "observation_schema_version":"rnad-battle-features-v1",
+            "initialization_sha256":exact_init_sha})
+    if (state_hash(net)!=research["rnad_trained_sha256"] or
+        restored.get("checkpoint_sha256")!=manifest["checkpoint_sha256"] or
+        not optimizer.state or scheduler.last_epoch!=256):
+        raise AssertionError("Saved optimizer / Policy / schedule cannot resume")
     return {
         "schema":"rnad-verified-archived-evaluation-v1",
         "source_sha":source_sha,
@@ -72,7 +114,7 @@ def verify(root,source_sha):
         "teacher_model_sha256":research["teacher_initial_model_sha256"],
         "rnad_model_sha256":research["rnad_trained_sha256"],
         "evaluation_only":True,
-        "optimizer_state_verified":False,
+        "optimizer_state_verified":True,
         "champion":False
     }
 
