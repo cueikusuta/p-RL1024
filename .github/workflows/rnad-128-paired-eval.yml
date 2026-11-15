@@ -1,14 +1,5 @@
 name: RNAD-001 held-out paired AB on archived warm-start models
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/verify_warmstart_artifact.py'
-      - 'scripts/rnad/compare_warmstart_eval.mjs'
-      - 'scripts/rnad/evaluate-direct.mjs'
-      - 'test/rnad-direct-eval.test.js'
-      - 'test/rnad-warmstart-eval.test.js'
-      - '.github/workflows/rnad-128-paired-eval.yml'
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -16,7 +7,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   paired-ab:
-    if: github.repository == 'cueikusuta/p-RL1024'
+    if: github.repository == 'cueikusuta/p-RL1024' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest # GitHub-hosted only; no self-hosted runner.
     timeout-minutes: 90
     permissions:
@@ -37,7 +28,7 @@ jobs:
           # The evaluation helper scripts were added AFTER the archived
           # training commit, so check out the current PR HEAD and prove
           # authority/model/evaluation code matches the archived run.
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -53,7 +44,7 @@ jobs:
       - name: Verify archived model authority and inference code are unchanged
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           for path in \
             src/battle.js src/match.js src/ml/legal-action-adapter.js \
             src/ml/trajectory-collector.js src/ml/rnad-features.js \
