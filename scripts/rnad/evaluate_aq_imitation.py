@@ -8,23 +8,25 @@ import math
 from pathlib import Path
 import torch
 import torch.nn.functional as F
-from scripts.rnad.neural import RNADNetwork,load_exported_json,THREE_PHASE_FEATURE_SCHEMA
+from scripts.rnad.neural import RNADNetwork,load_exported_json,THREE_PHASE_FEATURE_SCHEMA,
+                                 THREE_PHASE_FEATURE_SCHEMA_V2
 from scripts.rnad.train import current_git_sha,frozen_engine_sha
 from scripts.rnad.train_teacher import collect,AQ_WEIGHTS_SHA256
 
-def evaluate(model,*,seed=996301,matches=16,out):
+def evaluate(model,*,seed=996301,matches=16,out,features_v2=False):
     if not isinstance(seed,int) or not 1<=seed<=0xffffffff-32 or not 1<=matches<=32:
         raise ValueError('Invalid held-out data bounds')
     model=Path(model)
     torch.set_num_threads(1)
     net=RNADNetwork()
+    schema=THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else THREE_PHASE_FEATURE_SCHEMA
     model_sha=load_exported_json(net,model,
-                               expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA)
+                               expected_feature_schema=schema)
     net.eval()
     folder=Path(out)
     folder.mkdir(parents=True,exist_ok=False)
     traces=collect(seed,matches,folder,three_phase=True,
-                   teacher='aq-public-belief')
+                   teacher='aq-public-belief',features_v2=features_v2)
     stat={phase:{'correct':0,'examples':0,'cross_entropy':0.0}
           for phase in ('draft','selection','battle')}
     with torch.no_grad():
@@ -52,7 +54,7 @@ def evaluate(model,*,seed=996301,matches=16,out):
         row['top1_accuracy']=row.pop('correct')/row['examples']
         row['mean_cross_entropy']=row.pop('cross_entropy')/row['examples']
     report={'schema':'rnad-aq-imitator-unseen-match-eval-v1',
-            'feature_schema':THREE_PHASE_FEATURE_SCHEMA,
+            'feature_schema':schema,
             'teacher_model_sha256':AQ_WEIGHTS_SHA256,
             'student_model_sha256':model_sha,
             'source_sha':current_git_sha(),'engine_sha':frozen_engine_sha(),
@@ -68,6 +70,7 @@ if __name__=='__main__':
     p.add_argument('--seed',type=int,default=996301)
     p.add_argument('--matches',type=int,default=16)
     p.add_argument('--out',required=True)
+    p.add_argument('--features-v2',action='store_true')
     opts=p.parse_args()
     print(json.dumps(evaluate(opts.model,seed=opts.seed,matches=opts.matches,
-                              out=opts.out),indent=2))
+                              out=opts.out,features_v2=opts.features_v2),indent=2))

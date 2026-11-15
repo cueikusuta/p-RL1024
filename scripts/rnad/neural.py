@@ -17,6 +17,7 @@ HIDDEN = 128
 MODEL_SCHEMA = "rnad-small-gru-v1"
 BATTLE_FEATURE_SCHEMA = "rnad-battle-features-v1"
 THREE_PHASE_FEATURE_SCHEMA = "rnad-three-phase-features-v1"
+THREE_PHASE_FEATURE_SCHEMA_V2 = "rnad-three-phase-features-v2"
 
 
 class RNADNetwork(nn.Module):
@@ -60,7 +61,8 @@ def freeze_magnet(model):
 
 
 def export_json(model, path, *, feature_schema=BATTLE_FEATURE_SCHEMA):
-    if feature_schema not in (BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA):
+    if feature_schema not in (BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA,
+                              THREE_PHASE_FEATURE_SCHEMA_V2):
         raise ValueError("Invalid RNAD export feature schema")
     # All model parameters have exact names and dimensions; no Python eval.
     state = {key: {"shape": list(tensor.shape),

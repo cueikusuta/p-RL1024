@@ -7,6 +7,8 @@ import {encodeRnadDecision,RNAD_FEATURE_SCHEMA}
   from '../../src/ml/rnad-features.js';
 import {encodeRnadThreePhaseDecision,RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
+import {encodeRnadThreePhaseDecisionV2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
+  from '../../src/ml/rnad-phase-features-v2.js';
 import {chooseTeam,chooseSelection} from '../dev/simulator/draft-ai.js';
 import {playableSets} from '../../src/production-runtime.js';
 import data from '../../data/catalog/battle-data.json' with {type:'json'};
@@ -26,9 +28,11 @@ function stage0ThreePhaseTeacher({observation,legalActions,rng}){
   return {action,behaviorLogProbability:0,
     referenceLogProbability:-Math.log(legalActions.length),predictedValue:0};
 }
-export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'}={}){
+export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0',
+  featuresV2=false}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
-    typeof threePhase!=='boolean'||
+    typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
+    (featuresV2&&!threePhase)||
     !['basic-stage0','aq-public-belief'].includes(teacher)||
     (teacher==='aq-public-belief'&&!threePhase))
     throw new TypeError('Invalid teacher seed');
@@ -52,7 +56,9 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
       (!threePhase&&record.phase!=='battle')||
       !['draft','selection','battle'].includes(record.phase))
       throw new Error('Invalid seat-local accepted teacher event');
-    const f=threePhase?
+    const f=featuresV2?
+      encodeRnadThreePhaseDecisionV2(record.observation,record.legal_actions):
+      threePhase?
       encodeRnadThreePhaseDecision(record.observation,record.legal_actions):
       encodeRnadDecision(record.observation,record.legal_actions);
     const choice=record.legal_actions.findIndex(x=>
@@ -72,7 +78,8 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
   return {schema:aq?'rnad-aq-public-belief-three-phase-teacher-v1':
       threePhase?'rnad-basic-stage0-three-phase-teacher-v1':
       'rnad-fixed-stage0-teacher-match-v1',
-    feature_schema:threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA,
+    feature_schema:featuresV2?RNAD_THREE_PHASE_FEATURE_SCHEMA_V2:
+      threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA,
     source_sha:verifiedRunningSourceSha(),
     engine_sha:provenance.sourceCommit,
     seed,completed:true,winner:match.winner,score:match.score,
@@ -87,16 +94,18 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
   const inputs={};
   for(let i=0;i<args.length;i+=2){
     const k=args[i]?.slice(2);
-    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher'].includes(k)||
+    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2'].includes(k)||
       Object.hasOwn(inputs,k))throw new Error('Invalid teacher CLI option');
     inputs[k]=args[i+1];
   }
   if(!inputs.seed||!inputs.out||
-    (inputs['three-phase']!==undefined&&inputs['three-phase']!=='true'))
+    (inputs['three-phase']!==undefined&&inputs['three-phase']!=='true')||
+    (inputs['features-v2']!==undefined&&inputs['features-v2']!=='true'))
     throw new Error('Usage: --seed N --out FILE [--three-phase true]');
   const trace=createTeacherMatch(Number(inputs.seed),
     {threePhase:inputs['three-phase']==='true',
-     teacher:inputs.teacher??'basic-stage0'});
+     teacher:inputs.teacher??'basic-stage0',
+     featuresV2:inputs['features-v2']==='true'});
   writeFileSync(inputs.out,JSON.stringify(trace)+'\n',{flag:'wx'});
   process.stdout.write(JSON.stringify({seed:trace.seed,
     score:trace.score,examples:trace.examples.length})+'\n');

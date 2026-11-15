@@ -10,6 +10,8 @@ import {projectRnadObservation,rnadLegalActions}
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
 import {RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
+import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
+  from '../../src/ml/rnad-phase-features-v2.js';
 import {pairedHoeffding95} from './aggregate-eval.mjs';
 import {verifiedRunningSourceSha} from '../dev/simulator/rnad-match.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
@@ -26,7 +28,8 @@ export function evaluateThreePhaseAgainstBasic({modelPath,seed=997001,pairs=128}
     const ai=new RNADMixedPolicy({
       model:new PersistentRNADInference(modelPath),
       magnet:new PersistentRNADInference(modelPath),epsilon:0});
-    if(ai.model.featureSchema!==RNAD_THREE_PHASE_FEATURE_SCHEMA)
+    if(![RNAD_THREE_PHASE_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2]
+      .includes(ai.model.featureSchema))
       throw new Error('Requires separate true three-phase neural actor');
     function agent(phase){
       return {id:'RNAD-002-frozen-'+phase,

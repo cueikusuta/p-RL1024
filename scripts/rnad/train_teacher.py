@@ -14,14 +14,15 @@ import torch
 import torch.nn.functional as F
 
 from scripts.rnad.neural import (RNADNetwork, export_json,
-                                 BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA)
+                                 BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA,
+                                 THREE_PHASE_FEATURE_SCHEMA_V2)
 from scripts.rnad.train import state_hash, current_git_sha, frozen_engine_sha
 
 
 AQ_WEIGHTS_SHA256="5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e"
 
 def collect(seed, count, folder, *, three_phase=False,
-            teacher='basic-stage0'):
+            teacher='basic-stage0',features_v2=False):
     root=folder/"teacher-matches"
     root.mkdir(parents=True,exist_ok=True)
     traces=[]
@@ -34,6 +35,7 @@ def collect(seed, count, folder, *, three_phase=False,
              "--seed",str(n),"--out",str(file)]
         if three_phase:cmd.extend(["--three-phase","true"])
         if teacher!='basic-stage0':cmd.extend(["--teacher",teacher])
+        if features_v2:cmd.extend(["--features-v2","true"])
         subprocess.run(cmd,check=True,timeout=120)
         trace=json.loads(file.read_text())
         expected_schema=("rnad-aq-public-belief-three-phase-teacher-v1"
@@ -45,6 +47,7 @@ def collect(seed, count, folder, *, three_phase=False,
                           else "stage0-fixed-untrained")
         if (trace.get("schema")!=expected_schema
             or trace.get("feature_schema")!=(
+                THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                 THREE_PHASE_FEATURE_SCHEMA if three_phase
                 else BATTLE_FEATURE_SCHEMA)
             or trace.get("seed")!=n
@@ -65,9 +68,10 @@ def collect(seed, count, folder, *, three_phase=False,
 
 def train(*,seed=975601,out="artifacts/rnad-teacher",
           three_phase=False,matches=32,epochs=4,
-          teacher='basic-stage0'):
+          teacher='basic-stage0',features_v2=False):
     if (type(seed) is not int or type(matches) is not int or
         type(epochs) is not int or type(three_phase) is not bool or
+        type(features_v2) is not bool or (features_v2 and not three_phase) or
         not 1<=matches<=256 or not 1<=epochs<=6 or
         teacher not in ('basic-stage0','aq-public-belief') or
         (teacher=='aq-public-belief' and not three_phase) or
@@ -80,11 +84,12 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
     folder.mkdir(parents=True,exist_ok=True)
     model=RNADNetwork()
     initial_hash=state_hash(model)
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA if three_phase
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
+                    THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
     export_json(model,folder/"initial-model.json",feature_schema=feature_schema)
     traces=collect(seed,matches,folder,three_phase=three_phase,
-                   teacher=teacher)
+                   teacher=teacher,features_v2=features_v2)
     optimizer=torch.optim.Adam(model.parameters(),lr=0.0006)
     results=[]
     for epoch in range(epochs):
@@ -163,9 +168,11 @@ if __name__=="__main__":
     p.add_argument("--matches",type=int,default=32)
     p.add_argument("--epochs",type=int,default=4)
     p.add_argument("--three-phase",action="store_true")
+    p.add_argument("--features-v2",action="store_true")
     p.add_argument("--teacher",choices=["basic-stage0","aq-public-belief"],
                    default="basic-stage0")
     args=p.parse_args()
     print(json.dumps(train(out=args.out,seed=args.seed,matches=args.matches,
                            epochs=args.epochs,three_phase=args.three_phase,
-                           teacher=args.teacher),indent=2))
+                           teacher=args.teacher,
+                           features_v2=args.features_v2),indent=2))

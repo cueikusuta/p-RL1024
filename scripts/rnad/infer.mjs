@@ -5,6 +5,8 @@ import {readFileSync} from 'node:fs';
 import {encodeRnadDecision,RNAD_FEATURE_SCHEMA} from '../../src/ml/rnad-features.js';
 import {encodeRnadThreePhaseDecision,RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
+import {encodeRnadThreePhaseDecisionV2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
+  from '../../src/ml/rnad-phase-features-v2.js';
 export const RNAD_MODEL_SCHEMA='rnad-small-gru-v1';
 const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const sigmoid=x=>1/(1+Math.exp(-x));
@@ -33,8 +35,8 @@ export class PersistentRNADInference{
       payload.action_features!==16||!payload.weights)
       throw new TypeError('Wrong RNAD model/schema dimensions');
     this.featureSchema=payload.feature_schema??RNAD_FEATURE_SCHEMA;
-    if(![RNAD_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA]
-      .includes(this.featureSchema))
+    if(![RNAD_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA,
+      RNAD_THREE_PHASE_FEATURE_SCHEMA_V2].includes(this.featureSchema))
       throw new TypeError('Unsupported RNAD model feature schema');
     const p=payload.weights,H=128;
     this.params={};
@@ -103,6 +105,8 @@ export class PersistentRNADInference{
       throw new TypeError('Battle-only RNAD weights cannot control other phases');
     const f=this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA?
       encodeRnadThreePhaseDecision(observation,legalActions):
+      this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V2?
+      encodeRnadThreePhaseDecisionV2(observation,legalActions):
       encodeRnadDecision(observation,legalActions);
     return this.infer(f.state,f.actions,seat,opts);
   }
