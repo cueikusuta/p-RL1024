@@ -1,11 +1,7 @@
 name: RNAD-001 held-out paired AB on archived warm-start models
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/verify_warmstart_artifact.py'
-      - 'scripts/rnad/compare_warmstart_eval.mjs'
-      - '.github/workflows/rnad-128-paired-eval.yml'
+  # Restore this after the exact archived teacher model exists.
+  workflow_dispatch:
 permissions: {}
 concurrency:
   group: rnad-001-archived-eval-${{ github.ref }}

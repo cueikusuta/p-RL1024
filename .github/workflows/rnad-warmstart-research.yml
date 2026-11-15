@@ -1,6 +1,9 @@
 name: RNAD-001 256 Match after optional teacher warm-start (hosted)
 on:
-  # Already verified on run 43682343141. No automatic CPU-heavy reruns.
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/rnad-warmstart-research.yml'
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -52,11 +55,14 @@ jobs:
           path: |
             artifacts/rnad-warmstart/warmstart-report.json
             artifacts/rnad-warmstart/teacher/teacher-report.json
+            artifacts/rnad-warmstart/teacher/initial-model.json
+            artifacts/rnad-warmstart/teacher/trained-model.json
             artifacts/rnad-warmstart/untrained-heldout.json
             artifacts/rnad-warmstart/teacher-heldout.json
             artifacts/rnad-warmstart/rnad-heldout.json
             artifacts/rnad-warmstart/selfplay/report.json
             artifacts/rnad-warmstart/selfplay/checkpoints/latest.json
+            artifacts/rnad-warmstart/selfplay/checkpoints/checkpoint-*.pt
             artifacts/rnad-warmstart/selfplay/final-model.json
           if-no-files-found: warn
           retention-days: 30
