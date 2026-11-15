@@ -17,7 +17,7 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ github.token }}
-      ROOT: ${{ runner.temp }}/rnad003-v2-continuation
+      ROOT: /tmp/rnad003-v2-continuation
       GH_REPO: cueikusuta/p-RL1024
       ORIGIN_RUN: '43746142851'
       START_SEED: '1100201'
@@ -225,12 +225,12 @@ jobs:
         with:
           name: rnad-003-v2-continued-128-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/rnad003-v2-continuation/summary.json
-            ${{ runner.temp }}/rnad003-v2-continuation/generations/
-            ${{ runner.temp }}/rnad003-v2-continuation/selfplay/report.json
-            ${{ runner.temp }}/rnad003-v2-continuation/selfplay/final-model.json
-            ${{ runner.temp }}/rnad003-v2-continuation/selfplay/checkpoints/latest.json
-            ${{ runner.temp }}/rnad003-v2-continuation/selfplay/checkpoints/checkpoint-u*.pt
-            ${{ runner.temp }}/rnad003-v2-continuation/aq-supervised-v2-balanced/trained-model.json
+            /tmp/rnad003-v2-continuation/summary.json
+            /tmp/rnad003-v2-continuation/generations/
+            /tmp/rnad003-v2-continuation/selfplay/report.json
+            /tmp/rnad003-v2-continuation/selfplay/final-model.json
+            /tmp/rnad003-v2-continuation/selfplay/checkpoints/latest.json
+            /tmp/rnad003-v2-continuation/selfplay/checkpoints/checkpoint-u*.pt
+            /tmp/rnad003-v2-continuation/aq-supervised-v2-balanced/trained-model.json
           if-no-files-found: warn
           retention-days: 30
