@@ -8,7 +8,11 @@ on:
   workflow_dispatch:
 permissions: {}
 concurrency:
-  group: rnad-001-cpu-single-writer
+  # This disposable PR research job writes ONLY to its own ephemeral
+  # checkout. Give it a separate group from the smoke trainer so pending
+  # 256 runs cannot be displaced by ordinary pull_request CI jobs.
+  # Durable Release checkpoint writers remain serialized in rnad-scale.yml.
+  group: rnad-001-pr-256-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   training-256:
