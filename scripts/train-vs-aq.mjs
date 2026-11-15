@@ -24,7 +24,9 @@ async function checkpoint() {
   const state={schema:'p-rl1024-aq-checkpoint-v1',modelId:id,matches,seed:root,sourceSha256,opponentSha256:weightsSha256,model,history,decisions,updates};
   const path=resolve(out.replace(/\.json$/,'')+`-m${history.length}.json`),tmp=path+'.tmp-'+randomUUID();
   await mkdir(dirname(path),{recursive:true});
-  try{await writeFile(tmp,JSON.stringify({...state,checkpointSha256:sha(JSON.stringify(state))})+'\n',{flag:'wx'});await rename(tmp,path);}catch(error){await rm(tmp,{force:true});throw error;}
+  const body=JSON.stringify(state);
+  const data=body.slice(0,-1)+',"checkpointSha256":"'+sha(body)+'"}\n';
+  try{await writeFile(tmp,data,{flag:'wx'});await rename(tmp,path);}catch(error){await rm(tmp,{force:true});throw error;}
 }
 for(let i=history.length;i<matches;i++) {
   const seed=mixSeed(root,i,0xa975),seat=i%2,epsilon=.35+(.08-.35)*i/(matches-1);
