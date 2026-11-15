@@ -280,7 +280,7 @@ export function chooseStrategyTeam(view,{data,forcedSetId=null,
         catch {return;}
       }
       const score=scoreValidDraftRoster(chosen,{
-        scored,caps,megaById,data,credits,spent:remainingCost,carried,tagCache,typeMasksroleCache,
+        scored,caps,megaById,data,credits,spent:remainingCost,carried,tagCache,typeMasks,roleCache,
       });
       if(score>bestScore+1e-9||
          (Math.abs(score-bestScore)<=1e-9&&
