@@ -96,7 +96,11 @@ jobs:
               COMPLETED="$(jq -r '.metadata.completed_matches' artifacts/rnad-001/checkpoints/latest.json)"
               [[ "$COMPLETED" =~ ^[0-9]+$ ]] || exit 2
               if (( COMPLETED + 16 > 2048 )); then
-                echo "Full 2048-Match budget reached"; exit 0
+                echo "RNAD-001 research limit reached: completed=$COMPLETED"
+                python -m scripts.rnad.export_checkpoint \\
+                  --checkpoint artifacts/rnad-001/checkpoints \\
+                  --out artifacts/rnad-001/final-model.json
+                exit 0
               fi
               python -m scripts.rnad.train --seed "$RNAD_SEED" --matches 16 \
                 --out artifacts/rnad-001 --resume
