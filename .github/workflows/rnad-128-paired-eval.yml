@@ -71,7 +71,7 @@ jobs:
             --dir artifacts/from-archived-run
       - name: Validate archived model weights and accepted Match evidence
         run: |
-          python scripts/rnad/verify_warmstart_artifact.py \
+          python -m scripts.rnad.verify_warmstart_artifact \
             --root artifacts/from-archived-run --source-sha "$RNAD_SOURCE_SHA"
       - name: Teacher-only paired evaluation first independent 64-seed block
         run: |
