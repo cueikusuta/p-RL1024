@@ -120,7 +120,8 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
     value_losses=[]
     for (logits,value),est in zip(inputs,targets):
         policy_losses.append(neurd_policy_loss(logits,est['q_targets'],
-                                                beta=2.0,q_clip=10.0))
+                                                beta=2.0,q_clip=10.0,
+                                                is_c=est['c']))
         value_losses.append((value-torch.tensor(
             est['value_target'],dtype=value.dtype))**2)
     loss=sum(policy_losses)/len(policy_losses)+(
