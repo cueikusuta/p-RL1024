@@ -31,10 +31,9 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
       threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA))
     throw new TypeError('RNAD model and rollout feature schemas disagree');
   const result=runRnadAcceptanceSmoke({
-    seed,matchId,experimentId:'RNAD-001',
+    seed,matchId,experimentId:threePhase?'RNAD-002-3phase':'RNAD-001',
     sourceSha:verifiedRunningSourceSha(),
     engineSnapshotSha:provenance.sourceCommit,
-    policyVersion:'RNAD-001-neural-learner',
     opponentPolicyVersion:threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner',
     policyVersion:threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner',
     phasePolicy:threePhase?(args=>neural.choose(args)):null,
