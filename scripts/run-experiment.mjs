@@ -1,4 +1,5 @@
 import {spawnSync,spawn} from 'node:child_process';
+import {Worker} from 'node:worker_threads';
 import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {compare} from './verify-evaluation.mjs';
@@ -27,14 +28,30 @@ function run(script,args) {
   const result=spawnSync(process.execPath,[script,...args],{stdio:'inherit',timeout:290*60*1000});
   if (result.error || result.status !== 0) throw result.error || new Error(`${script} exited ${result.status}`);
 }
+async function runFastWorker(script,argv,env=process.env) {
+  const url=new URL('./'+script.replace(/^scripts\//,''),import.meta.url);
+  return new Promise((resolve,reject)=>{
+    const worker=new Worker(url,{argv,env});
+    let error=null;
+    worker.once('error',e=>{error=e;});
+    worker.once('exit',code=>{
+      if(error)reject(error);
+      else if(code!==0)reject(new Error('Fast training worker '+script+' exited '+code));
+      else resolve();
+    });
+  });
+}
+const fastWorker=process.env.RL_FAST_WORKER==='1';
 const model=`${dir}/training.json`;
 const trainArgs=['--matches',String(matches),'--seed',String(seed),'--checkpoint-every','8','--out',model];
 if(opponent.id==='AQ-Base-001')trainArgs.unshift('--model',selected.id);
 else if(selected.id==='RL-Linear')trainArgs.unshift('--all-phases','true');
-run(opponent.id==='AQ-Base-001'?'scripts/train-vs-aq.mjs':selected.trainingEntry,trainArgs);
+if(fastWorker)await runFastWorker(opponent.id==='AQ-Base-001'?'scripts/train-vs-aq.mjs':selected.trainingEntry,trainArgs);
+else run(opponent.id==='AQ-Base-001'?'scripts/train-vs-aq.mjs':selected.trainingEntry,trainArgs);
 (selected.id==='RL-Linear'?loadModel:loadDeepModel)(JSON.stringify(JSON.parse(readFileSync(model,'utf8')).model));
 const evaluator=opponent.id==='AQ-Base-001'?'scripts/evaluate-vs-aq.mjs':selected.id==='RL-Linear'?'scripts/evaluate-linear.mjs':'scripts/evaluate-deep.mjs';
 function evaluateIndependent(name) {
+  if(fastWorker)return runFastWorker(evaluator,['--model',model,'--purpose','smoke','--blocks','2','--out',dir+'/eval-'+name+'.json']);
   return new Promise((resolve,reject)=>{
     const child=spawn(process.execPath,[evaluator,'--model',model,'--purpose','smoke',
       '--blocks','2','--out',dir+'/eval-'+name+'.json'],{stdio:'inherit'});
