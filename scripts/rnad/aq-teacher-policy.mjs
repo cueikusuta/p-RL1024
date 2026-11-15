@@ -25,7 +25,7 @@ const v2Weights=Object.freeze({blend:.28,exposure:.75,continuation:.4});
 export function createPublicAQTeacher(){
   const model=createAQ();
   const seats=[0,1].map(()=>({
-    round:0,belief:null,memory:{},guard:createI877AntiStall({maxNonAttacks:5}),
+    round:0,belief:null,memory:{},selected:[],guard:createI877AntiStall({maxNonAttacks:5}),
     pending:null
   }));
   function choose({observation,legalActions,seat=observation?.seat,round=1}){
@@ -38,7 +38,7 @@ export function createPublicAQTeacher(){
     const own=seats[seat];
     if(round!==own.round){
       if(own.pending)throw new Error('Unaccepted AQ plan crossed round boundary');
-      own.round=round;own.belief=null;own.memory={};
+      own.round=round;own.belief=null;own.memory={};own.selected=[];
       own.guard=createI877AntiStall({maxNonAttacks:5});
     }
     if(own.pending)throw new Error('Unaccepted AQ plan at next decision');
@@ -47,16 +47,20 @@ export function createPublicAQTeacher(){
       proposed=chooseStrategyTeam(observation,{data,fastDraftValidation:true});
     }else if(observation.phase==='selection'){
       proposed=chooseTacticalSelection(observation,{data,sets:playableSets});
+      own.pending={round,phase:'selection',action:proposed,
+        roster:observation.self.team};
     }else{
       const active=observation.self?.team?.[observation.self.active];
       if(!active)throw new TypeError('No own active Pokémon in AQ public observation');
+      const ownSet=own.selected[observation.self.active];
+      if(!ownSet?.setId)throw new TypeError('Missing accepted own selected set in AQ public teacher');
       const evaluated=assessCompactMatchup(observation,{
-        ownSet:active,catalog:playableSets,data,previousBelief:own.belief});
+        ownSet,catalog:playableSets,data,previousBelief:own.belief});
       own.belief=evaluated.beliefState;
       const ownMatchups=observation.self.team.map((member,index)=>{
         if(!(member.hp>0))return null;
         if(index===observation.self.active)return evaluated.assessment;
-        return assessMatchup({ownSet:member,own:member,
+        return assessMatchup({ownSet:own.selected[index],own:member,
           opponentBelief:evaluated.beliefState.belief,
           opponentPublic:observation.opponent,
           catalog:playableSets,data,field:observation.field});
@@ -77,7 +81,7 @@ export function createPublicAQTeacher(){
         proposed=sorted[own.guard.choose(
           ranked.candidates,ranked.selectedIndex).index];
       }else proposed=sorted[0];
-      own.pending={round,view:observation,action:proposed,
+      own.pending={round,phase:'battle',view:observation,action:proposed,
         options,ranking};
     }
     const idx=legalActions.findIndex(candidate=>sign(candidate)===sign(proposed));
@@ -95,9 +99,17 @@ export function createPublicAQTeacher(){
     if(!p)return;
     if(p.round!==round||sign(p.action)!==sign(action))
       throw new Error('AQ plan not supported by accepted Match action');
-    // Tactical memory update is legal ONLY after Match acceptance.
-    commitStrategyV2Choice(p.view,{
-      ...p.options,variant:'strategy-v2-e'},p.ranking,p.action);
+    // Only authoritative accepted selection IDs may bind own private sets.
+    if(p.phase==='selection'){
+      const byId=new Map(p.roster.map(pokemon=>[pokemon.instanceId,pokemon]));
+      if(p.action.length!==3||p.action.some(id=>!byId.has(id)))
+        throw new Error('Malformed accepted teacher selection');
+      own.selected=p.action.map(id=>byId.get(id));
+    }else if(p.phase==='battle'){
+      // Tactical memory is updated only AFTER the accepted action receipt.
+      commitStrategyV2Choice(p.view,{
+        ...p.options,variant:'strategy-v2-e'},p.ranking,p.action);
+    }else throw new Error('Unexpected AQ teacher accepted memory event');
     own.pending=null;
   };
   return choose;
