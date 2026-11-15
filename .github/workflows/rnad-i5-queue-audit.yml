@@ -1,8 +1,8 @@
 name: RNAD-003 audit completed queue and diagnose deterministic stalls
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-i5-queue-audit.yml']
+  # Initial archive audit / deterministic-stall probe already launched as
+  # GitHub Actions #43777100106. Avoid duplicate forensic full Matches
+  # on every Draft PR commit; rerun only by explicit manual dispatch.
   workflow_dispatch:
 permissions: {}
 jobs:
