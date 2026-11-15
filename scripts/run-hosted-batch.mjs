@@ -53,7 +53,8 @@ const all=await Promise.allSettled(shardJobs.map(async shard=>{
     offset:shard.offset,count:shard.count,shardIndex:shard.index,
     durationSeconds:(ended-started)/1000,
     startedUnix:Math.floor(started/1000),finishedUnix:Math.ceil(ended/1000),
-    exitCode,runId:process.env.GITHUB_RUN_ID||null};
+    exitCode,runId:process.env.GITHUB_RUN_ID||null,
+    runAttempt:process.env.GITHUB_RUN_ATTEMPT||null};
   writeFileSync(join(root,'wallclock-shard.json'),JSON.stringify(result,null,2)+'\n');
   if(exitCode)throw new Error('Shard '+shard.index+' failure');
   return result;
