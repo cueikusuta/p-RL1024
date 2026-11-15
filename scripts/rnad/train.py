@@ -31,10 +31,12 @@ def frozen_engine_sha():
 
 
 def state_hash(net):
-    import io
-    buffer=io.BytesIO()
-    torch.save(net.state_dict(),buffer)
-    return hashlib.sha256(buffer.getvalue()).hexdigest()
+    digest=hashlib.sha256()
+    for key,value in sorted(net.state_dict().items()):
+        digest.update(key.encode('utf8')+b'\\0')
+        digest.update(str(tuple(value.shape)).encode('ascii')+b'\\0')
+        digest.update(value.detach().cpu().contiguous().numpy().tobytes())
+    return digest.hexdigest()
 
 
 def run_match(seed, model, magnet, directory):
