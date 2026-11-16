@@ -32,3 +32,18 @@ test('original AQ evaluation rejects unbounded/invalid/missing models before Mat
   assert.throws(()=>createRnadAQMatchSession({
     ...valid,seat:2}),/Invalid bounded full-AQ R-NaD adapter/);
 });
+
+test('public AQ phase-only modes are explicit opt-ins, never benchmark replacements',()=>{
+  for(const phaseMode of ['aq-public-draft-neural-rest',
+                           'aq-public-selection-neural-rest']){
+    assert.throws(()=>evaluateAgainstOriginalAQ({
+      modelPath:'unavailable-frozen-rnad-v3.json',seed:1970001,
+      pairs:1,phaseMode,switchGuard:'anti-loop-v1'
+    }),/ENOENT/);
+  }
+  assert.throws(()=>evaluateAgainstOriginalAQ({
+    modelPath:'unavailable-frozen-rnad-v3.json',
+    pairs:1,seed:1970001,phaseMode:'aq-public-untrusted-both',
+    switchGuard:'anti-loop-v1'
+  }),/Invalid bounded original-AQ paired evaluation/);
+});
