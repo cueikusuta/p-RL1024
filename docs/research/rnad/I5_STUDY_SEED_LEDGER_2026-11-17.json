@@ -1,0 +1,127 @@
+{
+  "schema": "rnad-i5-study-seed-ledger-v1",
+  "scope": "I5 phase-improvement known runs 2010001..2090064 only; older unrelated research not attested",
+  "selected_screen_run": 43962423945,
+  "entries": [
+    {
+      "id": "stage1-teacher",
+      "start": 2010001,
+      "count": 4
+    },
+    {
+      "id": "stage1-heldout",
+      "start": 2011001,
+      "count": 4
+    },
+    {
+      "id": "stage1-rl",
+      "start": 2012001,
+      "count": 2
+    },
+    {
+      "id": "stage1-aq",
+      "start": 2013001,
+      "count": 4
+    },
+    {
+      "id": "v4-128-teacher",
+      "start": 2020001,
+      "count": 128
+    },
+    {
+      "id": "v4-128-heldout",
+      "start": 2021001,
+      "count": 32
+    },
+    {
+      "id": "v4-128-selfplay",
+      "start": 2022001,
+      "count": 16
+    },
+    {
+      "id": "v4-128-aq",
+      "start": 2023001,
+      "count": 16
+    },
+    {
+      "id": "v4-ablation",
+      "start": 2030001,
+      "count": 16
+    },
+    {
+      "id": "utility-teacher",
+      "start": 2040001,
+      "count": 32
+    },
+    {
+      "id": "utility-heldout",
+      "start": 2041001,
+      "count": 32
+    },
+    {
+      "id": "utility-selfplay",
+      "start": 2042001,
+      "count": 8
+    },
+    {
+      "id": "utility-aq",
+      "start": 2043001,
+      "count": 16
+    },
+    {
+      "id": "aq-oracle",
+      "start": 2044001,
+      "count": 16
+    },
+    {
+      "id": "v4-64-rnad",
+      "start": 2050001,
+      "count": 64
+    },
+    {
+      "id": "v4-64-aq",
+      "start": 2054001,
+      "count": 32
+    },
+    {
+      "id": "selection-ensemble",
+      "start": 2065001,
+      "count": 32
+    },
+    {
+      "id": "selection-focus-teacher",
+      "start": 2070001,
+      "count": 64
+    },
+    {
+      "id": "selection-focus-heldout",
+      "start": 2071001,
+      "count": 32
+    },
+    {
+      "id": "selection-focus-selfplay",
+      "start": 2072001,
+      "count": 16
+    },
+    {
+      "id": "selection-focus-aq",
+      "start": 2073001,
+      "count": 32
+    },
+    {
+      "id": "policy-profile-training",
+      "start": 2080001,
+      "count": 16
+    },
+    {
+      "id": "policy-profile-aq",
+      "start": 2081001,
+      "count": 16
+    },
+    {
+      "id": "selected-blend-confirm",
+      "start": 2090001,
+      "count": 64
+    }
+  ]
+}
