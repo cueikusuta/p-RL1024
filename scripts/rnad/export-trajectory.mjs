@@ -93,8 +93,10 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
     return {actor:seat,phase:row.phase,round:row.round,
       turn:row.observation.turn??null,
       state:encoded.state,actions:encoded.actions,action_index:actionIndex,
-      authoritative_legal_action_count:row.legal_actions.length,
-      policy_eligible_action_count:support.length,
+      ...(guarded?{
+        authoritative_legal_action_count:row.legal_actions.length,
+        policy_eligible_action_count:support.length
+      }:{}),
       behavior_prob:Math.exp(row.behavior_log_probability),
       magnet_log_prob:row.reference_log_probability,
       reward:[0,0]};
