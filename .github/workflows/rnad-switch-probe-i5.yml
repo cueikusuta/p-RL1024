@@ -1,0 +1,58 @@
+name: RNAD-003 switching-rate and 3000-decision loop diagnosis
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-switch-probe-i5.yml']
+  workflow_dispatch:
+permissions: {}
+jobs:
+  switch-probe:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        seed: [1720001, 1720101]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: f08a9587d6a7033546eab00ffa6479399ca71c2f
+          path: pinned
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Confirm diagnostics syntax and frozen engine identity
+        run: |
+          set -euo pipefail
+          node --check scripts/rnad/switch_loop_probe.mjs
+          test "$(git -C pinned rev-parse HEAD)" = "f08a9587d6a7033546eab00ffa6479399ca71c2f"
+          (cd pinned && node scripts/verify-snapshot.mjs)
+      - name: Download immutable original 128 and mutated c005 models
+        run: |
+          set -euo pipefail
+          mkdir -p models reports
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+      - name: Trace normal versus forced switches without changing AI decisions or engine safety cap
+        run: |
+          set -euo pipefail
+          (cd pinned && node ../scripts/rnad/switch_loop_probe.mjs \
+            --seed ${{ matrix.seed }} \
+            --teacher ../models/base128.json \
+            --candidate ../models/c005.json \
+            --out ../reports/seed-${{ matrix.seed }}.json)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-003-switch-trace-${{ matrix.seed }}-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30
