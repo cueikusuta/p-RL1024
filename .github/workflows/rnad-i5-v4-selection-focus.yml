@@ -57,7 +57,7 @@ jobs:
             'aq_seed','aq_pairs'];
           if(m.schema!=='rnad-i5-selection-focus-v1'||Object.keys(m).length!==keys.length+1||
              keys.some(k=>!Number.isSafeInteger(m[k])||m[k]<1)||
-             m.iteration!==2||m.origin_run!==43957735875||
+             m.iteration!==3||m.origin_run!==43957735875||
              m.teacher_matches>256||m.epochs>6||
              m.heldout_matches>32||m.selfplay_matches>16||
              m.aq_pairs>100||!(
