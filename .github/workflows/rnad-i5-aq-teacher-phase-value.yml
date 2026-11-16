@@ -1,0 +1,118 @@
+name: RNAD I5 isolate public AQ teacher draft and selection real-match value
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/TEACHER_PHASE_VALUE_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-aq-teacher-phase-value-one-shot
+  cancel-in-progress: false
+jobs:
+  teacher_phase_value:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify source, mode contracts and reserved independent seeds
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-vs-aq-full.test.js test/rnad-aq-aggregate.test.js test/rnad-i5-study-seeds.test.js
+          mkdir -p results models/v3
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {PersistentRNADInference} from './scripts/rnad/infer.mjs';
+          import {verifyI5StudySeedLedger} from './scripts/rnad/verify-i5-study-seeds.mjs';
+          const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const manifest=JSON.parse(readFileSync('docs/research/rnad/TEACHER_PHASE_VALUE_MANIFEST.json'));
+          if(manifest.schema!=='rnad-i5-aq-teacher-phase-value-v1'||
+             manifest.iteration!==1||manifest.seed!==2104001||
+             manifest.pairs!==16||manifest.origin_run!==43829072730)
+            throw new Error('Invalid independent public teacher phase study registration');
+          const ledger=JSON.parse(readFileSync(
+            'docs/research/rnad/I5_STUDY_SEED_LEDGER_2026-11-17.json'));
+          const registered=ledger.entries.find(x=>x.id==='teacher-phase-value');
+          if(registered?.start!==manifest.seed||registered.count!==manifest.pairs)
+            throw new Error('Unregistered independent source-bound teacher phase seed block');
+          const selected=JSON.parse(readFileSync(
+            'docs/research/rnad/SELECTION_BLEND_CONFIRM_MANIFEST.json'));
+          verifyI5StudySeedLedger(ledger,selected);
+          const model='models/v3/selfplay/final-model.json';
+          if(sha(model)!=='c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'||
+             new PersistentRNADInference(model).featureSchema!=='rnad-three-phase-features-v3')
+            throw new Error('Frozen v3-U4 battle / phase model changed');
+          JS
+      - name: Run exact AQ full 4-win Matches with one public teacher phase at a time
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/TEACHER_PHASE_VALUE_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for mode in neural-all aq-public-draft-neural-rest aq-public-selection-neural-rest; do
+            node scripts/rnad/evaluate-vs-aq-full.mjs \
+              --model models/v3/selfplay/final-model.json \
+              --seed "$(field seed)" --pairs "$(field pairs)" \
+              --phase-mode "$mode" --switch-guard anti-loop-v1 \
+              --out "results/$mode.json"
+          done
+      - name: Validate all exact-AQ receipts and paired per-phase teacher utility
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {aggregateOriginalAQReports} from './scripts/rnad/aggregate-original-aq.mjs';
+          const modes=['neural-all','aq-public-draft-neural-rest',
+            'aq-public-selection-neural-rest'];
+          const reports=modes.map(name=>JSON.parse(readFileSync('results/'+name+'.json')));
+          const bas=reports[0],sha=execFileSync('git',['rev-parse','HEAD'],
+            {encoding:'utf8'}).trim();
+          const checked=reports.map(r=>aggregateOriginalAQReports([r],{
+            seedStart:r.seed,seedCount:r.pairs}));
+          if(reports.some((r,i)=>r.phase_mode!==modes[i]||
+             r.source_sha!==sha||r.model_sha256!==bas.model_sha256||
+             r.engine_sha!==bas.engine_sha||r.aq_base_model_sha256!==bas.aq_base_model_sha256||
+             r.seed!==bas.seed||r.pairs!==bas.pairs||
+             checked[i].completed_matches!==2*bas.pairs))
+            throw new Error('Noncomparable frozen public AQ teacher phase-A/B');
+          const base=new Map(bas.rows.map(row=>
+            [row.seed+':'+row.candidateSeat,Number(row.won)]));
+          const phaseValues=reports.slice(1).map(report=>{
+            const m=new Map(report.rows.map(row=>
+              [row.seed+':'+row.candidateSeat,Number(row.won)]));
+            if(m.size!==base.size||[...base.keys()].some(k=>!m.has(k)))
+              throw new Error('Different seed/seat paired baseline');
+            const delta=[...base].reduce((s,[k,v])=>s+m.get(k)-v,0)/base.size;
+            const half=Math.sqrt(2*Math.log(40*2)/bas.pairs);
+            return {phase_mode:report.phase_mode,
+              wins:report.wins,baseline_wins:bas.wins,
+              paired_delta:delta,independent_seeds:bas.pairs,
+              familywise_95pct_delta_bounds:[Math.max(-1,delta-half),
+                Math.min(1,delta+half)],
+              improvement_confirmed:delta-half>0};
+          });
+          const output={schema:'rnad-i5-public-aq-isolated-phase-value-v1',
+            source_sha:sha,seed:bas.seed,independent_seeds:bas.pairs,
+            all_v3_wins:bas.wins,phase_values:phaseValues,
+            exploration_only:true,strength_established:false,champion_promoted:false};
+          writeFileSync('results/public-teacher-phase-value-summary.json',
+            JSON.stringify(output,null,2)+'\n');
+          console.log(JSON.stringify(output));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-aq-teacher-phase-value-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 30
