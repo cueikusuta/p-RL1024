@@ -11,6 +11,8 @@ import {encodeRnadThreePhaseDecisionV2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
   from '../../src/ml/rnad-phase-features-v2.js';
 import {encodeRnadThreePhaseDecisionV4,RNAD_THREE_PHASE_FEATURE_SCHEMA_V4}
   from '../../src/ml/rnad-phase-features-v4.js';
+import {encodeRnadThreePhaseDecisionV5,RNAD_THREE_PHASE_FEATURE_SCHEMA_V5}
+  from '../../src/ml/rnad-phase-features-v5.js';
 import {chooseTeam,chooseSelection} from '../dev/simulator/draft-ai.js';
 import {playableSets} from '../../src/production-runtime.js';
 import data from '../../data/catalog/battle-data.json' with {type:'json'};
@@ -32,12 +34,15 @@ function stage0ThreePhaseTeacher({observation,legalActions,rng}){
     referenceLogProbability:-Math.log(legalActions.length),predictedValue:0};
 }
 export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0',
-  featuresV2=false,featuresV4=false,utilityLabels=false}={}){
+  featuresV2=false,featuresV4=false,featuresV5=false,
+  utilityLabels=false}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
     typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
-    typeof featuresV4!=='boolean'||typeof utilityLabels!=='boolean'||
+    typeof featuresV4!=='boolean'||typeof featuresV5!=='boolean'||
+    typeof utilityLabels!=='boolean'||
     (utilityLabels&&teacher!=='aq-public-strategy-selection')||
-    ((featuresV2||featuresV4)&&!threePhase)||(featuresV2&&featuresV4)||
+    ((featuresV2||featuresV4||featuresV5)&&!threePhase)||
+    Number(featuresV2)+Number(featuresV4)+Number(featuresV5)>1||
     !['basic-stage0','aq-public-belief','aq-public-strategy-selection'].includes(teacher)||
     (teacher!=='basic-stage0'&&!threePhase))
     throw new TypeError('Invalid teacher seed');
@@ -54,7 +59,7 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
     policyVersion:aq?teacherId:
       threePhase?'basic-stage0-3phase-teacher':'stage0-fixed-teacher',
     phasePolicy:aq??(threePhase?stage0ThreePhaseTeacher:null),
-    includeAcceptedHistory:featuresV4,
+    includeAcceptedHistory:featuresV4||featuresV5,
     policy:effectivePolicy});
   if(!match.completed||!match.jointTimeline||!match.trajectories||
      ![0,1].includes(match.winner)||match.score[match.winner]!==4)
@@ -65,7 +70,9 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
       (!threePhase&&record.phase!=='battle')||
       !['draft','selection','battle'].includes(record.phase))
       throw new Error('Invalid seat-local accepted teacher event');
-    const f=featuresV4?
+    const f=featuresV5?
+      encodeRnadThreePhaseDecisionV5(record.observation,record.legal_actions):
+      featuresV4?
       encodeRnadThreePhaseDecisionV4(record.observation,record.legal_actions):
       featuresV2?
       encodeRnadThreePhaseDecisionV2(record.observation,record.legal_actions):
@@ -94,7 +101,8 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
       aq?'rnad-aq-public-belief-three-phase-teacher-v1':
       threePhase?'rnad-basic-stage0-three-phase-teacher-v1':
       'rnad-fixed-stage0-teacher-match-v1',
-    feature_schema:featuresV4?RNAD_THREE_PHASE_FEATURE_SCHEMA_V4:
+    feature_schema:featuresV5?RNAD_THREE_PHASE_FEATURE_SCHEMA_V5:
+      featuresV4?RNAD_THREE_PHASE_FEATURE_SCHEMA_V4:
       featuresV2?RNAD_THREE_PHASE_FEATURE_SCHEMA_V2:
       threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA,
     source_sha:verifiedRunningSourceSha(),
@@ -112,7 +120,7 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
   const inputs={};
   for(let i=0;i<args.length;i+=2){
     const k=args[i]?.slice(2);
-    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2','features-v4','utility-labels'].includes(k)||
+    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2','features-v4','features-v5','utility-labels'].includes(k)||
       Object.hasOwn(inputs,k))throw new Error('Invalid teacher CLI option');
     inputs[k]=args[i+1];
   }
@@ -120,6 +128,7 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
     (inputs['three-phase']!==undefined&&inputs['three-phase']!=='true')||
     (inputs['features-v2']!==undefined&&inputs['features-v2']!=='true')||
     (inputs['features-v4']!==undefined&&inputs['features-v4']!=='true')||
+    (inputs['features-v5']!==undefined&&inputs['features-v5']!=='true')||
     (inputs['utility-labels']!==undefined&&inputs['utility-labels']!=='true'))
     throw new Error('Usage: --seed N --out FILE [--three-phase true]');
   const trace=createTeacherMatch(Number(inputs.seed),
@@ -127,6 +136,7 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
      teacher:inputs.teacher??'basic-stage0',
      featuresV2:inputs['features-v2']==='true',
      featuresV4:inputs['features-v4']==='true',
+     featuresV5:inputs['features-v5']==='true',
      utilityLabels:inputs['utility-labels']==='true'});
   writeFileSync(inputs.out,JSON.stringify(trace)+'\n',{flag:'wx'});
   process.stdout.write(JSON.stringify({seed:trace.seed,
