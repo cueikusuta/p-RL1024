@@ -49,8 +49,11 @@ def per_decision_metrics(logits, chosen):
             ce/uniform_ce if n>1 else 0.0}
 
 
-def evaluate(model,*,seed=996301,matches=16,out,features_v2=False):
-    if not isinstance(seed,int) or not 1<=seed<=0xffffffff-32 or not 1<=matches<=32:
+def evaluate(model,*,seed=996301,matches=16,out,features_v2=False,
+             teacher='aq-public-belief'):
+    if (not isinstance(seed,int) or not 1<=seed<=0xffffffff-32 or
+        not 1<=matches<=32 or
+        teacher not in ('aq-public-belief','aq-public-strategy-selection')):
         raise ValueError('Invalid held-out data bounds')
     model=Path(model)
     torch.set_num_threads(1)
@@ -62,7 +65,7 @@ def evaluate(model,*,seed=996301,matches=16,out,features_v2=False):
     folder=Path(out)
     folder.mkdir(parents=True,exist_ok=False)
     traces=collect(seed,matches,folder,three_phase=True,
-                   teacher='aq-public-belief',features_v2=features_v2)
+                   teacher=teacher,features_v2=features_v2)
     stat={phase:{'correct':0,'examples':0,'cross_entropy':0.0,
                  'teacher_top3':0,'teacher_top10':0,'legal_candidates':0,
                  'teacher_probability_sum':0.0,'entropy_sum':0.0,
@@ -121,7 +124,12 @@ def evaluate(model,*,seed=996301,matches=16,out,features_v2=False):
             row['top3_accuracy']>row['top10_accuracy']+1e-12 or
             not all(math.isfinite(v) for v in row.values())):
             raise ValueError('Invalid held-out phase agreement metrics')
-    report={'schema':'rnad-aq-imitator-unseen-match-eval-v1',
+    report={'schema':('rnad-aq-imitator-strategy-selection-eval-v1'
+                      if teacher=='aq-public-strategy-selection' else
+                      'rnad-aq-imitator-unseen-match-eval-v1'),
+            'teacher_id':('rnad-aq-public-strategy-selection-v1'
+                          if teacher=='aq-public-strategy-selection' else
+                          'rnad-aq-public-belief-v2'),
             'feature_schema':schema,
             'teacher_model_sha256':AQ_WEIGHTS_SHA256,
             'student_model_sha256':model_sha,
@@ -139,6 +147,9 @@ if __name__=='__main__':
     p.add_argument('--matches',type=int,default=16)
     p.add_argument('--out',required=True)
     p.add_argument('--features-v2',action='store_true')
+    p.add_argument('--teacher',choices=['aq-public-belief',
+        'aq-public-strategy-selection'],default='aq-public-belief')
     opts=p.parse_args()
     print(json.dumps(evaluate(opts.model,seed=opts.seed,matches=opts.matches,
-                              out=opts.out,features_v2=opts.features_v2),indent=2))
+                              out=opts.out,features_v2=opts.features_v2,
+                              teacher=opts.teacher),indent=2))
