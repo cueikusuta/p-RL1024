@@ -299,6 +299,10 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                       'engine_snapshot_sha':frozen_engine_sha(),
                       'training_code_sha':current_git_sha(),
                       'observation_schema_version':feature_schema,
+                      **({'optimizer_updates_per_match':updates_per_match,
+                          'initialization_feature_schema':
+                            THREE_PHASE_FEATURE_SCHEMA_V2 if migrate_from_v2
+                            else feature_schema} if features_v3 else {}),
                       **({'switch_guard':switch_guard}
                          if switch_guard!='none' else {}),
                       **({'reward_objective':switch_cost}
@@ -315,8 +319,15 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
     for _ in range(matches):
         data=run_match(counter,net,magnet,path/'rollouts',
                        three_phase=three_phase,features_v2=features_v2,
+                       features_v3=features_v3,
                        switch_guard=switch_guard,switch_cost=switch_cost)
-        summary=train_match(net,target,magnet,optimizer,scheduler,data,eta=eta)
+        # Within a Match, later passes reuse accepted data off-policy with
+        # recomputed clipped importance weights, not new self-play outcomes.
+        epochs=[train_match(net,target,magnet,optimizer,scheduler,data,eta=eta)
+                for _ in range(updates_per_match)]
+        summary={**epochs[-1],
+                 'optimizer_updates_this_match':updates_per_match,
+                 'first_epoch_loss':epochs[0]['loss']}
         if switch_cost=='opportunity-v1':
             events=data['events']
             summary.update({
@@ -342,11 +353,16 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                 'engine_snapshot_sha':frozen_engine_sha(),
                 'training_code_sha':current_git_sha(),
                 'observation_schema_version':feature_schema,
+                **({'optimizer_updates_per_match':updates_per_match,
+                    'initialization_feature_schema':
+                      THREE_PHASE_FEATURE_SCHEMA_V2 if migrate_from_v2
+                      else feature_schema} if features_v3 else {}),
                 **({'switch_guard':switch_guard}
                     if switch_guard!='none' else {}),
                 **({'reward_objective':switch_cost}
                     if switch_cost!='none' else {}),
                 'opponent_policy_version':(
+                    'RNAD-004-v3-selfplay' if features_v3 else
                     'RNAD-003-v2-selfplay' if features_v2
                     else 'RNAD-001-selfplay')+
                     ('-anti-loop-v1' if switch_guard!='none' else '')+
@@ -356,7 +372,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                     (sum(x['accepted_decisions'] for x in summaries)
                      if not resume else
                      metadata['accepted_decisions']+sum(x['accepted_decisions'] for x in summaries)),
-                'updates':completed,'next_match_seed':
+                'updates':completed*updates_per_match,'next_match_seed':
                     ((counter%0xffffffff)+1),
                 'last_match_id':data['match_id'],
                 'completed_match_ids':ids,
@@ -366,7 +382,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         summaries.append({'seed':data['seed'],'winner':data['winner'],
                           'rounds':data['rounds'],**summary})
     export_json(net,path/'final-model.json',feature_schema=feature_schema)
-    report={'schema':'rnad-three-phase-v2-training-report-v1' if features_v2
+    report={'schema':'rnad-three-phase-v3-training-report-v1' if features_v3
+            else 'rnad-three-phase-v2-training-report-v1' if features_v2
             else 'rnad-three-phase-training-report-v1' if three_phase
             else 'rnad-smoke-training-report-v1',
             'feature_schema':feature_schema,'model_id':model_id,
@@ -378,8 +395,12 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             'initialization_sha256':initialization_sha256,
             'regularization_eta':float(eta),
             'magnet_period':magnet_period,
+            **({'optimizer_updates_per_match':updates_per_match,
+                'initialization_feature_schema':
+                  THREE_PHASE_FEATURE_SCHEMA_V2 if migrate_from_v2
+                  else feature_schema} if features_v3 else {}),
             'source_sha':current_git_sha(),'engine_sha':frozen_engine_sha(),
-            'completed_matches':completed,'updates':completed,
+            'completed_matches':completed,'updates':completed*updates_per_match,
             'last_match_checkpoint_sha':prior,
             'model_sha256':state_hash(net),
             'magnet_sha256':state_hash(magnet),
@@ -398,6 +419,10 @@ if __name__=='__main__':
     parser.add_argument('--initial-model',default=None)
     parser.add_argument('--three-phase',action='store_true')
     parser.add_argument('--features-v2',action='store_true')
+    parser.add_argument('--features-v3',action='store_true')
+    parser.add_argument('--updates-per-match',type=int,choices=(1,4),
+                        default=1)
+    parser.add_argument('--migrate-from-v2',action='store_true')
     parser.add_argument('--switch-guard',choices=['none','anti-loop-v1'],
                         default='none')
     parser.add_argument('--switch-cost',choices=['none','opportunity-v1'],
@@ -408,6 +433,9 @@ if __name__=='__main__':
                            initial_model=args.initial_model,
                            three_phase=args.three_phase,
                            features_v2=args.features_v2,
+                           features_v3=args.features_v3,
+                           updates_per_match=args.updates_per_match,
+                           migrate_from_v2=args.migrate_from_v2,
                            switch_guard=args.switch_guard,
                            switch_cost=args.switch_cost),
                      indent=2))
