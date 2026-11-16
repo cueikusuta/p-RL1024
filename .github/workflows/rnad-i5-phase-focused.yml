@@ -1,0 +1,155 @@
+name: RNAD I5 isolated selection-only NeuRD vs all-phase policy
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/PHASE_FOCUS_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-policy-focus-one-shot
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 220
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU learner and run isolated profile contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p 'rnad_*_test.py' -v
+          node --test test/rnad-v4-phase-ablation.test.js test/rnad-v4-features.test.js
+      - name: Load frozen Utility teacher and battle actor without modifying their source
+        run: |
+          set -euo pipefail
+          mkdir -p models artifacts/teacher results
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir artifacts/teacher
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models
+          mapfile -t models < <(find artifacts/teacher -type f -path '*/v4-utility/trained-model.json')
+          test "${#models[@]}" -eq 1
+          cp "${models[0]}" models/initial-v4.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {PersistentRNADInference} from './scripts/rnad/infer.mjs';
+          const h=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const m=JSON.parse(readFileSync('docs/research/rnad/PHASE_FOCUS_MANIFEST.json'));
+          if(m.schema!=='rnad-i5-phase-focus-v1'||m.iteration!==1||
+             m.teacher_run!==43957735875||m.matches!==16||m.pairs!==16||
+             !Number.isSafeInteger(m.training_seed)||m.training_seed<1||
+             !Number.isSafeInteger(m.evaluation_seed)||
+             m.evaluation_seed<=m.training_seed+m.matches)
+            throw new Error('Invalid bounded independent phase profile experiment');
+          if(h('models/initial-v4.json')!==
+            '3624014308a4667a15cf2a567dc7836cf6b8e60a6e754eac3b9d0dbfe4ad0c8c'||
+            h('models/selfplay/final-model.json')!==
+            'c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'||
+            new PersistentRNADInference('models/initial-v4.json')
+              .featureSchema!=='rnad-three-phase-features-v4')
+            throw new Error('Frozen actor/model provenance invalid');
+          JS
+      - name: Same initial model / seed / match budget, all versus selection-only phase losses
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/PHASE_FOCUS_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for profile in all selection-only; do
+            python -m scripts.rnad.train \
+              --seed "$(field training_seed)" --matches "$(field matches)" \
+              --out "artifacts/$profile" --initial-model models/initial-v4.json \
+              --features-v4 --three-phase --switch-guard anti-loop-v1 \
+              --updates-per-match 4 --phase-learning-profile "$profile"
+          done
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          for p in ('all','selection-only'):
+              root=Path('artifacts')/p
+              r=json.loads((root/'report.json').read_text())
+              assert r['schema']=='rnad-three-phase-v4-training-report-v1'
+              assert r['phase_learning_profile']==p
+              assert r['completed_matches']==16 and r['updates']==64
+              assert r['is_champion'] is False
+              assert r['initialization_sha256']==hashlib.sha256(
+                Path('models/initial-v4.json').read_bytes()).hexdigest()
+              print(json.dumps({'profile':p,'updates':r['updates'],
+                 'file_sha':hashlib.sha256((root/'final-model.json').read_bytes()).hexdigest()}))
+          PY
+      - name: Exact-AQ same seed/seat comparison, frozen v3 battle and draft
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/PHASE_FOCUS_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for profile in all selection-only; do
+            for mode in all-v3 selection-v4; do
+              node scripts/rnad/evaluate-v4-composite-vs-aq.mjs \
+                --v4 "artifacts/$profile/final-model.json" \
+                --v3 models/selfplay/final-model.json \
+                --seed "$(field evaluation_seed)" --pairs "$(field pairs)" \
+                --mode "$mode" --out "results/$profile-$mode.json"
+            done
+          done
+      - name: Accept only verified paired source/model/seat receipts and compare hypotheses
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {compareV4PhaseArms,compareV4PhaseModels}
+            from './scripts/rnad/compare-v4-phase-arms.mjs';
+          const get=(profile,mode)=>JSON.parse(readFileSync(
+            'results/'+profile+'-'+mode+'.json'));
+          const baseline=get('all','all-v3');
+          const all=compareV4PhaseArms(baseline,get('all','selection-v4'),
+            {familySize:2});
+          const focused=compareV4PhaseArms(baseline,get('selection-only','selection-v4'),
+            {familySize:2});
+          const improvement=compareV4PhaseModels(
+            get('all','selection-v4'),get('selection-only','selection-v4'),
+            {familySize:2});
+          const src=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(all.source_sha!==src||focused.source_sha!==src||
+             improvement.source_sha!==src||
+             improvement.champion_promoted!==false)
+            throw new Error('Untrusted source or implicit Champion promotion');
+          const report={schema:'rnad-i5-selection-only-ab-same-source-v1',
+            source_sha:src,all,focused,improvement,
+            exploratory:true,champion_promoted:false};
+          writeFileSync('results/paired-summary.json',
+            JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify({all_wins:all.candidate_wins,
+            focused_wins:focused.candidate_wins,
+            v3_wins:all.baseline_wins,
+            focused_vs_all_delta:improvement.paired_delta,
+            focused_vs_all_ci:improvement.familywise_95pct_delta_bounds,
+            strengthened:false}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-phase-focused-${{ github.run_id }}
+          path: |
+            artifacts/all/final-model.json
+            artifacts/selection-only/final-model.json
+            artifacts/all/report.json
+            artifacts/selection-only/report.json
+            results/
+          retention-days: 30
+          if-no-files-found: warn
