@@ -100,7 +100,7 @@ test('reason codes distinguish voluntary skips without changing opportunity cost
   const cases=[
     ['not-voluntary-switch',r=>{r.accepted_action={kind:'move',index:0};}],
     ['non-turn-switch',r=>{r.observation.requestType='replacement';}],
-    ['missing-known-team',r=>{r.observation.self.team.splice(1,1);}],
+    ['missing-known-team',r=>{r.observation.self.team=[];}],
     ['opponent-type-unrevealed',r=>{r.observation.opponent.types=[];}],
     ['invalid-own-hp',r=>{r.observation.self.team[0].maxHP=0;}],
     ['own-hp-below-65-percent',r=>{r.observation.self.team[0].hp=30;}],
