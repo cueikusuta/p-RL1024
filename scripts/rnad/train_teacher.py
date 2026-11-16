@@ -45,11 +45,15 @@ def collect(seed, count, folder, *, three_phase=False,
         elif not file.is_file():
             raise ValueError("Cannot reuse missing authority-accepted teacher Match")
         trace=json.loads(file.read_text())
-        expected_schema=("rnad-aq-public-belief-three-phase-teacher-v1"
+        expected_schema=("rnad-aq-public-strategy-selection-three-phase-teacher-v1"
+                         if teacher=="aq-public-strategy-selection" else
+                         "rnad-aq-public-belief-three-phase-teacher-v1"
                          if teacher=="aq-public-belief" else
                          "rnad-basic-stage0-three-phase-teacher-v1" if three_phase
                          else "rnad-fixed-stage0-teacher-match-v1")
-        expected_teacher=("rnad-aq-public-belief-v2" if teacher=="aq-public-belief"
+        expected_teacher=("rnad-aq-public-strategy-selection-v1"
+                          if teacher=="aq-public-strategy-selection" else
+                          "rnad-aq-public-belief-v2" if teacher=="aq-public-belief"
                           else "basic-stage0-3phase" if three_phase
                           else "stage0-fixed-untrained")
         if (trace.get("schema")!=expected_schema
@@ -62,7 +66,7 @@ def collect(seed, count, folder, *, three_phase=False,
             or trace.get("engine_sha")!=frozen_engine_sha()
             or trace.get("completed") is not True
             or trace.get("teacher")!=expected_teacher
-            or (teacher=="aq-public-belief" and
+            or (teacher.startswith("aq-public-") and
                 trace.get("teacher_model_sha256")!=AQ_WEIGHTS_SHA256)
             or trace.get("score",[])[trace["winner"]]!=4
             or not trace.get("examples") or
@@ -142,10 +146,11 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
         (initial_model is not None and
          (not isinstance(initial_model,(str,Path)) or
           not three_phase or not features_v2 or
-          teacher!='aq-public-belief')) or
+          not teacher.startswith('aq-public-'))) or
         not 1<=matches<=256 or not 1<=epochs<=6 or
-        teacher not in ('basic-stage0','aq-public-belief') or
-        (teacher=='aq-public-belief' and not three_phase) or
+        teacher not in ('basic-stage0','aq-public-belief',
+                        'aq-public-strategy-selection') or
+        (teacher.startswith('aq-public-') and not three_phase) or
         not 1<=seed<=0xffffffff-matches):
         raise ValueError("Invalid bounded teacher seed/matches/epochs")
     torch.set_num_threads(1)
@@ -241,12 +246,14 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
             "reused_authority_accepted_teacher_traces":
                 reuse_teacher_traces is not None,
             "source_sha":current_git_sha(),"engine_sha":frozen_engine_sha(),
-            "teacher_id":("rnad-aq-public-belief-v2"
+            "teacher_id":("rnad-aq-public-strategy-selection-v1"
+                          if teacher=="aq-public-strategy-selection" else
+                          "rnad-aq-public-belief-v2"
                           if teacher=="aq-public-belief" else
                           "basic-stage0-3phase" if three_phase
                           else "stage0-fixed-untrained"),
             "teacher_weights_sha256":(AQ_WEIGHTS_SHA256 if
-                                     teacher=="aq-public-belief" else None),
+                                     teacher.startswith('aq-public-') else None),
             "seed":seed,
             "teacher_completed_matches":matches,"teacher_updates":matches*epochs,
             "initial_model_sha256":initial_hash,
@@ -273,7 +280,7 @@ if __name__=="__main__":
     p.add_argument("--label-smoothing",type=float,default=0.0)
     p.add_argument("--reuse-teacher-traces",default=None)
     p.add_argument("--initial-model",default=None)
-    p.add_argument("--teacher",choices=["basic-stage0","aq-public-belief"],
+    p.add_argument("--teacher",choices=["basic-stage0","aq-public-belief","aq-public-strategy-selection"],
                    default="basic-stage0")
     args=p.parse_args()
     print(json.dumps(train(out=args.out,seed=args.seed,matches=args.matches,
