@@ -171,9 +171,10 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                     THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
-    model,initial_file_sha=(RNADNetwork(state_features=STATE_FEATURES_V3,
-                                        action_features=ACTION_FEATURES_V3),None)
-        if features_v4 else initialize_teacher_model(feature_schema,initial_model)
+    model,initial_file_sha=(
+        (RNADNetwork(state_features=STATE_FEATURES_V3,
+                     action_features=ACTION_FEATURES_V3),None)
+        if features_v4 else initialize_teacher_model(feature_schema,initial_model))
     initial_hash=state_hash(model)
     export_json(model,folder/"initial-model.json",feature_schema=feature_schema)
     traces=collect(seed,matches,folder,three_phase=three_phase,
