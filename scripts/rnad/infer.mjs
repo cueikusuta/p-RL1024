@@ -9,6 +9,8 @@ import {encodeRnadThreePhaseDecisionV2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
   from '../../src/ml/rnad-phase-features-v2.js';
 import {encodeRnadThreePhaseDecisionV3,RNAD_THREE_PHASE_FEATURE_SCHEMA_V3}
   from '../../src/ml/rnad-phase-features-v3.js';
+import {encodeRnadThreePhaseDecisionV4,RNAD_THREE_PHASE_FEATURE_SCHEMA_V4}
+  from '../../src/ml/rnad-phase-features-v4.js';
 export const RNAD_MODEL_SCHEMA='rnad-small-gru-v1';
 const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const sigmoid=x=>1/(1+Math.exp(-x));
@@ -40,13 +42,15 @@ export class PersistentRNADInference{
     this.featureSchema=payload.feature_schema??RNAD_FEATURE_SCHEMA;
     this.stateFeatures=payload.state_features;
     this.actionFeatures=payload.action_features;
-    if(this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V3?
+    if([RNAD_THREE_PHASE_FEATURE_SCHEMA_V3,RNAD_THREE_PHASE_FEATURE_SCHEMA_V4]
+        .includes(this.featureSchema)?
          this.stateFeatures!==48||this.actionFeatures!==32:
          this.stateFeatures!==32||this.actionFeatures!==16)
       throw new TypeError('Incompatible RNAD model feature dimensions');
     if(![RNAD_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA,
       RNAD_THREE_PHASE_FEATURE_SCHEMA_V2,
-      RNAD_THREE_PHASE_FEATURE_SCHEMA_V3].includes(this.featureSchema))
+      RNAD_THREE_PHASE_FEATURE_SCHEMA_V3,
+      RNAD_THREE_PHASE_FEATURE_SCHEMA_V4].includes(this.featureSchema))
       throw new TypeError('Unsupported RNAD model feature schema');
     const p=payload.weights,H=128;
     this.params={};
@@ -121,6 +125,8 @@ export class PersistentRNADInference{
       encodeRnadThreePhaseDecisionV2(observation,legalActions):
       this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V3?
       encodeRnadThreePhaseDecisionV3(observation,legalActions):
+      this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V4?
+      encodeRnadThreePhaseDecisionV4(observation,legalActions):
       encodeRnadDecision(observation,legalActions);
     return this.infer(f.state,f.actions,seat,opts);
   }
