@@ -1,8 +1,7 @@
 name: RNAD-003 opt-in switch-loop guard and independent paired smoke
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-switch-guard-i5.yml']
+  # Initial regression and paired A/B launched in Actions #43779235844.
+  # Avoid repeating expensive full 4-win Matches for every Draft PR sync.
   workflow_dispatch:
 permissions: {}
 jobs:
