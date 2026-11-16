@@ -47,7 +47,8 @@ def state_hash(net):
 
 def run_match(seed, model, magnet, directory, *,
               three_phase=False,features_v2=False,features_v3=False,
-              switch_guard='none',switch_cost='none'):
+              switch_guard='none',switch_cost='none',
+              opponent_path=None,learner_seat=None):
     directory.mkdir(parents=True,exist_ok=True)
     model_path=directory/'actor.json'
     magnet_path=directory/'magnet.json'
@@ -73,10 +74,26 @@ def run_match(seed, model, magnet, directory, *,
         command.extend(['--switch-guard',switch_guard])
     if switch_cost!='none':
         command.extend(['--switch-cost',switch_cost])
+    if opponent_path is not None:
+        if not (features_v3 and learner_seat in (0,1)):
+            raise ValueError('League Match requires v3 and valid own seat')
+        command.extend(['--opponent-model',str(opponent_path),
+                        '--learner-seat',str(learner_seat)])
     subprocess.run(command,check=True,timeout=1800)
     row=json.loads(output.read_text())
     guarded=switch_guard=='anti-loop-v1'
     opportunity=switch_cost=='opportunity-v1'
+    league=row.get('league')
+    if opponent_path is not None:
+        expected=hashlib.sha256(Path(opponent_path).read_bytes()).hexdigest()
+        if (not isinstance(league,dict) or
+            league.get('learner_seat')!=learner_seat or
+            league.get('frozen_opponent_sha256')!=expected or
+            league.get('frozen_opponent_feature_schema')!=
+              THREE_PHASE_FEATURE_SCHEMA_V3):
+            raise ValueError('Frozen league authority/model mismatch')
+    elif league is not None:
+        raise ValueError('Unrequested league opponent')
     if (row.get('schema')!=(
         'rnad-accepted-three-phase-v3-training-match-v1' if features_v3 else
         'rnad-accepted-three-phase-v2-opportunity-training-match-v1'
