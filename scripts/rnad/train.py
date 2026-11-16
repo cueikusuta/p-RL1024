@@ -178,9 +178,24 @@ def run_match(seed, model, magnet, directory, *,
         raise ValueError('Unexpected nonterminal or nonzero-sum reward')
     return row
 
+\nPHASE_LEARNING_PROFILES={
+    'all':frozenset(('draft','selection','battle')),
+    'selection-only':frozenset(('selection',)),
+    'draft-only':frozenset(('draft',)),
+    'draft-selection':frozenset(('draft','selection')),
+}
+
+def phase_eligible_for_loss(phase,profile='all'):
+    if profile not in PHASE_LEARNING_PROFILES or (
+        phase not in ('draft','selection','battle')):
+        raise ValueError('Unknown accepted phase / isolated learning profile')
+    return phase in PHASE_LEARNING_PROFILES[profile]
+
 
 def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
-                frozen_opponent=None, learner_seat=None):
+                frozen_opponent=None, learner_seat=None,phase_learning_profile='all'):
+    if phase_learning_profile not in PHASE_LEARNING_PROFILES:
+        raise ValueError('Invalid isolated phase learning profile')
     if (frozen_opponent is None)!=(learner_seat is None) or (
             frozen_opponent is not None and learner_seat not in (0,1)):
         raise ValueError('Frozen league opponent must have a specific learner seat')
@@ -222,7 +237,7 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
                 if abs(math.log(float(pi[event['action_index']]))-
                        float(event['magnet_log_prob']))>1e-3:
                     raise ValueError('Frozen league opponent magnet mismatch')
-            terms.append({'actor':seat,'reward':event['reward'],
+            terms.append({'phase':event.get('phase'),'actor':seat,'reward':event['reward'],
                 'pi':pi,'magnet':pi,'behavior_prob':float(event['behavior_prob']),
                 'value':float(value[0]),'action_index':event['action_index']})
             inputs.append((None,None))
@@ -240,7 +255,7 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
                    float(event['magnet_log_prob']))>1e-3:
                 raise ValueError('Frozen magnet policy / Actor mismatch')
         terms.append({
-            'actor':seat, 'reward':event['reward'],
+            'phase':event.get('phase'),'actor':seat, 'reward':event['reward'],
             'pi':t_pi,'magnet':m_pi,
             'behavior_prob':float(event['behavior_prob']),
             'value':float(t_value[0]),'action_index':event['action_index']})
@@ -248,9 +263,11 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
     targets=rnad_targets(terms,eta=eta,rho_bar=1,c_bar=1)
     policy_losses=[]
     value_losses=[]
-    for (logits,value),est in zip(inputs,targets):
+    for (logits,value),est,term in zip(inputs,targets,terms):
         if logits is None:
             continue  # Frozen league actor is an opponent, never train it.
+        if not phase_eligible_for_loss(term['phase'],phase_learning_profile):
+            continue  # All phases still advance GRU/target and V-trace history.
         policy_losses.append(neurd_policy_loss(logits,est['q_targets'],
                                                 beta=2.0,q_clip=10.0,
                                                 is_c=est['c']))
@@ -283,7 +300,7 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
           eta=.2,magnet_period=4,initial_model=None,three_phase=False,
           features_v2=False,features_v3=False,features_v4=False,
-          switch_guard='none',
+          phase_learning_profile='all',switch_guard='none',
           switch_cost='none',updates_per_match=1,migrate_from_v2=False,
           league_pool=None):
     if (not isinstance(seed,int) or not 1 <= seed <= 0xffffffff or
@@ -294,6 +311,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         type(three_phase) is not bool or
         type(features_v2) is not bool or (features_v2 and not three_phase) or
         type(features_v3) is not bool or type(features_v4) is not bool or
+        phase_learning_profile not in PHASE_LEARNING_PROFILES or
+        (phase_learning_profile!='all' and not features_v4) or
         (features_v4 and (features_v2 or features_v3 or not three_phase)) or
         (features_v3 and (features_v2 or not three_phase)) or
         type(updates_per_match) is not int or updates_per_match not in (1,4) or
@@ -358,7 +377,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                   '-anti-loop-v1' if switch_guard!='none' else '')+(
                   '-opportunity-v1' if switch_cost!='none' else '')+(
                   '-u4' if updates_per_match==4 else '')+(
-                  '-league-v1' if pool is not None else '')
+                  '-league-v1' if pool is not None else '')+(
+                  '-'+phase_learning_profile+'-v1' if phase_learning_profile!='all' else '')
     initialization_sha256=(
         (migrate_v2_export_to_v3(net,initial_model)
          if migrate_from_v2 else
@@ -390,6 +410,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                           'initialization_feature_schema':
                             THREE_PHASE_FEATURE_SCHEMA_V2 if migrate_from_v2
                             else feature_schema} if features_v3 else {}),
+                      **({'phase_learning_profile':phase_learning_profile}
+                         if phase_learning_profile!='all' else {}),
                       **({'switch_guard':switch_guard}
                          if switch_guard!='none' else {}),
                          **({'league_pool_sha256':pool_sha}
@@ -419,7 +441,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         # recomputed clipped importance weights, not new self-play outcomes.
         epochs=[train_match(net,target,magnet,optimizer,scheduler,data,eta=eta,
                   frozen_opponent=member[1] if member else None,
-                  learner_seat=learner_seat)
+                  learner_seat=learner_seat,
+                  phase_learning_profile=phase_learning_profile)
                 for _ in range(updates_per_match)]
         summary={**epochs[-1],
                  **({'league_opponent_sha256':member[2],
@@ -456,6 +479,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                     'initialization_feature_schema':
                       THREE_PHASE_FEATURE_SCHEMA_V2 if migrate_from_v2
                       else feature_schema} if features_v3 else {}),
+                **({'phase_learning_profile':phase_learning_profile}
+                    if phase_learning_profile!='all' else {}),
                 **({'switch_guard':switch_guard}
                     if switch_guard!='none' else {}),
                     **({'league_pool_sha256':pool_sha}
@@ -491,6 +516,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             else 'rnad-three-phase-training-report-v1' if three_phase
             else 'rnad-smoke-training-report-v1',
             'feature_schema':feature_schema,'model_id':model_id,
+            'phase_learning_profile':phase_learning_profile,
             **({'switch_guard':switch_guard,
                 'deployment_policy':{'switch_guard':switch_guard}}
                if switch_guard!='none' else {}),
@@ -527,6 +553,8 @@ if __name__=='__main__':
     parser.add_argument('--features-v2',action='store_true')
     parser.add_argument('--features-v3',action='store_true')
     parser.add_argument('--features-v4',action='store_true')
+    parser.add_argument('--phase-learning-profile',
+      choices=list(PHASE_LEARNING_PROFILES),default='all')
     parser.add_argument('--updates-per-match',type=int,choices=(1,4),
                         default=1)
     parser.add_argument('--migrate-from-v2',action='store_true')
@@ -543,6 +571,7 @@ if __name__=='__main__':
                            features_v2=args.features_v2,
                            features_v3=args.features_v3,
                            features_v4=args.features_v4,
+                           phase_learning_profile=args.phase_learning_profile,
                            updates_per_match=args.updates_per_match,
                            migrate_from_v2=args.migrate_from_v2,
                            league_pool=args.league_pool,
