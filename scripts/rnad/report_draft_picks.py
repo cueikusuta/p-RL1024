@@ -178,9 +178,9 @@ def render_markdown(report):
         "学生の予測は教師が訪れた局面でのgreedy反実仮想であり、"
         "学生が実戦で受理した行動や勝利とは異なります。",
         "",
-        f"- Teacher: \`{report['teacher_id']}\`",
-        f"- Model SHA: \`{report['student_model_sha256'] or 'none'}\`",
-        f"- Source/engine: \`{report['source_sha']}\` / \`{report['engine_sha']}\`",
+        f"- Teacher: `{report['teacher_id']}`",
+        f"- Model SHA: `{report['student_model_sha256'] or 'none'}`",
+        f"- Source/engine: `{report['source_sha']}` / `{report['engine_sha']}`",
         f"- 完走教師Match: {report['teacher_matches']}、全ドラフト判断: {report['total_draft_decisions']}、表示: {report['shown_draft_decisions']}",
         "",
     ]
