@@ -40,6 +40,8 @@ def validate_report(report, min_examples=256):
     if teacher_id not in ('rnad-aq-public-belief-v2',
                           'rnad-aq-public-strategy-selection-v1'):
         raise ValueError('Unrecognized frozen teacher version')
+    if report.get('utility_labels') not in (None,'aq-public-phase-rank-v1'):
+        raise ValueError('Unknown public utility label version')
     for phase in GOALS:
         metrics = report['phases'].get(phase)
         if not isinstance(metrics, dict) or type(metrics.get('examples')) is not int:
@@ -50,6 +52,10 @@ def validate_report(report, min_examples=256):
             value = metrics.get(metric)
             if type(value) not in (float, int) or not math.isfinite(value):
                 raise ValueError('Nonfinite or missing phase metric')
+        if report.get('utility_labels'):
+            regret=metrics.get('mean_normalized_utility_regret')
+            if type(regret) not in (float,int) or not math.isfinite(regret) or not 0<=regret<=1:
+                raise ValueError('Missing or invalid normalized AQ utility regret')
         if not (0 <= metrics['top1_accuracy'] <= metrics['top10_accuracy'] <= 1
                 and metrics['mean_normalized_cross_entropy'] >= 0):
             raise ValueError('Invalid phase metric range')
@@ -62,6 +68,7 @@ def compare_heldout_imitation(base, candidate, *, min_examples=256,
     new_teacher = validate_report(candidate, min_examples)
     if (old_teacher != new_teacher or
         base['schema'] != candidate['schema'] or
+        base.get('utility_labels') != candidate.get('utility_labels') or
         (not allow_feature_upgrade and
          base.get('feature_schema') != candidate.get('feature_schema')) or
         any(base.get(key) != candidate.get(key) for key in (
@@ -76,6 +83,7 @@ def compare_heldout_imitation(base, candidate, *, min_examples=256,
               'feature_upgrade':bool(base.get('feature_schema')!=candidate.get('feature_schema')),
               'baseline_feature_schema':base.get('feature_schema'),
               'candidate_feature_schema':candidate.get('feature_schema'),
+              'utility_labels':base.get('utility_labels'),
               'is_champion':False,
               'strength_established':False,
               'phases':{}}
@@ -83,6 +91,9 @@ def compare_heldout_imitation(base, candidate, *, min_examples=256,
         b, c = base['phases'][phase], candidate['phases'][phase]
         if b['examples'] != c['examples']:
             raise ValueError('Unpaired held-out phase example count')
+        utility_regret_delta=(
+            c['mean_normalized_utility_regret']-b['mean_normalized_utility_regret']
+            if base.get('utility_labels') else None)
         pass_values = (
             c['top1_accuracy'] >= goals['top1_accuracy'] and
             c['top10_accuracy'] >= goals['top10_accuracy'] and
@@ -95,7 +106,8 @@ def compare_heldout_imitation(base, candidate, *, min_examples=256,
         )
         result['phases'][phase] = {
             'examples':c['examples'],
-            'goal_screen_pass':bool(pass_values and improved),
+            'goal_screen_pass':bool(pass_values and improved and
+                (utility_regret_delta is None or utility_regret_delta<=1e-9)),
             'target_reached':bool(pass_values),
             'improved_all_three_metrics':bool(improved),
             'top1':c['top1_accuracy'], 'top10':c['top10_accuracy'],
@@ -104,6 +116,9 @@ def compare_heldout_imitation(base, candidate, *, min_examples=256,
             'delta_top10':c['top10_accuracy']-b['top10_accuracy'],
             'delta_normalized_ce':c['mean_normalized_cross_entropy']-
                 b['mean_normalized_cross_entropy'],
+            'delta_normalized_utility_regret':utility_regret_delta,
+            'utility_regret_not_worse':(utility_regret_delta is None or
+                                        utility_regret_delta<=1e-9),
         }
     return result
 
