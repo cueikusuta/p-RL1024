@@ -47,7 +47,7 @@ jobs:
           node --input-type=module <<'JS'
           import {readFileSync} from 'node:fs';
           const d=JSON.parse(readFileSync('output/summary.json'));
-          if(d.evaluated_source_sha!=='7a2a3cdba6b1a508c4f9c0fba9d6d16c1b1454e7'||
+          if(d.evaluated_source_sha!=='7a2a3cdba6b1b5a4b552038bba49f1409f8e6eac'||
              d.paired_seed_start<1||d.independent_seeds!==16||
              d.matches_per_arm!==32||d.strength_established||d.champion_promoted||
              !d.evidence_reused_not_retrained)
