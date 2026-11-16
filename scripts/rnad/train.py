@@ -295,6 +295,15 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                        three_phase=three_phase,features_v2=features_v2,
                        switch_guard=switch_guard,switch_cost=switch_cost)
         summary=train_match(net,target,magnet,optimizer,scheduler,data,eta=eta)
+        if switch_cost=='opportunity-v1':
+            events=data['events']
+            summary.update({
+              'accepted_voluntary_switches':sum(
+                e['action_kind']=='switch' and e['request_type']=='turn'
+                for e in events),
+              'shaped_switches':sum(
+                e['switch_opportunity_cost']>1e-12 for e in events),
+              'switch_cost_by_seat':data['reward_shaping']['cost_per_seat']})
         completed+=1
         ids.append(data['match_id'])
         if completed%magnet_period==0:
