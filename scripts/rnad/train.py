@@ -43,7 +43,8 @@ def state_hash(net):
 
 
 def run_match(seed, model, magnet, directory, *,
-              three_phase=False,features_v2=False,switch_guard='none'):
+              three_phase=False,features_v2=False,switch_guard='none',
+              switch_cost='none'):
     directory.mkdir(parents=True,exist_ok=True)
     model_path=directory/'actor.json'
     magnet_path=directory/'magnet.json'
@@ -64,10 +65,15 @@ def run_match(seed, model, magnet, directory, *,
         command.extend(['--features-v2','true'])
     if switch_guard!='none':
         command.extend(['--switch-guard',switch_guard])
+    if switch_cost!='none':
+        command.extend(['--switch-cost',switch_cost])
     subprocess.run(command,check=True,timeout=1800)
     row=json.loads(output.read_text())
     guarded=switch_guard=='anti-loop-v1'
+    opportunity=switch_cost=='opportunity-v1'
     if (row.get('schema')!=(
+        'rnad-accepted-three-phase-v2-opportunity-training-match-v1'
+            if opportunity else
         'rnad-accepted-three-phase-v2-anti-loop-training-match-v1' if guarded
         else 'rnad-accepted-three-phase-v2-training-match-v1' if features_v2
         else 'rnad-accepted-three-phase-training-match-v1' if three_phase
@@ -105,8 +111,41 @@ def run_match(seed, model, magnet, directory, *,
     elif any(e.get('phase')!='battle' for e in row['events']):
         raise ValueError('Unexpected non-battle decision in legacy learner')
     rewards=[entry['reward'] for entry in row['events']]
-    if (any(any(abs(x)>1e-10 for x in r) for r in rewards[:-1]) or
-        rewards[-1] not in ([1,-1],[-1,1])):
+    if opportunity:
+        shaping=row.get('reward_shaping')
+        if (row.get('reward_objective')!='opportunity-v1' or
+            not isinstance(shaping,dict) or
+            shaping.get('objective')!='opportunity-v1' or
+            shaping.get('max_per_switch')!=0.02 or
+            shaping.get('max_per_seat')!=0.20 or
+            not isinstance(shaping.get('cost_per_seat'),list) or
+            len(shaping['cost_per_seat'])!=2):
+            raise ValueError('Incorrect opportunity reward objective metadata')
+        observed=[0.0,0.0]
+        for i,e in enumerate(row['events']):
+            c=e.get('switch_opportunity_cost')
+            seat=e['actor']
+            if (type(c) not in (float,int) or not math.isfinite(c) or
+                not -1e-12<=c<=0.02+1e-12 or
+                (c>1e-12 and (e.get('phase')!='battle' or
+                    e.get('request_type')!='turn' or
+                    e.get('action_kind')!='switch')) or
+                len(e.get('reward',[]))!=2):
+                raise ValueError('Invalid accepted opportunity switch cost')
+            expected=[-c,c] if seat==0 else [c,-c]
+            if i==len(rewards)-1:
+                payoff=1 if row['winner']==0 else -1
+                expected=[expected[0]+payoff,expected[1]-payoff]
+            if any(abs(x-y)>1e-8 for x,y in zip(e['reward'],expected)):
+                raise ValueError('Non-zero-sum or incorrect per-step switch reward')
+            observed[seat]+=c
+        if (any(abs(observed[seat]-shaping['cost_per_seat'][seat])>1e-8
+                for seat in (0,1)) or
+            any(x>0.20+1e-8 for x in observed)):
+            raise ValueError('Opportunity reward budget overflow')
+    elif (row.get('reward_objective') is not None or
+          any(any(abs(x)>1e-10 for x in r) for r in rewards[:-1]) or
+          rewards[-1] not in ([1,-1],[-1,1])):
         raise ValueError('Unexpected nonterminal or nonzero-sum reward')
     return row
 
@@ -187,7 +226,7 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
 
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
           eta=.2,magnet_period=4,initial_model=None,three_phase=False,
-          features_v2=False,switch_guard='none'):
+          features_v2=False,switch_guard='none',switch_cost='none'):
     if (not isinstance(seed,int) or not 1 <= seed <= 0xffffffff or
         not isinstance(matches,int) or not 1 <= matches <= 16 or
         not isinstance(eta,(float,int)) or not math.isfinite(float(eta)) or
@@ -196,7 +235,10 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         type(three_phase) is not bool or
         type(features_v2) is not bool or (features_v2 and not three_phase) or
         switch_guard not in ('none','anti-loop-v1') or
-        (switch_guard!='none' and not (three_phase and features_v2))):
+        (switch_guard!='none' and not (three_phase and features_v2)) or
+        switch_cost not in ('none','opportunity-v1') or
+        (switch_cost!='none' and
+            (switch_guard!='anti-loop-v1' or not features_v2))):
         raise ValueError('Training must bound seed, matches, eta and magnet period')
     torch.set_num_threads(1)
     path=Path(out)
@@ -208,7 +250,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                     else BATTLE_FEATURE_SCHEMA)
     model_id=('RNAD-003-3phase-v2' if features_v2 else
               'RNAD-002-3phase' if three_phase else 'RNAD-001')+(
-                  '-anti-loop-v1' if switch_guard!='none' else '')
+                  '-anti-loop-v1' if switch_guard!='none' else '')+(
+                  '-opportunity-v1' if switch_cost!='none' else '')
     initialization_sha256=(
         load_exported_json(net,initial_model,
                            expected_feature_schema=feature_schema)
@@ -235,7 +278,9 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                       'training_code_sha':current_git_sha(),
                       'observation_schema_version':feature_schema,
                       **({'switch_guard':switch_guard}
-                         if switch_guard!='none' else {})})
+                         if switch_guard!='none' else {}),
+                      **({'reward_objective':switch_cost}
+                         if switch_cost!='none' else {})})
         metadata=restored['metadata']
         if metadata.get('initial_seed')!=seed:
             raise ValueError('Initial seed differs from previous run')
@@ -248,7 +293,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
     for _ in range(matches):
         data=run_match(counter,net,magnet,path/'rollouts',
                        three_phase=three_phase,features_v2=features_v2,
-                       switch_guard=switch_guard)
+                       switch_guard=switch_guard,switch_cost=switch_cost)
         summary=train_match(net,target,magnet,optimizer,scheduler,data,eta=eta)
         completed+=1
         ids.append(data['match_id'])
@@ -268,10 +313,13 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                 'observation_schema_version':feature_schema,
                 **({'switch_guard':switch_guard}
                     if switch_guard!='none' else {}),
+                **({'reward_objective':switch_cost}
+                    if switch_cost!='none' else {}),
                 'opponent_policy_version':(
                     'RNAD-003-v2-selfplay' if features_v2
                     else 'RNAD-001-selfplay')+
-                    ('-anti-loop-v1' if switch_guard!='none' else ''),
+                    ('-anti-loop-v1' if switch_guard!='none' else '')+
+                    ('-opportunity-v1' if switch_cost!='none' else ''),
                 'completed_matches':completed,
                 'accepted_decisions':summary['accepted_decisions']+
                     (sum(x['accepted_decisions'] for x in summaries)
@@ -294,6 +342,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             **({'switch_guard':switch_guard,
                 'deployment_policy':{'switch_guard':switch_guard}}
                if switch_guard!='none' else {}),
+            **({'reward_objective':switch_cost}
+               if switch_cost!='none' else {}),
             'initialization_sha256':initialization_sha256,
             'regularization_eta':float(eta),
             'magnet_period':magnet_period,
@@ -319,11 +369,14 @@ if __name__=='__main__':
     parser.add_argument('--features-v2',action='store_true')
     parser.add_argument('--switch-guard',choices=['none','anti-loop-v1'],
                         default='none')
+    parser.add_argument('--switch-cost',choices=['none','opportunity-v1'],
+                        default='none')
     args=parser.parse_args()
     print(json.dumps(train(seed=args.seed,matches=args.matches,
                            out=args.out,resume=args.resume,
                            initial_model=args.initial_model,
                            three_phase=args.three_phase,
                            features_v2=args.features_v2,
-                           switch_guard=args.switch_guard),
+                           switch_guard=args.switch_guard,
+                           switch_cost=args.switch_cost),
                      indent=2))
