@@ -1,0 +1,11 @@
+{
+  "schema": "rnad-i5-v5-outcome-recovery-v1",
+  "original_run": 43976530417,
+  "original_source_sha": "2f4ee2bb8979470d794ef6362d8e877b3506e16d",
+  "aq_seed": 2313001,
+  "aq_pairs": 4,
+  "outcome_train_seed": 2314001,
+  "outcome_heldout_seed": 2315001,
+  "outcome_pairs": 4,
+  "outcome_ranks": 3
+}
