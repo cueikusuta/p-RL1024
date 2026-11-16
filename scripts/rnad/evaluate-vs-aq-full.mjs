@@ -27,7 +27,8 @@ import {verifiedRunningSourceSha} from '../dev/simulator/rnad-match.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
 export const FULL_AQ_EVALUATION_SCHEMA='rnad-vs-original-aq-base-full-match-paired-v1';
-const MODES=['neural-all','aq-structure-neural-battle'];
+const MODES=['neural-all','aq-structure-neural-battle',
+  'aq-public-strategy-neural-battle'];
 const frozenV2E=Object.freeze({blend:.28,exposure:.75,continuation:.4});
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
@@ -51,7 +52,9 @@ export function createRnadAQMatchSession({modelPath,seat,phaseMode='neural-all',
   const guarded=switchGuard===RNAD_SWITCH_GUARD?
     new RnadSwitchLoopGuard(neural):null;
   const structural=phaseMode==='aq-structure-neural-battle'?
-    createPublicAQTeacher():null;
+    createPublicAQTeacher():
+    phaseMode==='aq-public-strategy-neural-battle'?
+    createPublicAQTeacher({selectionMode:'strategy-public'}):null;
   let round=null,pending=null,accepted=0;
   const phaseCounts={draft:0,selection:0,battle:0};
   const ownHistory={lastKind:'none',consecutiveSwitches:0,
@@ -69,7 +72,12 @@ export function createRnadAQMatchSession({modelPath,seat,phaseMode='neural-all',
       throw new Error('Missing accepted current draft round');
     const legalActions=rnadLegalActions(view);
     if(historyNeeded)obs.acceptedHistory={...ownHistory};
-    const delegated=structural&&obs.phase!=='battle';
+    const delegated=Boolean(structural&&obs.phase!=='battle');
+    // A structural draft/selection choice still contributes an observation
+    // to the frozen battle GRU. The GRU update is state-based; ignore its
+    // proposed action and accept only the structural teacher action.
+    // Rejected actions abort the authoritative Match before further use.
+    if(delegated)neural.choose({observation:obs,legalActions,seat,round});
     const choice=delegated?
       structural({observation:obs,legalActions,seat,round}):
       guarded?guarded.choose({observation:obs,legalActions,seat,round}):
