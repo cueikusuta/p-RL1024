@@ -19,7 +19,7 @@ def sha(p: Path) -> str:
 def paired(payload, start, key, source, engine, *, mode):
     if (payload.get("source_sha") != source or
         payload.get("engine_sha") != engine or
-        payload.get("seed",start) != start or
+        (payload.get("seed",start) != start if mode=="direct" else False) or
         payload.get("pairs") != 64 or payload.get("matches") != 128 or
         payload.get("inference_selection_mode") != "greedy" or
         not isinstance(payload.get("rows"), list) or
