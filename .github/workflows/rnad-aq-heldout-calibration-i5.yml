@@ -1,0 +1,106 @@
+name: RNAD-I5 frozen AQ imitator phase calibration (8 held-out matches)
+on:
+  # One bounded execution on addition, then change to dispatch-only.
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['.github/workflows/rnad-aq-heldout-calibration-i5.yml']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-heldout-phase-calibration
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU PyTorch and NumPy
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Validate original v2 model identity, frozen engine and feature compatibility
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-three-phase-features-v2.test.js
+          python -m unittest discover -s test -p 'rnad_aq_imitation_metrics_test.py' -v
+          mkdir -p artifacts/aq-archive
+          gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-semantic-v2-43743143190 --dir artifacts/aq-archive
+          python - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          archive=Path('artifacts/aq-archive/aq-supervision-v2')
+          manifest=json.loads((archive/'teacher-report.json').read_text())
+          old=json.loads((archive.parent/'aq-v2-heldout/heldout-imitation.json').read_text())
+          trained=archive/'trained-model.json'
+          digest=hashlib.sha256(trained.read_bytes()).hexdigest()
+          assert manifest['source_sha']=='7d98e7c18800010ef05b7a4064653fc27c794f42'
+          assert manifest['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'
+          assert manifest['feature_schema']=='rnad-three-phase-features-v2'
+          assert manifest['teacher_model_sha256']=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e'
+          assert manifest['teacher_completed_matches']==128 and manifest['seed']==996001
+          assert old['student_model_sha256']==digest=='9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b'
+          assert old['seed']==996301 and old['matches']==16
+          print('verified frozen AQ imitator source, model bytes and prior held-out block')
+          PY
+      - name: Evaluate frozen AQ imitator on 8 NEW accepted four-win teacher Matches
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --features-v2 \
+            --model artifacts/aq-archive/aq-supervision-v2/trained-model.json \
+            --seed 996501 --matches 8 \
+            --out artifacts/aq-i5-new-heldout
+      - name: Strict phase/candidate adjusted agreement provenance
+        run: |
+          python - <<'PY'
+          import json,hashlib,subprocess,math
+          from pathlib import Path
+          p=json.loads(Path('artifacts/aq-i5-new-heldout/heldout-imitation.json').read_text())
+          model=Path('artifacts/aq-archive/aq-supervision-v2/trained-model.json')
+          source=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          if not (p['schema']=='rnad-aq-imitator-unseen-match-eval-v1'
+              and p['source_sha']==source
+              and p['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'
+              and p['teacher_model_sha256']=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e'
+              and p['student_model_sha256']==hashlib.sha256(model.read_bytes()).hexdigest()
+              and p['seed']==996501 and p['matches']==8 and p['is_champion'] is False):
+              raise ValueError('Wrong held-out source, seats, seed block or model SHA')
+          for name in ('draft','selection','battle'):
+              d=p['phases'][name]
+              if not (d['examples']>=16 and d['mean_candidates']>=1
+                  and 0<=d['uniform_baseline_top1']<=1
+                  and 0<=d['top1_accuracy']<=d['top3_accuracy']<=d['top10_accuracy']<=1
+                  and math.isfinite(d['mean_cross_entropy'])
+                  and math.isfinite(d['mean_normalized_cross_entropy'])
+                  and math.isfinite(d['mean_log_probability_gain_vs_uniform'])):
+                  raise ValueError('Missing finite candidate-count adjusted phase data')
+              print(json.dumps({'phase':name,'examples':d['examples'],
+                'mean_candidates':d['mean_candidates'],
+                'top1':d['top1_accuracy'],'uniform_top1':d['uniform_baseline_top1'],
+                'top3':d['top3_accuracy'],'top10':d['top10_accuracy'],
+                'mean_normalized_ce':d['mean_normalized_cross_entropy'],
+                'log_prob_gain_vs_uniform':d['mean_log_probability_gain_vs_uniform']}))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-aq-heldout-phase-calibration-${{ github.run_id }}
+          path: artifacts/aq-i5-new-heldout/heldout-imitation.json
+          if-no-files-found: warn
+          retention-days: 30
