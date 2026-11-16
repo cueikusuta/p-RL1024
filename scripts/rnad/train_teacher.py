@@ -16,14 +16,17 @@ import torch.nn.functional as F
 
 from scripts.rnad.neural import (RNADNetwork, export_json, load_exported_json,
                                  BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA,
-                                 THREE_PHASE_FEATURE_SCHEMA_V2)
+                                 THREE_PHASE_FEATURE_SCHEMA_V2,
+                                 THREE_PHASE_FEATURE_SCHEMA_V4,
+                                 STATE_FEATURES_V3,ACTION_FEATURES_V3)
 from scripts.rnad.train import state_hash, current_git_sha, frozen_engine_sha
 
 
 AQ_WEIGHTS_SHA256="5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e"
 
 def collect(seed, count, folder, *, three_phase=False,
-            teacher='basic-stage0',features_v2=False,reuse_from=None):
+            teacher='basic-stage0',features_v2=False,
+            features_v4=False,reuse_from=None):
     root=Path(reuse_from) if reuse_from is not None else folder/"teacher-matches"
     if reuse_from is None:
         root.mkdir(parents=True,exist_ok=True)
@@ -41,6 +44,7 @@ def collect(seed, count, folder, *, three_phase=False,
             if three_phase:cmd.extend(["--three-phase","true"])
             if teacher!='basic-stage0':cmd.extend(["--teacher",teacher])
             if features_v2:cmd.extend(["--features-v2","true"])
+            if features_v4:cmd.extend(["--features-v4","true"])
             subprocess.run(cmd,check=True,timeout=120)
         elif not file.is_file():
             raise ValueError("Cannot reuse missing authority-accepted teacher Match")
@@ -58,6 +62,7 @@ def collect(seed, count, folder, *, three_phase=False,
                           else "stage0-fixed-untrained")
         if (trace.get("schema")!=expected_schema
             or trace.get("feature_schema")!=(
+                THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
                 THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                 THREE_PHASE_FEATURE_SCHEMA if three_phase
                 else BATTLE_FEATURE_SCHEMA)
@@ -128,12 +133,16 @@ def initialize_teacher_model(feature_schema,initial_model=None):
 
 def train(*,seed=975601,out="artifacts/rnad-teacher",
           three_phase=False,matches=32,epochs=4,
-          teacher='basic-stage0',features_v2=False,phase_balanced=False,
+          teacher='basic-stage0',features_v2=False,features_v4=False,
+          phase_balanced=False,
           phase_profile='equal',label_smoothing=0.0,reuse_teacher_traces=None,
           initial_model=None):
     if (type(seed) is not int or type(matches) is not int or
         type(epochs) is not int or type(three_phase) is not bool or
-        type(features_v2) is not bool or (features_v2 and not three_phase) or
+        type(features_v2) is not bool or
+        type(features_v4) is not bool or
+        ((features_v2 or features_v4) and not three_phase) or
+        (features_v2 and features_v4) or
         type(phase_balanced) is not bool or
         (phase_balanced and not three_phase) or
         phase_profile not in ('equal','draft-selection','selection-focus') or
@@ -158,14 +167,18 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
     random.seed(seed)
     folder=Path(out)
     folder.mkdir(parents=True,exist_ok=True)
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
+                    THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
-    model,initial_file_sha=initialize_teacher_model(feature_schema,initial_model)
+    model,initial_file_sha=(RNADNetwork(state_features=STATE_FEATURES_V3,
+                                        action_features=ACTION_FEATURES_V3),None)
+        if features_v4 else initialize_teacher_model(feature_schema,initial_model)
     initial_hash=state_hash(model)
     export_json(model,folder/"initial-model.json",feature_schema=feature_schema)
     traces=collect(seed,matches,folder,three_phase=three_phase,
                    teacher=teacher,features_v2=features_v2,
+                   features_v4=features_v4,
                    reuse_from=reuse_teacher_traces)
     phase_weights=({'draft':2.,'selection':2.,'battle':1.}
                    if phase_profile=='draft-selection' else
@@ -187,9 +200,10 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
             losses=[]
             for event in match["examples"]:
                 seat=event["actor"]
-                if (seat not in (0,1) or len(event["state"])!=32 or
+                if (seat not in (0,1) or
+                    len(event["state"])!=model.state_features or
                     not event["actions"] or
-                    any(len(x)!=16 for x in event["actions"]) or
+                    any(len(x)!=model.action_features for x in event["actions"]) or
                     not 0<=event["choice"]<len(event["actions"]) or
                     event["terminal_target"] not in (-1,1)):
                     raise ValueError("Invalid accepted teacher example")
@@ -274,6 +288,7 @@ if __name__=="__main__":
     p.add_argument("--epochs",type=int,default=4)
     p.add_argument("--three-phase",action="store_true")
     p.add_argument("--features-v2",action="store_true")
+    p.add_argument("--features-v4",action="store_true")
     p.add_argument("--phase-balanced",action="store_true")
     p.add_argument("--phase-profile",choices=["equal","draft-selection","selection-focus"],
                    default="equal")
@@ -287,6 +302,7 @@ if __name__=="__main__":
                            epochs=args.epochs,three_phase=args.three_phase,
                            teacher=args.teacher,
                            features_v2=args.features_v2,
+                           features_v4=args.features_v4,
                            phase_balanced=args.phase_balanced,
                            phase_profile=args.phase_profile,
                            label_smoothing=args.label_smoothing,
