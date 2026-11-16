@@ -78,6 +78,39 @@ export function compareV4PhaseArms(baseline,candidate){
     degraded_with_95pct_confidence:gain+width<0,
     strength_established:false,champion_promoted:false};
 }
+
+export function compareV4PhaseModels(baseline,candidate){
+  const a=verify(baseline),b=verify(candidate);
+  if(baseline.mode!==candidate.mode||
+     !['draft-v4','selection-v4','both-v4'].includes(candidate.mode)||
+     baseline.v4_model_sha256===candidate.v4_model_sha256||
+     baseline.v3_model_sha256!==candidate.v3_model_sha256||
+     baseline.aq_base_model_sha256!==candidate.aq_base_model_sha256||
+     baseline.source_sha!==candidate.source_sha||
+     baseline.engine_sha!==candidate.engine_sha||
+     baseline.seed!==candidate.seed||baseline.pairs!==candidate.pairs||
+     [...a.keys()].some(x=>!b.has(x)))
+    throw new Error('Not the same original AQ source, v3 battle, mode or paired seats');
+  const n=baseline.pairs;
+  const gain=[...a].reduce((s,[key,v])=>s+b.get(key)-v,0)/(2*n);
+  const width=Math.sqrt(2*Math.log(40)/n);
+  return {schema:'rnad-exact-aq-v4-phase-model-paired-gain-v1',
+    source_sha:baseline.source_sha,engine_sha:baseline.engine_sha,
+    aq_base_model_sha256:baseline.aq_base_model_sha256,
+    frozen_v3_battle_sha256:baseline.v3_model_sha256,
+    baseline_v4_model_sha256:baseline.v4_model_sha256,
+    candidate_v4_model_sha256:candidate.v4_model_sha256,
+    phase_mode:candidate.mode,first_seed:baseline.seed,
+    independent_seeds:n,matches_per_model:2*n,
+    baseline_wins:baseline.wins,candidate_wins:candidate.wins,
+    baseline_win_rate:baseline.win_rate,
+    candidate_win_rate:candidate.win_rate,paired_delta:gain,
+    conservative_95pct_delta_bounds:[Math.max(-1,gain-width),
+      Math.min(1,gain+width)],
+    gain_established:gain-width>0,regression_established:gain+width<0,
+    champion_promoted:false};
+}
+
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const [base,candidate,out,...rest]=process.argv.slice(2);
   if(!base||!candidate||!out||rest.length)
