@@ -1,5 +1,22 @@
 # Issue #5 — frozen standard and gacha actors: guarded new self-play learning
 
+## Verified progress and evaluation-only repair (2026-11-16)
+
+[Run #43781276450](https://github.com/cueikusuta/p-RL1024/actions/runs/43781276450) recorded **3/3 successful 64-Match guarded training jobs** (and successful `contracts`). Full-state optimized checkpoints and distinct exported model JSON bytes were saved in GitHub Actions artifacts for 30 days. The actual PR-merge checkout source SHA used by every training job is `571bac81d62373ab063c2e1508b0647122786e80`, NOT the original PR head SHA.
+
+| Initial frozen actor | Completed Matches | Updates | Accepted decisions | New model JSON SHA-256 | Training artifact |
+| --- | ---: | ---: | ---: | --- | --- |
+| base128 | 64 | 64 | 8,573 | `d0858b93d6f9c97ccdb1f129a11a0db3185369946856c9fa1a4d4b72f6486a02` | `rnad-i5-guard-train-base128-43781276450` |
+| base256 | 64 | 64 | 8,655 | `52d1e0f3eb2a097158e11ccfc6a99f2b3cc48cd4e252b3d0f86424b1caebb0fe` | `rnad-i5-guard-train-base256-43781276450` |
+| c005 | 64 | 64 | 8,768 | `3d690df7cce862556d83cb9266882b468650a34670590084789802d3358c3832` | `rnad-i5-guard-train-c005-43781276450` |
+
+The original run's **evaluation job failed** for base128 and base256 because the training artifact has root `final-model.json` but the recovery script downloaded it directly into `results/` while looking for `results/$INITIAL/final-model.json`. This is an **artifact extraction path bug only**, not failed learning or evidence of low strength. The original workflow was fixed for future manual runs, but rerunning the 64×3 training to repair this would be wasteful.
+
+[**Recovery run #43782430025**](https://github.com/cueikusuta/p-RL1024/actions/runs/43782430025) is **evaluation only**: `.github/workflows/rnad-guard-eval-recovery-i5.yml` pins the exact original training source `571bac81...`, downloads the three already completed and SHA-checked archived models into their correct per-model directories, and runs the 128-Match seed-paired comparisons. This workflow was initially auto-enqueued then switched to manual-only to prevent costly repeated evaluation. Do not claim head-to-head strength until this recovery run actually succeeds and its final aggregate artifact has been validated.
+
+A separate hourly conditional continuation has been scheduled for this specific run; it must inspect actual GitHub run status, avoid duplicate successful training and escalate only meaningful results or blockers. Draft PR #6 and frozen original model identities remain intact. No Champion promotion, main merge, or independence-review completion has occurred from this experiment.
+
+
 **Experimental start (2026-11-16):** [GitHub-hosted CPU Actions #43781276450](https://github.com/cueikusuta/p-RL1024/actions/runs/43781276450). The workflow event's PR HEAD is `275cd6cbf3b0149ab0307fb5a93b91cbab0d3f94`, but default `pull_request` checkout uses GitHub's synthetic merge commit. The actual training report independently recorded `source_sha=571bac81d62373ab063c2e1508b0647122786e80` for base128. Source SHA must be taken from the accepted-run model report, not confused with the PR HEAD. Editing the workflow dispatch trigger later does not modify the already-running checkout.
 
 ## Scope, objectives and interpretation
