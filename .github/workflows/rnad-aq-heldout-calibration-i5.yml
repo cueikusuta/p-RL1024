@@ -1,9 +1,7 @@
 name: RNAD-I5 frozen AQ imitator phase calibration (8 held-out matches)
 on:
-  # One bounded execution on addition, then change to dispatch-only.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-aq-heldout-calibration-i5.yml']
+  # Source-pinned one-off evaluation run #43812780669 already started.
+  # Keep subsequent research manual-only and avoid duplicate costly Matches.
   workflow_dispatch:
 permissions: {}
 concurrency:
