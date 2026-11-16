@@ -49,7 +49,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        arm: [v2-u1, v3-u1, v3-u4]
+        arm: [v2-u1, v3-u1, v3-u4, v3-league]
     env:
       GH_TOKEN: ${{ github.token }}
       ARM: ${{ matrix.arm }}
@@ -92,11 +92,28 @@ jobs:
               raise ValueError('Invalid frozen origin model')
           usev3=os.environ['ARM'].startswith('v3-')
           steps=4 if os.environ['ARM']=='v3-u4' else 1
+          useleague=os.environ['ARM']=='v3-league'
+          league_pool=None
           if usev3:
-              baseline=RNADNetwork(state_features=48,action_features=32)
-              assert migrate_v2_export_to_v3(baseline,old)==sha(old)
-              export_json(baseline,root/'frozen-v3.json',
-                  feature_schema=THREE_PHASE_FEATURE_SCHEMA_V3)
+              entries=[]
+              for name in ('base128','base256','c005'):
+                  v2=Path('models')/(name+'.json')
+                  if manifest['models'][name]!=sha(v2):
+                      raise ValueError('Frozen opponent hash mismatch')
+                  upgraded=RNADNetwork(state_features=48,action_features=32)
+                  assert migrate_v2_export_to_v3(upgraded,v2)==sha(v2)
+                  dest=root/('frozen-'+name+'-v3.json')
+                  export_json(upgraded,dest,
+                      feature_schema=THREE_PHASE_FEATURE_SCHEMA_V3)
+                  entries.append({'name':name,'path':str(dest),
+                                  'sha256':sha(dest)})
+              (root/'frozen-v3.json').write_bytes(
+                  (root/'frozen-base128-v3.json').read_bytes())
+              if useleague:
+                  league_pool=root/'league-pool.json'
+                  league_pool.write_text(json.dumps({
+                    'schema':'rnad-v3-frozen-league-pool-v1',
+                    'models':entries},sort_keys=True)+'\n')
           reports=[]
           for k in range(4):
               result=train(seed=1830001,matches=4,out=str(root/'selfplay'),
@@ -104,7 +121,8 @@ jobs:
                   three_phase=True,features_v2=not usev3,
                   features_v3=usev3,migrate_from_v2=usev3,
                   switch_guard='anti-loop-v1',switch_cost='none',
-                  updates_per_match=steps)
+                  updates_per_match=steps,
+                  league_pool=str(league_pool) if useleague else None)
               expected=(k+1)*4
               if not (result['completed_matches']==expected and
                   result['updates']==expected*steps and
@@ -143,6 +161,7 @@ jobs:
             'feature_schema':'rnad-three-phase-features-v3' if usev3
                 else 'rnad-three-phase-features-v2',
             'origin_sha256':sha(old),
+             'league':useleague,
             'trained_sha256':sha(root/'selfplay/final-model.json'),
             'is_champion':False,'segments':reports}
           (root/'pilot-report.json').write_text(json.dumps(report,indent=2)+'\n')
@@ -154,6 +173,8 @@ jobs:
           path: |
             artifacts/${{ matrix.arm }}/pilot-report.json
             artifacts/${{ matrix.arm }}/frozen-v3.json
+            artifacts/${{ matrix.arm }}/frozen-*-v3.json
+            artifacts/${{ matrix.arm }}/league-pool.json
             artifacts/${{ matrix.arm }}/selfplay/final-model.json
             artifacts/${{ matrix.arm }}/selfplay/checkpoints/latest.json
             artifacts/${{ matrix.arm }}/selfplay/checkpoints/checkpoint-u*.pt
@@ -170,7 +191,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        arm: [v2-u1, v3-u1, v3-u4]
+        arm: [v2-u1, v3-u1, v3-u4, v3-league]
     env:
       GH_TOKEN: ${{ github.token }}
       ARM: ${{ matrix.arm }}
