@@ -87,3 +87,21 @@ AQ+探索のGoalは本体リポジトリ [Issue #1084](https://github.com/cueiku
 - 強度改善の証拠にはしない：各モデル8 Matchは少数の診断サンプルであり、教師Top1/CEやChampion昇格の検証ではない。
 - 次に**優先度を上げる**のは①各phaseの教師ラベルに対する未使用局面Top1・CE・識別能力、②学習前後のpolicy logits/entropyと勾配・Value学習が本当に変わるか、③公開技・行動順・KO代理値の意味情報と履歴感度、④真に有望な単一改良要因を分けて小規模実Matchで検証、の順。完全一致衝突だけを理由にカテゴリbucket数を増やす実装は優先しない。
 - 重い `rnad-v3-study-i5.yml` はPR差分`paths`が累積PR全体に反応するため、[修正 `0551b43`](https://github.com/cueikusuta/p-RL1024/commit/0551b437ab1c9942f9fbc8d74b6a80ffc0f1c970)によりmanual-onlyへ切り替え。既存実行の成果を保存し、PR同期による重複学習を避ける。
+
+## 7. 教師模倣：候補数正規化と別holdoutの3フェーズ比較（2026-11-16）
+
+研究Run：[候補数調整の新しい未使用8 Match評価 #43812943402](https://github.com/cueikusuta/p-RL1024/actions/runs/43812943402)、モデルArtifact `rnad-i5-aq-heldout-phase-calibration-43812943402` (ID `14200374534`)。初回 [#43812780669](https://github.com/cueikusuta/p-RL1024/actions/runs/43812780669) は歴史的教師レポートのキー `teacher_weights_sha256` を `teacher_model_sha256` と読んで停止（**実Matchの新規評価開始前の監査コード不具合**）。[修正コミット `19af740`](https://github.com/cueikusuta/p-RL1024/commit/19af740f22679e1038f3a1fb96e77af08ccc343a)で実際のキーに合わせ、再実行成功。Run投入後は[変更 `8495e5c`](https://github.com/cueikusuta/p-RL1024/commit/8495e5cc8f68355db00720cc95dbefdb8ec17d89)で学習/評価workflowをmanual-onlyへ戻した。
+
+**凍結モデルとバージョン**：過去の128 Match教師学習済みv2模倣モデル（[Artifact #43743143190](https://github.com/cueikusuta/p-RL1024/actions/runs/43743143190)、model file SHA256 `9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b`、元source `7d98e7c18800010ef05b7a4064653fc27c794f42`）、凍結AQ教師 `5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e`。原sourceから現在まで `rnad-phase-features.js`、`rnad-phase-features-v2.js`、`legal-action-adapter.js`、`aq-teacher-policy.mjs`、`export-teacher.mjs` のGit blob SHAが等しいことを照合。実評価checkout SHAは `19af740f22679e1038f3a1fb96e77af08ccc343a`、同一engine `ea81165993110ee9fb3a09dcb97c6708c0d7397b`。**学習ゼロ**で新規未使用seed `996501..996508` の8完全4勝Match教師を権威受理方式で生成。旧学習 `996001..996128`、旧holdout `996301..996316` と非重複。
+
+`scripts/rnad/evaluate_aq_imitation.py` にTop-3/Top-10、各決定の一様ランダムTop-k基準、教師行動確率・エントロピー、候補数・一様log-lossとのlog-prob gain・交差エントロピーを候補数 `log(n)` で割った正規化値を追加。従来のTop-1とraw CEを保持。正規化値は一様方策なら約1、教師ラベルをよく予測するほど0へ近付くが、過信して外すと1を超え得る。異なる数の候補を扱う相対診断であり、勝率指標ではない。単体テストと最新Stage0のPython/Node契約テスト成功。
+
+| フェーズ | 教師サンプル | 平均候補数 | Top1 / 一様Top1 | Top3 / 一様Top3 | Top10 / 一様Top10 | 平均raw CE (nats) | 平均正規化 CE | 一様CEからの平均改善 (nats) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ドラフト | 88 | 1690.69 | 3.41% / 0.10% | 7.95% / 0.31% | 17.05% / 1.02% | 6.139 | **0.856** | +1.053 |
+| 選出 | 88 | 60 | 4.55% / 1.67% | 18.18% / 5.00% | 46.59% / 16.67% | 3.687 | **0.900** | +0.408 |
+| 戦闘 | 719 | 4.56 | 76.77% / 31.25% | 96.66% / 67.55% | 100% / 100% | 0.692 | **0.480** | +0.687 |
+
+**解釈**：ドラフトの絶対Top1 3.41%は非常に小さいが、約1691候補の一様基準0.10%より高い。**選出は一様基準との差が小さく、normalized CE=0.900と3フェーズで最も一様方策に近い**。選出の候補ベクトル完全一致は前セクションで8/16080のみであり、単純な完全衝突だけでこの傾向を説明できない。公開相手チームの種類・選出相性、Lead対面と後続の役割分担、順位の近接性/教師のラベル不確実性、policy entropyや損失比率が改善候補。**8 Matchは少標本で、教師模倣の上達も本当の勝率上昇も証明しない**。旧16 Match holdout（別seed）のTop1とは条件が異なるため単純差分をモデル更新効果にしない。
+
+**次の実験ゲート**：①公開/自席projectionのみで選出候補の*距離が近い*ケースを診断し、Leadと相手公開3種の相性・先制行動・速度・被KOをラベル付きで調べる、②同一teacher accepted traces・同一元モデル・同一seed/学習予算で選出lossのアブレーションを行いTop1だけでなくCE/Top10/entropyと実Matchを両席比較、③改善が示されるまで大量自己対戦拡大・Champion昇格は行わない。今回の8 seedは調査用に使用済みのため、今後の**完全未使用final holdoutに再利用しない**。
