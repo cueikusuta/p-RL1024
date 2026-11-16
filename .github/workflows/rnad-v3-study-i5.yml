@@ -37,7 +37,7 @@ jobs:
           node --test test/rnad-v3-features.test.js \
             test/rnad-three-phase-features-v2.test.js \
             test/rnad-switch-loop-guard.test.js
-          python -m unittest -v test.rnad_v3_test
+          python -m unittest discover -s test -p 'rnad_v3_test.py' -v
 
   pilot:
     needs: contracts
