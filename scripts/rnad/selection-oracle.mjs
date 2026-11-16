@@ -18,10 +18,15 @@ export function mapPublicAQSelectionScores(ranking, legalActions) {
   const indexes=new Map(keys.map((key,i)=>[key,i]));
   const counts=new Array(60).fill(0);
   const scores=new Array(60).fill(null);
+  const orderedSeen=new Set();
   for(const row of ranking){
     if(!row||!Number.isFinite(row.score))
       throw new TypeError('Nonfinite AQ public selection score');
     const index=indexes.get(keyOf(row.selection));
+    const orderedKey=JSON.stringify(row.selection);
+    if(orderedSeen.has(orderedKey))
+      throw new Error('Repeated AQ ordered reserve choice');
+    orderedSeen.add(orderedKey);
     if(index===undefined)
       throw new Error('AQ ranking outside authority selection support');
     if(counts[index]===2)
