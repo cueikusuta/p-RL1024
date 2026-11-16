@@ -112,18 +112,23 @@ def phase_balanced_mean_loss(events, *, enabled=False, weights=None):
 
 
 def initialize_teacher_model(feature_schema,initial_model=None):
-    """Optional frozen v2 actor warm start, with a NEW optimizer.
+    """Optional version-compatible v2/v4 actor warm start with a NEW optimizer.
 
     This is not an exact optimizer/magnet/RNG checkpoint resume. It copies
     weights only, never edits the saved source model or its provenance.
     """
-    model=RNADNetwork()
+    if feature_schema not in (THREE_PHASE_FEATURE_SCHEMA_V2,
+                              THREE_PHASE_FEATURE_SCHEMA_V4):
+        if initial_model is not None:
+            raise ValueError('Only compatible v2/v4 actor models may warm-start')
+    model=(RNADNetwork(state_features=STATE_FEATURES_V3,
+                       action_features=ACTION_FEATURES_V3)
+           if feature_schema==THREE_PHASE_FEATURE_SCHEMA_V4 else RNADNetwork())
     if initial_model is None:
         return model,None
     path=Path(initial_model)
-    if (feature_schema!=THREE_PHASE_FEATURE_SCHEMA_V2 or
-        not path.is_file()):
-        raise ValueError("Only an existing compatible v2 model may warm-start")
+    if not path.is_file():
+        raise ValueError('Only a present compatible v2/v4 model may warm-start')
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
     parsed=load_exported_json(model,path,expected_feature_schema=feature_schema)
     if parsed!=digest:
@@ -154,7 +159,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
          not isinstance(reuse_teacher_traces,(str,Path))) or
         (initial_model is not None and
          (not isinstance(initial_model,(str,Path)) or
-          not three_phase or not features_v2 or
+          not three_phase or not (features_v2 or features_v4) or
           not teacher.startswith('aq-public-'))) or
         not 1<=matches<=256 or not 1<=epochs<=6 or
         teacher not in ('basic-stage0','aq-public-belief',
@@ -171,10 +176,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                     THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
-    model,initial_file_sha=(
-        (RNADNetwork(state_features=STATE_FEATURES_V3,
-                     action_features=ACTION_FEATURES_V3),None)
-        if features_v4 else initialize_teacher_model(feature_schema,initial_model))
+    model,initial_file_sha=initialize_teacher_model(feature_schema,initial_model)
     initial_hash=state_hash(model)
     export_json(model,folder/"initial-model.json",feature_schema=feature_schema)
     traces=collect(seed,matches,folder,three_phase=three_phase,
