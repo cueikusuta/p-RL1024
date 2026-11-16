@@ -103,7 +103,7 @@ export function runRnadAcceptanceSmoke({
           timeline.push({seat,index});
           // Optional trusted policy memory may update only after the
           // one-use authoritative Match receipt has been consumed.
-          seatPhasePolicy?.accepted?.({seat,round,action});
+          seatPhasePolicy?.accepted?.({seat,round,phase:stage,action});
         },
         ...(stage==='battle'?{
           finish({result,authorityReceipt}){
