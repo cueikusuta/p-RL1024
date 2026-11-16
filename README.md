@@ -98,6 +98,12 @@ node scripts/evaluate-deep.mjs --model artifacts/rl-deep/training.json --purpose
 
 worker 数は利用可能な論理CPU数以下かつ16以下に制限し、巨大モデルのworkerコピー用メモリの保守的上限も検証します。wall time は CPU 構成・負荷に依存するため、同一ホスト・同一 seed・同一 Node バージョンで比較してください。ベンチマークは強さ・汎化性能の証拠ではありません。
 
+## RNAD / 機械学習：実験開始前の共通検証条件
+
+AI/学習セッションは、大規模学習、教師ありのモデル変更、R-NaD更新、強度評価を始める前に、[pokemon-battle-factory の AI/ML実験・強度判定共通契約 v1](https://github.com/cueikusuta/pokemon-battle-factory/blob/docs/1084-ml-validation-contract/docs/guides/ai-ml-validation-gates.md)を確認し、**仮説・独立比較・seed分離・完走/交代ループ・教師/推論モード・最終判定ゲート**を Issue #5 / PR #6 に事前登録してください。この文書は本体側PRでの規約案なので、develop統合まではそのPRのHEAD/独立レビュー状況を照合してください。既存RNADモデルの学習成果を、文書追加だけで強化済みとみなしてはいけません。
+
+RNAD固有の過去負例と入力特徴量の現状は、[FAILURE_FEATURE_GAP_AUDIT_2026-11-16.md](docs/research/rnad/FAILURE_FEATURE_GAP_AUDIT_2026-11-16.md)および[原Runの横断監査](docs/research/rnad/EVIDENCE_AUDIT_2026-11-16.md)を参照。両リポジトリでコード・重み・Runner設定を共有せず、検証カテゴリと証拠契約のみ共有します。
+
 ## RNAD-001 (Issue #5): GitHub-hosted runner policy
 
 RNAD-001 の開発・小規模検証・本学習・評価は **GitHub Actions の GitHub-hosted runner（`ubuntu-latest`）のみ**を使用します。**セルフホスト runner は使用しません**。これは2026-11-15のユーザー指定による最新の運用方針で、旧計画のセルフホスト推奨より優先されます。
