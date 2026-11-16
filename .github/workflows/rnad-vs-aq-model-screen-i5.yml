@@ -1,9 +1,7 @@
 name: RNAD-I5 full original AQ neural model screening (new paired seeds)
 on:
-  # One bounded comparative screening run, then manual only.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-vs-aq-model-screen-i5.yml']
+  # One-off four-arm source-pinned comparison #43826186298 already queued.
+  # Manual dispatch only to avoid repeated costly AQ matches.
   workflow_dispatch:
 permissions: {}
 concurrency:
