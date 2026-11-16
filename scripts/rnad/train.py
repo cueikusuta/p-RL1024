@@ -85,16 +85,16 @@ def run_match(seed, model, magnet, directory, *,
         (4*row.get('rounds',0) if three_phase else 0) or
         not row.get('events')):
         raise ValueError('Untrusted, partial or mismatched Match training record')
-    for event in row['events']:
-        actual=event.get('policy_eligible_action_count')
-        authority=event.get('authoritative_legal_action_count')
-        if (not isinstance(actual,int) or not isinstance(authority,int) or
-            actual<1 or authority<actual or
-            actual!=len(event.get('actions',[]))):
-            raise ValueError('Incorrect guarded policy-support cardinality')
-        if ((not guarded or event.get('phase')!='battle') and
-            actual!=authority):
-            raise ValueError('Unauthorized policy-support mask')
+    if guarded:
+        for event in row['events']:
+            actual=event.get('policy_eligible_action_count')
+            authority=event.get('authoritative_legal_action_count')
+            if (not isinstance(actual,int) or not isinstance(authority,int) or
+                actual<1 or authority<actual or
+                actual!=len(event.get('actions',[]))):
+                raise ValueError('Incorrect guarded policy-support cardinality')
+            if event.get('phase')!='battle' and actual!=authority:
+                raise ValueError('Unauthorized nonbattle policy-support mask')
     if three_phase:
         counts={phase:sum(e.get('phase')==phase for e in row['events'])
                 for phase in ('draft','selection','battle')}
