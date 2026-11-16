@@ -110,7 +110,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
         type(features_v2) is not bool or (features_v2 and not three_phase) or
         type(phase_balanced) is not bool or
         (phase_balanced and not three_phase) or
-        phase_profile not in ('equal','draft-selection') or
+        phase_profile not in ('equal','draft-selection','selection-focus') or
         (phase_profile!='equal' and not phase_balanced) or
         type(label_smoothing) not in (int,float) or
         not math.isfinite(float(label_smoothing)) or
@@ -137,7 +137,9 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                    teacher=teacher,features_v2=features_v2,
                    reuse_from=reuse_teacher_traces)
     phase_weights=({'draft':2.,'selection':2.,'battle':1.}
-                   if phase_profile=='draft-selection' else None)
+                   if phase_profile=='draft-selection' else
+                   {'draft':1.,'selection':4.,'battle':1.}
+                   if phase_profile=='selection-focus' else None)
     optimizer=torch.optim.Adam(model.parameters(),lr=0.0006)
     results=[]
     for epoch in range(epochs):
@@ -238,7 +240,7 @@ if __name__=="__main__":
     p.add_argument("--three-phase",action="store_true")
     p.add_argument("--features-v2",action="store_true")
     p.add_argument("--phase-balanced",action="store_true")
-    p.add_argument("--phase-profile",choices=["equal","draft-selection"],
+    p.add_argument("--phase-profile",choices=["equal","draft-selection","selection-focus"],
                    default="equal")
     p.add_argument("--label-smoothing",type=float,default=0.0)
     p.add_argument("--reuse-teacher-traces",default=None)
