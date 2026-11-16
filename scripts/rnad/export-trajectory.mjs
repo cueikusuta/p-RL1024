@@ -1,7 +1,8 @@
 // RNAD-001 trusted two-seat full-Match rollout exporter. Only Match-issued
 // accepted receipts can enter the training file; Actor receives no opponent
 // hidden state and never sees the opponent's uncommitted simultaneous action.
-import {writeFileSync} from 'node:fs';
+import {writeFileSync,readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {runRnadAcceptanceSmoke,verifiedRunningSourceSha}
   from '../dev/simulator/rnad-match.js';
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
@@ -28,7 +29,8 @@ function argsMap(argv){
 }
 export function createLearningTrajectory({seed,modelPath,magnetPath,
   matchId='rnad-match-'+seed,epsilon=.02,threePhase=false,
-  featuresV2=false,featuresV3=false,switchGuard='none',switchCost='none'}={}){
+  featuresV2=false,featuresV3=false,switchGuard='none',switchCost='none',
+  opponentModelPath=null,learnerSeat=null}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
      !['none',RNAD_SWITCH_GUARD].includes(switchGuard)||
      !['none',SWITCH_OPPORTUNITY_OBJECTIVE].includes(switchCost)||
@@ -37,6 +39,15 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
        (switchGuard!==RNAD_SWITCH_GUARD||!threePhase||
         !(featuresV2||featuresV3))))
     throw new TypeError('Invalid bounded RNAD seed or guarded policy');
+  const league=opponentModelPath!==null;
+  if(league&&(!featuresV3||switchGuard!==RNAD_SWITCH_GUARD||
+     ![0,1].includes(learnerSeat)||
+     typeof opponentModelPath!=='string'||!opponentModelPath))
+    throw new TypeError('League opponent requires v3 and seat-bound guard');
+  if(!league&&learnerSeat!==null)
+    throw new TypeError('League learner seat without frozen opponent');
+  const opponentSha=league?createHash('sha256').update(
+    readFileSync(opponentModelPath)).digest('hex'):null;
   const neural=new RNADMixedPolicy({
     model:new PersistentRNADInference(modelPath),
     magnet:new PersistentRNADInference(magnetPath),epsilon
@@ -53,11 +64,15 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
     throw new TypeError('Anti-loop learning requires true three-phase actor');
   const guarded=switchGuard===RNAD_SWITCH_GUARD;
   const opportunity=switchCost===SWITCH_OPPORTUNITY_OBJECTIVE;
-  const objectiveSuffix=opportunity?'-'+SWITCH_OPPORTUNITY_OBJECTIVE:'';
-  const guardedSeatPolicies=guarded?[0,1].map(()=>{
+  const objectiveSuffix=(opportunity?'-'+SWITCH_OPPORTUNITY_OBJECTIVE:'')+
+    (league?'-league-v1':'');
+  const guardedSeatPolicies=guarded?[0,1].map(seat=>{
+    const useOpponent=league&&seat!==learnerSeat;
+    const actorPath=useOpponent?opponentModelPath:modelPath;
+    const referencePath=useOpponent?opponentModelPath:magnetPath;
     const guard=new RnadSwitchLoopGuard(new RNADMixedPolicy({
-      model:new PersistentRNADInference(modelPath),
-      magnet:new PersistentRNADInference(magnetPath),epsilon
+      model:new PersistentRNADInference(actorPath),
+      magnet:new PersistentRNADInference(referencePath),epsilon
     }));
     const policy=ctx=>guard.choose(ctx);
     policy.accepted=ctx=>guard.accepted(ctx);
@@ -79,6 +94,10 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
       threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner')+
       (guarded?'-'+RNAD_SWITCH_GUARD:'')+objectiveSuffix,
     includeAcceptedHistory:featuresV3,
+    ...(league?{policyVersions:[0,1].map(seat=>
+      (featuresV3?'RNAD-004-three-phase-v3':'RNAD-003-three-phase-v2')+
+      '-'+RNAD_SWITCH_GUARD+(seat===learnerSeat?
+        '-learner-league-v1':'-frozen-league-v1-'+opponentSha.slice(0,8)))}:{}),
     phasePolicies:guarded?guardedSeatPolicies:null,
     phasePolicy:!guarded&&threePhase?(args=>neural.choose(args)):null,
     policy:guarded?(ctx=>guardedSeatPolicies[ctx.seat](ctx)):
@@ -145,6 +164,9 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
       threePhase?'rnad-accepted-three-phase-training-match-v1':
       'rnad-accepted-training-match-v1',
     feature_schema:featureSchema,
+    ...(league?{league:{learner_seat:learnerSeat,
+      frozen_opponent_sha256:opponentSha,
+      frozen_opponent_feature_schema:featureSchema}}:{}),
     ...(guarded?{deployment_policy:{switch_guard:RNAD_SWITCH_GUARD}}:{}),
     ...(opportunity?{reward_objective:SWITCH_OPPORTUNITY_OBJECTIVE,
        reward_shaping:shaping}:{}),
@@ -164,14 +186,19 @@ if(process.argv[1]?.endsWith('/export-trajectory.mjs')){
      (a['features-v3']!==undefined&&a['features-v3']!=='true')||
      (a['switch-guard']!==undefined&&a['switch-guard']!==RNAD_SWITCH_GUARD)||
      (a['switch-cost']!==undefined&&
-      a['switch-cost']!==SWITCH_OPPORTUNITY_OBJECTIVE))
+      a['switch-cost']!==SWITCH_OPPORTUNITY_OBJECTIVE)||
+     (a['opponent-model']!==undefined&&
+      (typeof a['opponent-model']!=='string'||!a['opponent-model']))||
+     (a['learner-seat']!==undefined&&!['0','1'].includes(a['learner-seat'])))
     throw new TypeError('Invalid three-phase/v2/guard flag');
   const match=createLearningTrajectory({seed,modelPath:a.model,magnetPath:a.magnet,
     threePhase:a['three-phase']==='true',
     featuresV2:a['features-v2']==='true',
     featuresV3:a['features-v3']==='true',
     switchGuard:a['switch-guard']??'none',
-    switchCost:a['switch-cost']??'none'});
+    switchCost:a['switch-cost']??'none',
+    opponentModelPath:a['opponent-model']??null,
+    learnerSeat:a['learner-seat']===undefined?null:Number(a['learner-seat'])});
   writeFileSync(a.out,JSON.stringify(match)+'\n',{flag:'wx'});
   process.stderr.write(JSON.stringify({seed,winner:match.winner,score:match.score,
     rounds:match.rounds,events:match.events.length})+'\n');
