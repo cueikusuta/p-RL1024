@@ -71,7 +71,8 @@ export function shapeSwitchOpportunity(events,originalDecisions){
     event.action_kind=row.accepted_action?.kind??null;
     event.request_type=row.observation?.requestType??null;
     event.switch_opportunity_cost=cost;
-    event.reward=[seat===0?-cost:cost,seat===1?-cost:cost];
+    event.reward=cost===0?[0,0]:
+      [seat===0?-cost:cost,seat===1?-cost:cost];
   }
   return {objective:SWITCH_OPPORTUNITY_OBJECTIVE,
     max_per_switch:MAX_SWITCH_COST,
