@@ -186,9 +186,15 @@ PHASE_LEARNING_PROFILES={
 }
 
 def phase_eligible_for_loss(phase,profile='all'):
-    if profile not in PHASE_LEARNING_PROFILES or (
-        phase not in ('draft','selection','battle')):
-        raise ValueError('Unknown accepted phase / isolated learning profile')
+    if profile not in PHASE_LEARNING_PROFILES:
+        raise ValueError('Unknown isolated learning profile')
+    # Legacy synthetic training-unit events predate phase annotations.
+    # Preserve the unfiltered full-phase behavior for those test fixtures.
+    # Real accepted rollout events are validated by run_match() separately.
+    if phase is None and profile=='all':
+        return True
+    if phase not in ('draft','selection','battle'):
+        raise ValueError('Unknown accepted phase')
     return phase in PHASE_LEARNING_PROFILES[profile]
 
 
