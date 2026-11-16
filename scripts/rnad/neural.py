@@ -18,23 +18,34 @@ MODEL_SCHEMA = "rnad-small-gru-v1"
 BATTLE_FEATURE_SCHEMA = "rnad-battle-features-v1"
 THREE_PHASE_FEATURE_SCHEMA = "rnad-three-phase-features-v1"
 THREE_PHASE_FEATURE_SCHEMA_V2 = "rnad-three-phase-features-v2"
+THREE_PHASE_FEATURE_SCHEMA_V3 = "rnad-three-phase-features-v3"
+STATE_FEATURES_V3 = 48
+ACTION_FEATURES_V3 = 32
 
 
 class RNADNetwork(nn.Module):
-    def __init__(self, hidden: int = HIDDEN):
+    def __init__(self, hidden: int = HIDDEN, *,
+                 state_features: int = STATE_FEATURES,
+                 action_features: int = ACTION_FEATURES):
         super().__init__()
+        if (state_features,action_features) not in (
+            (STATE_FEATURES,ACTION_FEATURES),
+            (STATE_FEATURES_V3,ACTION_FEATURES_V3)):
+            raise ValueError("Unsupported versioned RNAD feature widths")
         self.hidden_size = hidden
-        self.state_proj = nn.Linear(STATE_FEATURES, hidden)
+        self.state_features = state_features
+        self.action_features = action_features
+        self.state_proj = nn.Linear(state_features, hidden)
         self.gru = nn.GRUCell(hidden, hidden)
-        self.policy_hidden = nn.Linear(hidden + ACTION_FEATURES, hidden)
+        self.policy_hidden = nn.Linear(hidden + action_features, hidden)
         self.policy_out = nn.Linear(hidden, 1)
         self.value_hidden = nn.Linear(hidden, hidden)
         self.value_out = nn.Linear(hidden, 1)
 
     def forward(self, state, candidates, memory):
-        if state.ndim != 2 or state.shape[-1] != STATE_FEATURES:
+        if state.ndim != 2 or state.shape[-1] != self.state_features:
             raise ValueError("Invalid actor state width")
-        if candidates.ndim != 3 or candidates.shape[0] != state.shape[0] or candidates.shape[-1] != ACTION_FEATURES:
+        if candidates.ndim != 3 or candidates.shape[0] != state.shape[0] or candidates.shape[-1] != self.action_features:
             raise ValueError("Invalid legal-action width")
         if candidates.shape[1] < 1:
             raise ValueError("No legal actions in decision")
@@ -62,14 +73,18 @@ def freeze_magnet(model):
 
 def export_json(model, path, *, feature_schema=BATTLE_FEATURE_SCHEMA):
     if feature_schema not in (BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA,
-                              THREE_PHASE_FEATURE_SCHEMA_V2):
+                              THREE_PHASE_FEATURE_SCHEMA_V2,
+                              THREE_PHASE_FEATURE_SCHEMA_V3):
         raise ValueError("Invalid RNAD export feature schema")
+    if ((feature_schema == THREE_PHASE_FEATURE_SCHEMA_V3) !=
+        (model.state_features == STATE_FEATURES_V3)):
+        raise ValueError("Model/feature schema mismatch on export")
     # All model parameters have exact names and dimensions; no Python eval.
     state = {key: {"shape": list(tensor.shape),
                    "values": tensor.detach().cpu().flatten().tolist()}
              for key, tensor in model.state_dict().items()}
-    payload = {"schema": MODEL_SCHEMA, "state_features": STATE_FEATURES,
-               "action_features": ACTION_FEATURES, "hidden": model.hidden_size,
+    payload = {"schema": MODEL_SCHEMA, "state_features": model.state_features,
+               "action_features": model.action_features, "hidden": model.hidden_size,
                "weights": state}
     # Preserve byte-for-byte legacy battle-only exports. New three-phase
     # weights MUST identify the distinct observation/action encoding.
@@ -81,8 +96,8 @@ def export_json(model, path, *, feature_schema=BATTLE_FEATURE_SCHEMA):
 
 def export_onnx(model, path, opset_version=17):
     model = model.eval()
-    state = torch.zeros(1, STATE_FEATURES)
-    actions = torch.zeros(1, 2, ACTION_FEATURES)
+    state = torch.zeros(1, model.state_features)
+    actions = torch.zeros(1, 2, model.action_features)
     memory = model.initial_memory()
     torch.onnx.export(model, (state, actions, memory), path,
                       input_names=["state", "actions", "memory"],
@@ -101,8 +116,8 @@ def compare_onnx(model, onnx_path):
     import numpy as np
     import onnxruntime as ort
     torch.manual_seed(314)
-    state = torch.randn(2, STATE_FEATURES)
-    actions = torch.randn(2, 7, ACTION_FEATURES)
+    state = torch.randn(2, model.state_features)
+    actions = torch.randn(2, 7, model.action_features)
     memory = torch.randn(2, model.hidden_size)
     with torch.no_grad():
         expected = model.eval()(state, actions, memory)
@@ -128,8 +143,8 @@ def load_exported_json(model, path, *, expected_feature_schema=BATTLE_FEATURE_SC
     payload=json.loads(raw)
     if (payload.get("schema")!=MODEL_SCHEMA or
         payload.get("hidden")!=model.hidden_size or
-        payload.get("state_features")!=STATE_FEATURES or
-        payload.get("action_features")!=ACTION_FEATURES or
+        payload.get("state_features")!=model.state_features or
+        payload.get("action_features")!=model.action_features or
         not isinstance(payload.get("weights"),dict) or
         payload.get("feature_schema",BATTLE_FEATURE_SCHEMA) != expected_feature_schema):
         raise ValueError("Invalid warm-start model schema/dimensions")
@@ -149,3 +164,29 @@ def load_exported_json(model, path, *, expected_feature_schema=BATTLE_FEATURE_SC
         loaded[name]=torch.tensor(item["values"],dtype=prior.dtype).reshape(prior.shape)
     model.load_state_dict(loaded,strict=True)
     return hashlib.sha256(raw).hexdigest()
+
+def migrate_v2_export_to_v3(model, path):
+    """Explicit v2->v3 warm start: old logits exactly preserved for zero
+    extra features; additional 16 state/action channels start at weight zero.
+    The returned origin SHA MUST stay in checkpoint provenance. v2 unchanged.
+    """
+    if (model.state_features,model.action_features)!=(
+        STATE_FEATURES_V3,ACTION_FEATURES_V3):
+        raise ValueError("Target is not a v3 architecture")
+    source=RNADNetwork()
+    origin=load_exported_json(source,path,
+        expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA_V2)
+    old=source.state_dict()
+    new=model.state_dict()
+    for name,p in old.items():
+        if name=='state_proj.weight':
+            new[name].zero_()
+            new[name][:,:STATE_FEATURES].copy_(p)
+        elif name=='policy_hidden.weight':
+            new[name].zero_()
+            new[name][:,:HIDDEN].copy_(p[:,:HIDDEN])
+            new[name][:,HIDDEN:HIDDEN+ACTION_FEATURES].copy_(p[:,HIDDEN:])
+        else:
+            new[name].copy_(p)
+    model.load_state_dict(new,strict=True)
+    return origin
