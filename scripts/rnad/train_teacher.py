@@ -26,7 +26,7 @@ AQ_WEIGHTS_SHA256="5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db19
 
 def collect(seed, count, folder, *, three_phase=False,
             teacher='basic-stage0',features_v2=False,
-            features_v4=False,reuse_from=None):
+            features_v4=False,utility_labels=False,reuse_from=None):
     root=Path(reuse_from) if reuse_from is not None else folder/"teacher-matches"
     if reuse_from is None:
         root.mkdir(parents=True,exist_ok=True)
@@ -45,6 +45,7 @@ def collect(seed, count, folder, *, three_phase=False,
             if teacher!='basic-stage0':cmd.extend(["--teacher",teacher])
             if features_v2:cmd.extend(["--features-v2","true"])
             if features_v4:cmd.extend(["--features-v4","true"])
+            if utility_labels:cmd.extend(["--utility-labels","true"])
             subprocess.run(cmd,check=True,timeout=120)
         elif not file.is_file():
             raise ValueError("Cannot reuse missing authority-accepted teacher Match")
@@ -66,6 +67,8 @@ def collect(seed, count, folder, *, three_phase=False,
                 THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                 THREE_PHASE_FEATURE_SCHEMA if three_phase
                 else BATTLE_FEATURE_SCHEMA)
+            or trace.get('utility_labels',None)!=
+              ('aq-public-phase-rank-v1' if utility_labels else None)
             or trace.get("seed")!=n
             or trace.get("source_sha")!=current_git_sha()
             or trace.get("engine_sha")!=frozen_engine_sha()
@@ -111,6 +114,37 @@ def phase_balanced_mean_loss(events, *, enabled=False, weights=None):
         for p in ('draft','selection','battle'))/sum(weights.values())
 
 
+
+def utility_teacher_loss(logits, utilities, phase):
+    """Top utility candidates get graded soft labels; off-shortlist logits
+    remain in the normalizer. This is a surrogate, never a win objective.
+    """
+    if phase not in ('draft','selection') or not isinstance(logits,torch.Tensor) or (
+        logits.ndim!=2 or logits.size(0)!=1 or not isinstance(utilities,list)
+        or len(utilities)!=logits.size(1) or not utilities or
+        any(type(v) not in (int,float) or not math.isfinite(v) for v in utilities)):
+        raise ValueError('Invalid public AQ distillation logits/utility vector')
+    scores=torch.tensor(utilities,dtype=logits.dtype,device=logits.device)
+    topk=min(12 if phase=='draft' else 10,len(utilities))
+    indices=torch.argsort(scores,descending=True,stable=True)[:topk]
+    top_scores=scores[indices]
+    # A stable within-topk temperature bounds the teacher signal.
+    targets=torch.softmax((top_scores-top_scores.max())/5.0,dim=0)
+    loss=-(targets*torch.log_softmax(logits[0],dim=0)[indices]).sum()
+    if not bool(torch.isfinite(loss)):
+        raise ValueError('Invalid AQ utility distillation result')
+    return loss
+
+
+def normalized_utility_regret(utilities,index):
+    if (not isinstance(utilities,list) or not utilities or
+        not isinstance(index,int) or not 0<=index<len(utilities) or
+        any(type(v) not in (int,float) or not math.isfinite(v) for v in utilities)):
+        raise ValueError('Invalid public AQ utility regret')
+    gap=max(utilities)-min(utilities)
+    return (max(utilities)-utilities[index])/gap if gap>1e-12 else 0.0
+
+
 def initialize_teacher_model(feature_schema,initial_model=None):
     """Optional version-compatible v2/v4 actor warm start with a NEW optimizer.
 
@@ -141,11 +175,15 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
           teacher='basic-stage0',features_v2=False,features_v4=False,
           phase_balanced=False,
           phase_profile='equal',label_smoothing=0.0,reuse_teacher_traces=None,
-          initial_model=None):
+          initial_model=None,utility_distillation=False):
     if (type(seed) is not int or type(matches) is not int or
         type(epochs) is not int or type(three_phase) is not bool or
         type(features_v2) is not bool or
         type(features_v4) is not bool or
+        type(utility_distillation) is not bool or
+        (utility_distillation and
+         (not features_v4 or teacher!='aq-public-strategy-selection'
+          or float(label_smoothing)!=0.0)) or
         ((features_v2 or features_v4) and not three_phase) or
         (features_v2 and features_v4) or
         type(phase_balanced) is not bool or
@@ -182,6 +220,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
     traces=collect(seed,matches,folder,three_phase=three_phase,
                    teacher=teacher,features_v2=features_v2,
                    features_v4=features_v4,
+                   utility_labels=utility_distillation,
                    reuse_from=reuse_teacher_traces)
     phase_weights=({'draft':2.,'selection':2.,'battle':1.}
                    if phase_profile=='draft-selection' else
@@ -197,6 +236,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
         correct=0
         phase_correct={p:0 for p in ('draft','selection','battle')}
         phase_count={p:0 for p in ('draft','selection','battle')}
+        phase_regret={p:0.0 for p in ('draft','selection')}
         for index in order:
             match=traces[index]
             memory=[model.initial_memory() for _ in range(2)]
@@ -214,9 +254,16 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                 a=torch.tensor([event["actions"]],dtype=torch.float32)
                 logits,value,h=model(s,a,memory[seat])
                 memory[seat]=h.detach()
-                loss=F.cross_entropy(
-                    logits,torch.tensor([event["choice"]]),
-                    label_smoothing=float(label_smoothing))
+                phase=event.get('phase')
+                if utility_distillation and phase in phase_regret:
+                    utilities=event.get('candidate_utilities')
+                    loss=utility_teacher_loss(logits,utilities,phase)
+                    phase_regret[phase]+=normalized_utility_regret(
+                        utilities,int(logits[0].argmax()))
+                else:
+                    loss=F.cross_entropy(
+                        logits,torch.tensor([event["choice"]]),
+                        label_smoothing=float(label_smoothing))
                 target=torch.tensor([float(event["terminal_target"])])
                 phase=event.get("phase")
                 if phase not in phase_count:
@@ -239,6 +286,9 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
             cumulative+=float(batch_loss.detach())*len(match["examples"])
         if not n:raise ValueError("Empty teacher learning epoch")
         row={"epoch":epoch+1,"mean_loss":cumulative/n,
+             "phase_normalized_utility_regret":
+               ({p:phase_regret[p]/phase_count[p] for p in phase_regret}
+                if utility_distillation else None),
              "imitation_top1_accuracy":correct/n,
              "accepted_examples":n,
              "phase_example_counts":phase_count,
@@ -259,6 +309,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
             "feature_schema":feature_schema,
             "phase_balanced":phase_balanced,
             "phase_profile":phase_profile,
+            "utility_distillation":utility_distillation,
             "label_smoothing":float(label_smoothing),
             "reused_authority_accepted_teacher_traces":
                 reuse_teacher_traces is not None,
@@ -292,6 +343,7 @@ if __name__=="__main__":
     p.add_argument("--three-phase",action="store_true")
     p.add_argument("--features-v2",action="store_true")
     p.add_argument("--features-v4",action="store_true")
+    p.add_argument("--utility-distillation",action="store_true")
     p.add_argument("--phase-balanced",action="store_true")
     p.add_argument("--phase-profile",choices=["equal","draft-selection","selection-focus"],
                    default="equal")
@@ -306,6 +358,7 @@ if __name__=="__main__":
                            teacher=args.teacher,
                            features_v2=args.features_v2,
                            features_v4=args.features_v4,
+                           utility_distillation=args.utility_distillation,
                            phase_balanced=args.phase_balanced,
                            phase_profile=args.phase_profile,
                            label_smoothing=args.label_smoothing,
