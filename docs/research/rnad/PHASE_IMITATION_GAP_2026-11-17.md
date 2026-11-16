@@ -22,6 +22,20 @@
 4. **教師の価値関数と学習特徴量の不一致**。draft教師は非線形チーム役割・予算等、selection教師`chooseTacticalSelection`はBasicのtrio得点＋各種役割プラン/速度等を使う。studentは16次元actionと32次元stateの限られたproxyしか見ない。さらに`aq-public-belief`教師は本物のAQ-Baseの完全Match得点・ターン履歴を受け取らない。高一致率が出ないことに複数の理由があり、現状の数値だけで学習則バグと確定しない。
 5. **教師データ／目的**。`train_teacher.py`は各accepted decisionに単一教師choiceのCrossEntropyと、終局±1に対する小さいValue MSEを付加。共有GRU・共有policy projectionが三フェーズを担当する。フェーズ均等損失/selection-focusを比較済みだが、8Match程度の短期追加では選出Top-1は両条件同じ。Top-1は近似同等の候補を全て誤答として扱う。多数の教師候補が実際に同等近傍かは、**未測定**なので独立検査が必要。
 
+## 2.5 選出で判明した教師・学生・本物AQの候補集合不一致（重要）
+
+実ソースをさらに比較したところ**同じselectionという名称でも候補数・最適化している先発選択が異なる**ことを確認した。
+
+| 実装 | 合法/探索候補の構成 | 効果 |
+|---|---|---|
+| R-NaD `legalPureRlSelections` | 6体から3体、先発は3体のいずれか、控え2体の順序は正規化：**60通り** | 学生Actorの合法集合 |
+| 教師 `aq-public-belief` 内の `chooseTacticalSelection` → `rankBasicSelectionCandidates` | 6体から3体の組み合わせ**20通り**。先発は常に選ばれた3体のうち**元ロスターで最小インデックスの個体**。先発選び専用の対面スコアはない | 60通りの学生に20通りの限定された教師を模倣させている |
+| 対戦相手の本物AQ `chooseStrategySelection` → `rankStrategySelections` | 3体選択×先発×控え順の**120通り**を候補化し、公開相手候補に対する各先発のmatchup・役割相性等をスコア化 | 教師ラベルと**実際に倒したいAQの選出ロジック**が一致していない |
+
+従って、選出Top-1 4.55%が低い理由は、学習不足だけではない。教師の**任意のロスター順序による先発ラベル**と学生の**先発のspecies-IDを消した集約特徴**が整合していない。選出教師が最適化する評価値も、実AQとは違う。ただし、この問題だけで観測された低Top1すべてを説明できるかは未実測。
+
+**最優先修正案（特性v4より前）**：学習に使うselection教師を新versionへ分離し、権威Matchで受理可能な**60候補へ元AQの公開情報・対面スコアを写像して順位と効用差を与える**。120候補のうち控え順だけが逆のものは60候補の正準アクションへ集約する際の意味保存を確認。直接`chooseStrategySelection`の戻り値を学生の合法アクションとして無検証で渡すことは禁止。teacher scoreのtopK/温度付き分布と採択理由、60候補への対応/重複/漏れを契約テストで検証する。必ず既存`aq-public-belief`教師・v1/v2/v3重みとは**別のteacher version/source/seed**で実験し、純RLの優越とは混同しない。
+
 ## 3. 修正実施順とゲート
 
 1. **まず評価契約の改善（安価）**：未使用教師データに対し、ドラフト/選出ごとに合法候補数、Top-1/3/10、一様基準、teacher-choice probability、正規化CEに加え、教師に合法な候補**全体の順位・スコア差・正規化regret**と、先発のみ違う候補の差を記録する。教師効用の比較には`scoreStrategyDraftRoster`・`rankTacticalSelectionCandidates`の公開情報入力のみを使用し、擬似的な秘密や実戦勝率をラベルにしない。スコアが実際に近いかを確認後、無意味なTop-1完全一致の強制を避ける。
