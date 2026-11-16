@@ -93,11 +93,17 @@ export function encodeRnadThreePhaseDecisionV3(obs,legalActions){
         if(!p)throw new TypeError('Missing known switch candidate');
         selection=[p];
       }else if(choice.kind==='move'){
-        if(!Number.isSafeInteger(choice.index)||!active?.moves?.[choice.index])
-          throw new TypeError('Missing known move candidate');
-        selection=[active];
-        const m=active.moves[choice.index];
-        move=typeof m==='string'?m:m?.id;
+        selection=[active].filter(Boolean);
+        if(!active)throw new TypeError('Missing own active Pokémon');
+        // Struggle is a valid authoritative legal action even when no
+        // ordinary move slot exists. Do not invent a slot or a secret move.
+        if(choice.index==='struggle')move='struggle';
+        else{
+          if(!Number.isSafeInteger(choice.index)||!active.moves?.[choice.index])
+            throw new TypeError('Missing known move candidate');
+          const m=active.moves[choice.index];
+          move=typeof m==='string'?m:m?.id;
+        }
       }else{
         selection=[active].filter(Boolean);
       }
