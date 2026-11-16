@@ -18,7 +18,9 @@ from scripts.rnad.neural import (RNADNetwork, export_json, load_exported_json,
                                  BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA,
                                  THREE_PHASE_FEATURE_SCHEMA_V2,
                                  THREE_PHASE_FEATURE_SCHEMA_V4,
-                                 STATE_FEATURES_V3,ACTION_FEATURES_V3)
+                                 THREE_PHASE_FEATURE_SCHEMA_V5,
+                                 STATE_FEATURES_V3,ACTION_FEATURES_V3,
+                                 STATE_FEATURES_V5,ACTION_FEATURES_V5)
 from scripts.rnad.train import state_hash, current_git_sha, frozen_engine_sha
 
 
@@ -26,7 +28,8 @@ AQ_WEIGHTS_SHA256="5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db19
 
 def collect(seed, count, folder, *, three_phase=False,
             teacher='basic-stage0',features_v2=False,
-            features_v4=False,utility_labels=False,reuse_from=None):
+            features_v4=False,features_v5=False,
+            utility_labels=False,reuse_from=None):
     root=Path(reuse_from) if reuse_from is not None else folder/"teacher-matches"
     if reuse_from is None:
         root.mkdir(parents=True,exist_ok=True)
@@ -45,6 +48,7 @@ def collect(seed, count, folder, *, three_phase=False,
             if teacher!='basic-stage0':cmd.extend(["--teacher",teacher])
             if features_v2:cmd.extend(["--features-v2","true"])
             if features_v4:cmd.extend(["--features-v4","true"])
+            if features_v5:cmd.extend(["--features-v5","true"])
             if utility_labels:cmd.extend(["--utility-labels","true"])
             subprocess.run(cmd,check=True,timeout=120)
         elif not file.is_file():
@@ -63,6 +67,7 @@ def collect(seed, count, folder, *, three_phase=False,
                           else "stage0-fixed-untrained")
         if (trace.get("schema")!=expected_schema
             or trace.get("feature_schema")!=(
+                THREE_PHASE_FEATURE_SCHEMA_V5 if features_v5 else
                 THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
                 THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                 THREE_PHASE_FEATURE_SCHEMA if three_phase
@@ -146,16 +151,20 @@ def normalized_utility_regret(utilities,index):
 
 
 def initialize_teacher_model(feature_schema,initial_model=None):
-    """Optional version-compatible v2/v4 actor warm start with a NEW optimizer.
+    """Optional version-compatible v2/v4/v5 warm start with a NEW optimizer.
 
     This is not an exact optimizer/magnet/RNG checkpoint resume. It copies
     weights only, never edits the saved source model or its provenance.
     """
     if feature_schema not in (THREE_PHASE_FEATURE_SCHEMA_V2,
-                              THREE_PHASE_FEATURE_SCHEMA_V4):
+                              THREE_PHASE_FEATURE_SCHEMA_V4,
+                              THREE_PHASE_FEATURE_SCHEMA_V5):
         if initial_model is not None:
-            raise ValueError('Only compatible v2/v4 actor models may warm-start')
-    model=(RNADNetwork(state_features=STATE_FEATURES_V3,
+            raise ValueError('Only compatible v2/v4/v5 actor models may warm-start')
+    model=(RNADNetwork(state_features=STATE_FEATURES_V5,
+                       action_features=ACTION_FEATURES_V5)
+           if feature_schema==THREE_PHASE_FEATURE_SCHEMA_V5 else
+           RNADNetwork(state_features=STATE_FEATURES_V3,
                        action_features=ACTION_FEATURES_V3)
            if feature_schema==THREE_PHASE_FEATURE_SCHEMA_V4 else RNADNetwork())
     if initial_model is None:
@@ -173,6 +182,7 @@ def initialize_teacher_model(feature_schema,initial_model=None):
 def train(*,seed=975601,out="artifacts/rnad-teacher",
           three_phase=False,matches=32,epochs=4,
           teacher='basic-stage0',features_v2=False,features_v4=False,
+          features_v5=False,
           phase_balanced=False,
           phase_profile='equal',label_smoothing=0.0,reuse_teacher_traces=None,
           initial_model=None,utility_distillation=False,utility_mix=1.0):
@@ -180,15 +190,17 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
         type(epochs) is not int or type(three_phase) is not bool or
         type(features_v2) is not bool or
         type(features_v4) is not bool or
+        type(features_v5) is not bool or
         type(utility_distillation) is not bool or
         type(utility_mix) not in (int,float) or
         not math.isfinite(utility_mix) or not 0<=utility_mix<=1 or
         (not utility_distillation and utility_mix!=1.0) or
         (utility_distillation and
-         (not features_v4 or teacher!='aq-public-strategy-selection'
+         (not (features_v4 or features_v5) or
+          teacher!='aq-public-strategy-selection'
           or float(label_smoothing)!=0.0)) or
-        ((features_v2 or features_v4) and not three_phase) or
-        (features_v2 and features_v4) or
+        ((features_v2 or features_v4 or features_v5) and not three_phase) or
+        sum((features_v2,features_v4,features_v5))>1 or
         type(phase_balanced) is not bool or
         (phase_balanced and not three_phase) or
         phase_profile not in ('equal','draft-selection','selection-focus') or
@@ -200,7 +212,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
          not isinstance(reuse_teacher_traces,(str,Path))) or
         (initial_model is not None and
          (not isinstance(initial_model,(str,Path)) or
-          not three_phase or not (features_v2 or features_v4) or
+          not three_phase or not (features_v2 or features_v4 or features_v5) or
           not teacher.startswith('aq-public-'))) or
         not 1<=matches<=256 or not 1<=epochs<=6 or
         teacher not in ('basic-stage0','aq-public-belief',
@@ -213,7 +225,8 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
     random.seed(seed)
     folder=Path(out)
     folder.mkdir(parents=True,exist_ok=True)
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V5 if features_v5 else
+                    THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
                     THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
@@ -222,7 +235,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
     export_json(model,folder/"initial-model.json",feature_schema=feature_schema)
     traces=collect(seed,matches,folder,three_phase=three_phase,
                    teacher=teacher,features_v2=features_v2,
-                   features_v4=features_v4,
+                   features_v4=features_v4,features_v5=features_v5,
                    utility_labels=utility_distillation,
                    reuse_from=reuse_teacher_traces)
     phase_weights=({'draft':2.,'selection':2.,'battle':1.}
@@ -350,6 +363,7 @@ if __name__=="__main__":
     p.add_argument("--three-phase",action="store_true")
     p.add_argument("--features-v2",action="store_true")
     p.add_argument("--features-v4",action="store_true")
+    p.add_argument("--features-v5",action="store_true")
     p.add_argument("--utility-distillation",action="store_true")
     p.add_argument("--utility-mix",type=float,default=1.0)
     p.add_argument("--phase-balanced",action="store_true")
@@ -366,6 +380,7 @@ if __name__=="__main__":
                            teacher=args.teacher,
                            features_v2=args.features_v2,
                            features_v4=args.features_v4,
+                           features_v5=args.features_v5,
                            utility_distillation=args.utility_distillation,
                            utility_mix=args.utility_mix,
                            phase_balanced=args.phase_balanced,
