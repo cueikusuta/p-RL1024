@@ -199,11 +199,13 @@ jobs:
       - name: Restore frozen/updated models from THIS run only
         run: |
           set -euo pipefail
-          mkdir -p models results
+          mkdir -p models "results/$INITIAL"
           gh run download 43757054212 --repo "$GH_REPO" \
             --name rnad-i5-queue-models-43757054212 --dir models
           gh run download "$GITHUB_RUN_ID" --repo "$GH_REPO" \
-            --name "rnad-i5-guard-train-$INITIAL-$GITHUB_RUN_ID" --dir results
+            --name "rnad-i5-guard-train-$INITIAL-$GITHUB_RUN_ID" \
+            --dir "results/$INITIAL"
+          test -f "results/$INITIAL/final-model.json"
           node scripts/verify-snapshot.mjs
       - name: Paired updated-vs-frozen SAME-original both guarded, independent seeds
         run: |
