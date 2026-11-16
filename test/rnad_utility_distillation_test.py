@@ -21,6 +21,16 @@ class AQUtilityTests(unittest.TestCase):
         self.assertEqual(normalized_utility_regret(scores,0),0)
         self.assertEqual(normalized_utility_regret(scores,3),1)
         self.assertAlmostEqual(normalized_utility_regret(scores,1),.1)
+        hard_target=torch.tensor([0])
+        first=torch.tensor([[0.,0.,0.,0.]],requires_grad=True)
+        soft=utility_teacher_loss(first,scores,'selection')
+        hard=torch.nn.functional.cross_entropy(first,hard_target)
+        mixed=.5*soft+.5*hard
+        self.assertTrue(bool(torch.isfinite(mixed)))
+        mixed.backward()
+        self.assertTrue(bool(torch.isfinite(first.grad).all()))
+        self.assertGreater(float(soft),0)
+
 
     def test_fail_closed_on_invalid_public_utility_label(self):
         for utilities in ([float('nan'),0],[1.],[1.,float('inf')],[None,2]):
