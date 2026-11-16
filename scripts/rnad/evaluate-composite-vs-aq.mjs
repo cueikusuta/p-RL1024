@@ -19,9 +19,15 @@ import provenance from '../../provenance/manifest.json' with {type:'json'};
 
 export const COMPOSITE_SCHEMA='rnad-v2-v3-composite-vs-original-aq-paired-v1';
 export const COMPOSITE_MODES=Object.freeze({
+  // v3 everywhere is the frozen R-NaD control; each single-v2 arm
+  // changes EXACTLY one phase while using the same two frozen actors.
+  'all-v3':{draft:1,selection:1,battle:1},
+  'all-v2':{draft:0,selection:0,battle:0},
+  'draft-v2':{draft:0,selection:1,battle:1},
+  'selection-v2':{draft:1,selection:0,battle:1},
+  'battle-v2':{draft:1,selection:1,battle:0},
   'v3-battle':{draft:0,selection:0,battle:1},
   'v2-battle':{draft:1,selection:1,battle:0},
-  'selection-v2':{draft:1,selection:0,battle:1},
   'blend-half':{draft:.5,selection:.5,battle:.5},
   'blend-threequarter':{draft:.75,selection:.75,battle:.75}
 });

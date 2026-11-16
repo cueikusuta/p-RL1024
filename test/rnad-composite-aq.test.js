@@ -11,6 +11,16 @@ test('phase mixing is pinned, bounded and not a fabricated AQ win',()=>{
   assert.deepEqual(COMPOSITE_MODES['v2-battle'],
     {draft:1,selection:1,battle:0});
   assert.equal(COMPOSITE_MODES['blend-half'].battle,.5);
+  const control=COMPOSITE_MODES['all-v3'];
+  assert.deepEqual(control,{draft:1,selection:1,battle:1});
+  assert.deepEqual(COMPOSITE_MODES['all-v2'],{draft:0,selection:0,battle:0});
+  for(const phase of ['draft','selection','battle']){
+    const arm=COMPOSITE_MODES[phase+'-v2'];
+    assert.ok(arm,'Missing independently ablated phase: '+phase);
+    for(const p of ['draft','selection','battle'])
+      assert.equal(arm[p],p===phase?0:1,
+        'Only the named phase may switch from v3');
+  }
 });
 test('composite original AQ actor rejects invalid input before full simulation',()=>{
   const valid={v2Path:'absent-v2.json',v3Path:'absent-v3.json',
