@@ -21,7 +21,9 @@ from scripts.rnad.neural import (RNADNetwork, freeze_magnet, export_json,
                                  THREE_PHASE_FEATURE_SCHEMA_V2,
                                  THREE_PHASE_FEATURE_SCHEMA_V3,
                                  THREE_PHASE_FEATURE_SCHEMA_V4,
+                                 THREE_PHASE_FEATURE_SCHEMA_V5,
                                  STATE_FEATURES_V3,ACTION_FEATURES_V3,
+                                 STATE_FEATURES_V5,ACTION_FEATURES_V5,
                                  migrate_v2_export_to_v3)
 from scripts.rnad.two_player import rnad_targets, neurd_policy_loss
 from scripts.rnad.checkpoint import save_checkpoint, restore_checkpoint
@@ -48,13 +50,15 @@ def state_hash(net):
 
 def run_match(seed, model, magnet, directory, *,
               three_phase=False,features_v2=False,features_v3=False,
-              features_v4=False,switch_guard='none',switch_cost='none',
+              features_v4=False,features_v5=False,
+              switch_guard='none',switch_cost='none',
               opponent_path=None,learner_seat=None):
     directory.mkdir(parents=True,exist_ok=True)
     model_path=directory/'actor.json'
     magnet_path=directory/'magnet.json'
     output=directory/(f'accepted-seed{seed}.json')
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V5 if features_v5 else
+                    THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
                     THREE_PHASE_FEATURE_SCHEMA_V3 if features_v3 else
                     THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
@@ -74,6 +78,8 @@ def run_match(seed, model, magnet, directory, *,
         command.extend(['--features-v3','true'])
     if features_v4:
         command.extend(['--features-v4','true'])
+    if features_v5:
+        command.extend(['--features-v5','true'])
     if switch_guard!='none':
         command.extend(['--switch-guard',switch_guard])
     if switch_cost!='none':
@@ -99,6 +105,7 @@ def run_match(seed, model, magnet, directory, *,
     elif league is not None:
         raise ValueError('Unrequested league opponent')
     if (row.get('schema')!=(
+        'rnad-accepted-three-phase-v5-training-match-v1' if features_v5 else
         'rnad-accepted-three-phase-v4-training-match-v1' if features_v4 else
         'rnad-accepted-three-phase-v3-training-match-v1' if features_v3 else
         'rnad-accepted-three-phase-v2-opportunity-training-match-v1'
@@ -307,6 +314,7 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
           eta=.2,magnet_period=4,initial_model=None,three_phase=False,
           features_v2=False,features_v3=False,features_v4=False,
+          features_v5=False,
           phase_learning_profile='all',switch_guard='none',
           switch_cost='none',updates_per_match=1,migrate_from_v2=False,
           league_pool=None):
@@ -318,8 +326,11 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         type(three_phase) is not bool or
         type(features_v2) is not bool or (features_v2 and not three_phase) or
         type(features_v3) is not bool or type(features_v4) is not bool or
+        type(features_v5) is not bool or
         phase_learning_profile not in PHASE_LEARNING_PROFILES or
-        (phase_learning_profile!='all' and not features_v4) or
+        (phase_learning_profile!='all' and not (features_v4 or features_v5)) or
+        (features_v5 and (features_v2 or features_v3 or features_v4 or
+                          not three_phase)) or
         (features_v4 and (features_v2 or features_v3 or not three_phase)) or
         (features_v3 and (features_v2 or not three_phase)) or
         type(updates_per_match) is not int or updates_per_match not in (1,4) or
@@ -330,20 +341,24 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
           not isinstance(league_pool,str) or not league_pool)) or
         switch_guard not in ('none','anti-loop-v1') or
         (switch_guard!='none' and not
-         (three_phase and (features_v2 or features_v3 or features_v4))) or
+         (three_phase and (features_v2 or features_v3 or features_v4 or features_v5))) or
         switch_cost not in ('none','opportunity-v1') or
         (switch_cost!='none' and
             (switch_guard!='anti-loop-v1' or not
-             (features_v2 or features_v3 or features_v4)))):
+             (features_v2 or features_v3 or features_v4 or features_v5)))):
         raise ValueError('Training must bound seed, matches, eta and magnet period')
     torch.set_num_threads(1)
     path=Path(out)
     path.mkdir(parents=True,exist_ok=True)
     torch.manual_seed(seed);random.seed(seed)
-    net=(RNADNetwork(state_features=STATE_FEATURES_V3,
+    net=(RNADNetwork(state_features=STATE_FEATURES_V5,
+                     action_features=ACTION_FEATURES_V5)
+         if features_v5 else
+         RNADNetwork(state_features=STATE_FEATURES_V3,
                      action_features=ACTION_FEATURES_V3)
          if features_v3 or features_v4 else RNADNetwork())
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V5 if features_v5 else
+                    THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
                     THREE_PHASE_FEATURE_SCHEMA_V3 if features_v3 else
                     THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
@@ -377,7 +392,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             pool.append((model_path,frozen,member['sha256']))
         if len({x[2] for x in pool})!=len(pool):
             raise ValueError('League opponents must be distinct')
-    model_id=('RNAD-005-3phase-v4' if features_v4 else
+    model_id=('RNAD-006-3phase-v5' if features_v5 else
+              'RNAD-005-3phase-v4' if features_v4 else
               'RNAD-004-3phase-v3' if features_v3 else
               'RNAD-003-3phase-v2' if features_v2 else
               'RNAD-002-3phase' if three_phase else 'RNAD-001')+(
@@ -441,6 +457,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         data=run_match(counter,net,magnet,path/'rollouts',
                        three_phase=three_phase,features_v2=features_v2,
                        features_v3=features_v3,features_v4=features_v4,
+                       features_v5=features_v5,
                        switch_guard=switch_guard,switch_cost=switch_cost,
                        opponent_path=member[0] if member else None,
                        learner_seat=learner_seat)
@@ -495,6 +512,7 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                 **({'reward_objective':switch_cost}
                     if switch_cost!='none' else {}),
                 'opponent_policy_version':(
+                    'RNAD-006-v5-selfplay' if features_v5 else
                     'RNAD-005-v4-selfplay' if features_v4 else
                     'RNAD-004-v3-selfplay' if features_v3 else
                     'RNAD-003-v2-selfplay' if features_v2
@@ -517,7 +535,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         summaries.append({'seed':data['seed'],'winner':data['winner'],
                           'rounds':data['rounds'],**summary})
     export_json(net,path/'final-model.json',feature_schema=feature_schema)
-    report={'schema':'rnad-three-phase-v4-training-report-v1' if features_v4
+    report={'schema':'rnad-three-phase-v5-training-report-v1' if features_v5
+            else 'rnad-three-phase-v4-training-report-v1' if features_v4
             else 'rnad-three-phase-v3-training-report-v1' if features_v3
             else 'rnad-three-phase-v2-training-report-v1' if features_v2
             else 'rnad-three-phase-training-report-v1' if three_phase
@@ -560,6 +579,7 @@ if __name__=='__main__':
     parser.add_argument('--features-v2',action='store_true')
     parser.add_argument('--features-v3',action='store_true')
     parser.add_argument('--features-v4',action='store_true')
+    parser.add_argument('--features-v5',action='store_true')
     parser.add_argument('--phase-learning-profile',
       choices=list(PHASE_LEARNING_PROFILES),default='all')
     parser.add_argument('--updates-per-match',type=int,choices=(1,4),
@@ -578,6 +598,7 @@ if __name__=='__main__':
                            features_v2=args.features_v2,
                            features_v3=args.features_v3,
                            features_v4=args.features_v4,
+                           features_v5=args.features_v5,
                            phase_learning_profile=args.phase_learning_profile,
                            updates_per_match=args.updates_per_match,
                            migrate_from_v2=args.migrate_from_v2,
