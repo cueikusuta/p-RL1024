@@ -11,7 +11,10 @@ test('original AQ benchmark is pinned, never replaced by proxy teacher',()=>{
     'rnad-vs-original-aq-base-full-match-paired-v1');
   assert.equal(weightsSha256,
     '5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e');
-  assert.deepEqual(pairedHoeffding95(0,2),[0,1].map((_,i)=>i===0?0:1));
+  const interval=pairedHoeffding95(0,2);
+  assert.equal(interval[0],0);
+  assert.ok(interval[1]>0&&interval[1]<1);
+  assert.ok(interval[1]===Math.sqrt(Math.log(40)/4));
 });
 
 test('original AQ evaluation rejects unbounded/invalid/missing models before Match',()=>{

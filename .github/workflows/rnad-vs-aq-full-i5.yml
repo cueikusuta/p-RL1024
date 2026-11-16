@@ -1,6 +1,7 @@
 name: RNAD-I5 exact frozen AQ-Base versus v2 neural / hybrid pilot
 on:
-  # Initial bounded source-pinned 8-paired-seed research run only.
+  # Source-pinned retry after fixing a false 95% CI test expectation;
+  # first run failed before any real Match execution.
   push:
     branches: [feat/5-rnad-stage0-contracts]
     paths: ['.github/workflows/rnad-vs-aq-full-i5.yml']
