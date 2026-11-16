@@ -1,5 +1,6 @@
 {
   "schema": "rnad-i5-teacher-signal-audit-v1",
   "origin_run": 43957735875,
-  "expected_matches": 32
+  "expected_matches": 32,
+  "iteration": 2
 }
