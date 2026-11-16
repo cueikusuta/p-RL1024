@@ -1,6 +1,6 @@
 # Issue #5 — frozen standard and gacha actors: guarded new self-play learning
 
-**Experimental start (2026-11-16):** [GitHub-hosted CPU Actions #43781276450](https://github.com/cueikusuta/p-RL1024/actions/runs/43781276450). Source checkout of the triggered run is `275cd6cbf3b0149ab0307fb5a93b91cbab0d3f94`. A later edit of the workflow dispatch trigger does not modify this in-flight run.
+**Experimental start (2026-11-16):** [GitHub-hosted CPU Actions #43781276450](https://github.com/cueikusuta/p-RL1024/actions/runs/43781276450). The workflow event's PR HEAD is `275cd6cbf3b0149ab0307fb5a93b91cbab0d3f94`, but default `pull_request` checkout uses GitHub's synthetic merge commit. The actual training report independently recorded `source_sha=571bac81d62373ab063c2e1508b0647122786e80` for base128. Source SHA must be taken from the accepted-run model report, not confused with the PR HEAD. Editing the workflow dispatch trigger later does not modify the already-running checkout.
 
 ## Scope, objectives and interpretation
 
