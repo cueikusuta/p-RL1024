@@ -1,0 +1,85 @@
+name: RNAD-I5 frozen v2-v3 multi-policy composite against original AQ
+on:
+  # One fixed small multi-phase screen. Subsequent runs manually only.
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['.github/workflows/rnad-v2-v3-composite-aq-i5.yml']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-aq-v2-v3-frozen-composite-pilot
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions: {contents: read,actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        mode: [v3-battle,v2-battle,blend-half]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODE: ${{ matrix.mode }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Validate original Match and frozen v2/v3 source/model identities
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-composite-aq.test.js
+          mkdir -p models/v2 models/v3 results
+          gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-semantic-v2-43743143190 --dir models/v2
+          gh run download 43811192719 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-pilot-v3-u4-43811192719 --dir models/v3
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {createOpponent,weightsSha256} from './models/aq-base.mjs';
+          const h=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const v2='models/v2/aq-supervision-v2/trained-model.json';
+          const v3='models/v3/selfplay/final-model.json';
+          if(h(v2)!=='9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b'||
+             h(v3)!=='b80fdb5b41205573ededc3a3668523915a2891bd98acd2e9568c63a015ded09a'||
+             createOpponent().modelSha256!==weightsSha256)
+             throw new Error('Wrong frozen composite or original AQ model');
+          JS
+      - name: Compare frozen phase gates and ensemble versus actual AQ on 24 new paired seeds
+        run: |
+          node scripts/rnad/evaluate-composite-vs-aq.mjs \
+            --v2 models/v2/aq-supervision-v2/trained-model.json \
+            --v3 models/v3/selfplay/final-model.json \
+            --seed 1980001 --pairs 24 --mode "$MODE" --out "results/$MODE.json"
+      - name: Fail closed on source, hidden leak, complete seat or forged strength
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const a=JSON.parse(readFileSync('results/'+process.env.MODE+'.json'));
+          const src=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(a.schema!=='rnad-v2-v3-composite-vs-original-aq-paired-v1'||
+             a.source_sha!==src||a.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
+             a.v2_model_sha256!=='9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b'||
+             a.v3_model_sha256!=='b80fdb5b41205573ededc3a3668523915a2891bd98acd2e9568c63a015ded09a'||
+             a.seed!==1980001||a.pairs!==24||a.matches!==48||a.rows.length!==48||
+             a.champion_promoted!==false||
+             new Set(a.rows.map(x=>x.seed+':'+x.candidateSeat)).size!==48||
+             a.wins!==a.rows.filter(x=>x.won).length||
+             a.rows.some(x=>x.score[x.won?x.candidateSeat:1-x.candidateSeat]!==4))
+             throw new Error('Invalid full original AQ two-model research score');
+          console.log(JSON.stringify({mode:process.env.MODE,wins:a.wins,
+             rate:a.win_rate,ci95:a.paired_hoeffding_95pct}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-v2-v3-composite-${{ matrix.mode }}-${{ github.run_id }}
+          path: results/${{ matrix.mode }}.json
+          if-no-files-found: warn
+          retention-days: 30
