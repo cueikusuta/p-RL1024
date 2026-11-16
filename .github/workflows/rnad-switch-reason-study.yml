@@ -1,11 +1,7 @@
 name: RNAD-I5 frozen model switch-reason 8-Match diagnostic
 on:
-  # One bounded research launch on this new script's first push. Subsequent
-  # research is manual-only; never rerun heavy studies for unrelated PR sync.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths:
-      - 'scripts/rnad/reason-coverage-study.mjs'
+  # First source-pinned diagnostic is already queued as run #43810575487.
+  # No automatic repeated costly Matches on unrelated PR changes.
   workflow_dispatch:
 permissions: {}
 concurrency:
