@@ -58,3 +58,22 @@ test('same-phase stronger v4 model is compared on exact seats and frozen v3',()=
   assert.throws(()=>compareV4PhaseModels(base,{...candidate,
     v3_model_sha256:'e'.repeat(64)}));
 });
+
+test('P2 multiple phase comparisons widen familywise CI but never auto-promote',()=>{
+  const a=report('all-v3'),b=report('selection-v4',true);
+  const raw=compareV4PhaseArms(a,b);
+  const multi=compareV4PhaseArms(a,b,{familySize:6});
+  assert.equal(multi.familywise_comparisons,6);
+  assert.ok(multi.familywise_95pct_delta_bounds[0] <=
+            raw.conservative_95pct_delta_bounds[0]);
+  assert.ok(multi.familywise_95pct_delta_bounds[1] >=
+            raw.conservative_95pct_delta_bounds[1]);
+  assert.equal(multi.exploratory_screen_only,true);
+  assert.equal(multi.familywise_improvement_established,false);
+  assert.throws(()=>compareV4PhaseArms(a,b,{familySize:0}));
+  const c=report('selection-v4',true);
+  c.v4_model_sha256='d'.repeat(64);
+  const model=compareV4PhaseModels(report('selection-v4'),c,{familySize:6});
+  assert.equal(model.familywise_comparisons,6);
+  assert.equal(model.exploratory_screen_only,true);
+});
