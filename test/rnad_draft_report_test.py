@@ -42,7 +42,7 @@ class DraftReportTests(unittest.TestCase):
                 "total_draft_decisions":0,"shown_draft_decisions":0,"picks":[]}
         text=render_markdown(report)
         self.assertIn("教師が訪れた局面",text)
-        self.assertIn("未受理",text)
+        self.assertIn("受理した行動",text)
 
 if __name__=="__main__":
     unittest.main()
