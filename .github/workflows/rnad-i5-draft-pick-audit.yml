@@ -82,6 +82,23 @@ jobs:
           test -s results/draft-audit/DRAFT_PICKS.md
           cat results/draft-audit/DRAFT_PICKS.md >> "$GITHUB_STEP_SUMMARY"
           sed -n '1,105p' results/draft-audit/DRAFT_PICKS.md
+      - name: Download frozen v3 battle and selection control
+        run: |
+          set -euo pipefail
+          mkdir -p models/v3
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          test -s models/v3/selfplay/final-model.json
+      - name: Record actual accepted v4 draft choices in original AQ four-win Match
+        run: |
+          set -euo pipefail
+          node scripts/rnad/audit-live-draft-picks.mjs \
+            --v4 models/v4/artifacts/v4-utility/trained-model.json \
+            --v3 models/v3/selfplay/final-model.json \
+            --seed 2441001 --seat 0 --out results/draft-audit
+          test -s results/draft-audit/LIVE_DRAFT_PICKS.md
+          cat results/draft-audit/LIVE_DRAFT_PICKS.md >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,115p' results/draft-audit/LIVE_DRAFT_PICKS.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -89,5 +106,7 @@ jobs:
           path: |
             results/draft-audit/DRAFT_PICKS.md
             results/draft-audit/draft-picks.json
+            results/draft-audit/LIVE_DRAFT_PICKS.md
+            results/draft-audit/live-draft-picks.json
           retention-days: 30
           if-no-files-found: warn
