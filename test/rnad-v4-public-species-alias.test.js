@@ -18,9 +18,7 @@ const types=p=>[...data.species[p.speciesId].types].sort().join('/');
 const grouped=new Map();
 for(const p of all){const k=types(p);if(!grouped.has(k))grouped.set(k,[]);grouped.get(k).push(p);}
 const roster=all.slice(0,6).map((p,i)=>({...p,instanceId:'fixture-'+i}));
-function observation(foe){
-  const others=all.filter(x=>x.speciesNameJa!==foe.speciesNameJa)
-    .slice(0,5).map(x=>x.speciesNameJa);
+function observation(foe,others){
   return projectRnadObservation({phase:'selection',round:1,
     score:[0,0],budget:10,grant:10,
     self:{credits:10,team:structuredClone(roster)},
@@ -38,7 +36,9 @@ test('public opponent species identity is compressed to types in current v4; aud
     assert.ok(pairs.length>0,'Need two public species with identical types');
     let teacherChanges=0,featureAliases=0;
     for(const [x,y] of pairs){
-      const a=observation(x),b=observation(y);
+      const others=all.filter(p=>p.speciesNameJa!==x.speciesNameJa&&
+        p.speciesNameJa!==y.speciesNameJa).slice(0,5).map(p=>p.speciesNameJa);
+      const a=observation(x,others),b=observation(y,others);
       // Hold other five visible foes and our six sets fixed. The current
       // encoder must not leak private set data or magically reconstruct ID.
       if(JSON.stringify(a.opponent.species.slice(1))!==
