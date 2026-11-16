@@ -36,7 +36,7 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
     typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
     typeof featuresV4!=='boolean'||typeof utilityLabels!=='boolean'||
-    (utilityLabels&&(!featuresV4||teacher!=='aq-public-strategy-selection'))||
+    (utilityLabels&&teacher!=='aq-public-strategy-selection')||
     ((featuresV2||featuresV4)&&!threePhase)||(featuresV2&&featuresV4)||
     !['basic-stage0','aq-public-belief','aq-public-strategy-selection'].includes(teacher)||
     (teacher!=='basic-stage0'&&!threePhase))
