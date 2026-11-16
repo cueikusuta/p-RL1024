@@ -19,6 +19,7 @@ BATTLE_FEATURE_SCHEMA = "rnad-battle-features-v1"
 THREE_PHASE_FEATURE_SCHEMA = "rnad-three-phase-features-v1"
 THREE_PHASE_FEATURE_SCHEMA_V2 = "rnad-three-phase-features-v2"
 THREE_PHASE_FEATURE_SCHEMA_V3 = "rnad-three-phase-features-v3"
+THREE_PHASE_FEATURE_SCHEMA_V4 = "rnad-three-phase-features-v4"
 STATE_FEATURES_V3 = 48
 ACTION_FEATURES_V3 = 32
 
@@ -74,9 +75,11 @@ def freeze_magnet(model):
 def export_json(model, path, *, feature_schema=BATTLE_FEATURE_SCHEMA):
     if feature_schema not in (BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA,
                               THREE_PHASE_FEATURE_SCHEMA_V2,
-                              THREE_PHASE_FEATURE_SCHEMA_V3):
+                              THREE_PHASE_FEATURE_SCHEMA_V3,
+                              THREE_PHASE_FEATURE_SCHEMA_V4):
         raise ValueError("Invalid RNAD export feature schema")
-    if ((feature_schema == THREE_PHASE_FEATURE_SCHEMA_V3) !=
+    if ((feature_schema in (THREE_PHASE_FEATURE_SCHEMA_V3,
+                             THREE_PHASE_FEATURE_SCHEMA_V4)) !=
         (model.state_features == STATE_FEATURES_V3)):
         raise ValueError("Model/feature schema mismatch on export")
     # All model parameters have exact names and dimensions; no Python eval.
