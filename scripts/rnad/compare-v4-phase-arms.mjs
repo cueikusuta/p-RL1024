@@ -21,7 +21,7 @@ function verify(r){
     r.aq_base_model_sha256!==AQ_SHA||
     !exact(r.v4_model_sha256)||!exact(r.v3_model_sha256)||
     !Number.isSafeInteger(r.seed)||r.seed<1||
-    !Number.isSafeInteger(r.pairs)||r.pairs<1||r.pairs>100||
+    !Number.isSafeInteger(r.pairs)||r.pairs<1||r.pairs>2048||
     r.seed+r.pairs-1>0xffffffff||
     r.matches!==2*r.pairs||!Array.isArray(r.rows)||
     r.rows.length!==r.matches||!Number.isSafeInteger(r.wins)||
