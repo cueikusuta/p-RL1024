@@ -1,9 +1,7 @@
 name: RNAD-I5 phase-isolated draft selection battle policy ablation vs exact AQ
 on:
-  # One bounded push-time pilot; further 4-win AQ screening is manual-only.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-phase-individual-aq-i5.yml']
+  # One-shot phase-isolation experiment #43925113734 already launched.
+  # No automatic repeat AQ screening on PR sync; manual dispatch only.
   workflow_dispatch:
 permissions: {}
 concurrency:
