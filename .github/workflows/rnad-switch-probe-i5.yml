@@ -1,8 +1,7 @@
 name: RNAD-003 switching-rate and 3000-decision loop diagnosis
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-switch-probe-i5.yml']
+  # Two initial diagnostic seeds already queued in run #43778153444.
+  # Avoid duplicate long-round simulations on each PR synchronization.
   workflow_dispatch:
 permissions: {}
 jobs:
