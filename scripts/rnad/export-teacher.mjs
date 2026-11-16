@@ -18,6 +18,7 @@ import {playableSets} from '../../src/production-runtime.js';
 import data from '../../data/catalog/battle-data.json' with {type:'json'};
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 import {aqPublicUtilityScores} from './aq-public-utilities.mjs';
+import {summarizeAcceptedDraftPick} from './draft-pick-review.mjs';
 import {createPublicAQTeacher,AQ_TEACHER_ID,AQ_STRATEGY_SELECTION_TEACHER_ID,AQ_WEIGHTS_SHA256}
   from './aq-teacher-policy.mjs';
 
@@ -35,11 +36,12 @@ function stage0ThreePhaseTeacher({observation,legalActions,rng}){
 }
 export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0',
   featuresV2=false,featuresV4=false,featuresV5=false,
-  utilityLabels=false}={}){
+  utilityLabels=false,draftReview=false}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
     typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
     typeof featuresV4!=='boolean'||typeof featuresV5!=='boolean'||
-    typeof utilityLabels!=='boolean'||
+    typeof utilityLabels!=='boolean'||typeof draftReview!=='boolean'||
+    (draftReview&&(!utilityLabels||!threePhase))||
     (utilityLabels&&teacher!=='aq-public-strategy-selection')||
     ((featuresV2||featuresV4||featuresV5)&&!threePhase)||
     Number(featuresV2)+Number(featuresV4)+Number(featuresV5)>1||
@@ -83,12 +85,15 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
       JSON.stringify(x)===JSON.stringify(record.accepted_action));
     if(choice<0||choice>=f.actions.length)
       throw new Error('Accepted teacher action is not legal');
+    const utilities=utilityLabels&&record.phase!=='battle'?
+      aqPublicUtilityScores(record.observation,record.legal_actions,choice):null;
     return {actor:seat,phase:record.phase,
       state:f.state,actions:f.actions,
       choice,terminal_target:seat===match.winner?1:-1,
-      ...(utilityLabels&&record.phase!=='battle'?{
-        candidate_utilities:aqPublicUtilityScores(
-          record.observation,record.legal_actions,choice)}:{})};
+      ...(utilities?{candidate_utilities:utilities}:{}),
+      ...(draftReview&&record.phase==='draft'?{
+        draft_review:summarizeAcceptedDraftPick(
+          record.observation,record.legal_actions,choice,utilities,data)}:{})};
   });
   if(examples.length!==match.actionCounts[0]+match.actionCounts[1]+
     (threePhase?4*match.rounds:0)||
@@ -120,7 +125,7 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
   const inputs={};
   for(let i=0;i<args.length;i+=2){
     const k=args[i]?.slice(2);
-    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2','features-v4','features-v5','utility-labels'].includes(k)||
+    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2','features-v4','features-v5','utility-labels','draft-review'].includes(k)||
       Object.hasOwn(inputs,k))throw new Error('Invalid teacher CLI option');
     inputs[k]=args[i+1];
   }
@@ -129,7 +134,8 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
     (inputs['features-v2']!==undefined&&inputs['features-v2']!=='true')||
     (inputs['features-v4']!==undefined&&inputs['features-v4']!=='true')||
     (inputs['features-v5']!==undefined&&inputs['features-v5']!=='true')||
-    (inputs['utility-labels']!==undefined&&inputs['utility-labels']!=='true'))
+    (inputs['utility-labels']!==undefined&&inputs['utility-labels']!=='true')||
+    (inputs['draft-review']!==undefined&&inputs['draft-review']!=='true'))
     throw new Error('Usage: --seed N --out FILE [--three-phase true]');
   const trace=createTeacherMatch(Number(inputs.seed),
     {threePhase:inputs['three-phase']==='true',
@@ -137,7 +143,8 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
      featuresV2:inputs['features-v2']==='true',
      featuresV4:inputs['features-v4']==='true',
      featuresV5:inputs['features-v5']==='true',
-     utilityLabels:inputs['utility-labels']==='true'});
+     utilityLabels:inputs['utility-labels']==='true',
+     draftReview:inputs['draft-review']==='true'});
   writeFileSync(inputs.out,JSON.stringify(trace)+'\n',{flag:'wx'});
   process.stdout.write(JSON.stringify({seed:trace.seed,
     score:trace.score,examples:trace.examples.length})+'\n');
