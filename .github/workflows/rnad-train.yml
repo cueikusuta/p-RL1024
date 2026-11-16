@@ -1,14 +1,7 @@
 name: RNAD-001 GitHub-hosted CPU train and paired evaluation
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/rnad/**'
-      - 'src/ml/**'
-      - 'scripts/dev/simulator/rnad-match.js'
-      - 'test/rnad*'
-      - 'requirements-rnad.txt'
-      - '.github/workflows/rnad-train.yml'
+  # Existing smoke and full-resume tests have passed repeatedly on PR #6.
+  # Trigger full PyTorch training manually; lightweight Stage 0 remains on PR.
   workflow_dispatch:
     inputs:
       matches:

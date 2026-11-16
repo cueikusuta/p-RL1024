@@ -1,18 +1,7 @@
 name: RNAD-002 GitHub-hosted 3-phase neural Match smoke
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/ml/rnad-phase-features.js'
-      - 'scripts/dev/simulator/rnad-match.js'
-      - 'scripts/rnad/train.py'
-      - 'scripts/rnad/neural.py'
-      - 'scripts/rnad/infer.mjs'
-      - 'scripts/rnad/export-trajectory.mjs'
-      - 'scripts/rnad/verify_resume.py'
-      - 'test/rnad-three-phase.test.js'
-      - 'test/rnad-phase-features.test.js'
-      - '.github/workflows/rnad-three-phase.yml'
+  # Full three-phase training smoke passed on preceding PR heads.
+  # Keep research CPU work opt-in; Stage 0 contract tests still run on PR.
   workflow_dispatch:
 permissions: {}
 concurrency:

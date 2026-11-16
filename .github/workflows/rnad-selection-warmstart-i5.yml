@@ -1,8 +1,7 @@
 name: RNAD-I5 selection loss frozen-v2 weight-only finetune (8 Match)
 on:
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-selection-warmstart-i5.yml']
+  # Frozen model warm-start ablation completed in run #43814527628.
+  # Prevent accidental repeat training on unrelated source commits.
   workflow_dispatch:
 permissions: {}
 concurrency:
