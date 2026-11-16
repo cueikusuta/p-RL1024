@@ -1,6 +1,6 @@
 {
   "schema": "rnad-i5-study-seed-ledger-v1",
-  "scope": "I5 phase-improvement known runs 2010001..2090064 only; older unrelated research not attested",
+  "scope": "I5 registered phase-improvement blocks 2010001..2104016 only; older/unregistered research not attested",
   "selected_screen_run": 43962423945,
   "entries": [
     {
@@ -122,6 +122,11 @@
       "id": "selected-blend-confirm",
       "start": 2090001,
       "count": 64
+    },
+    {
+      "id": "teacher-phase-value",
+      "start": 2104001,
+      "count": 16
     }
   ]
 }
