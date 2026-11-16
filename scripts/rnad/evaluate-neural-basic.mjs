@@ -13,6 +13,8 @@ import {RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
 import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
   from '../../src/ml/rnad-phase-features-v2.js';
+import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V3}
+  from '../../src/ml/rnad-phase-features-v3.js';
 import {pairedHoeffding95} from './aggregate-eval.mjs';
 import {verifiedRunningSourceSha} from '../dev/simulator/rnad-match.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
@@ -45,14 +47,21 @@ export function evaluateThreePhaseAgainstBasic({
         epsilon:0,selectionMode
       })):selectionMode==='sample'?new RNADMixedPolicy({
         model,magnet:new PersistentRNADInference(modelPath),epsilon:0}):null;
-    if(![RNAD_THREE_PHASE_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2]
-      .includes(model.featureSchema))
+    const useHistory=model.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V3;
+    if(![RNAD_THREE_PHASE_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2,
+      RNAD_THREE_PHASE_FEATURE_SCHEMA_V3].includes(model.featureSchema))
       throw new Error('Requires separate true three-phase neural actor');
+    const acceptedHistory={lastKind:'none',consecutiveSwitches:0,
+      lastSwitchTarget:-1,lastActive:-1};
     function agent(phase){
+      let pendingOwn=null;
       return {id:'RNAD-002-frozen-'+phase+
           (switchGuard===RNAD_SWITCH_GUARD?'-'+switchGuard:''),
         select({view,seat,rng,round}){
           const observation=projectRnadObservation(view,{seat});
+          if(useHistory)observation.acceptedHistory={...acceptedHistory};
+          pendingOwn={active:observation.self?.active??-1,
+            requestType:observation.requestType??null};
           if(observation.phase!==phase)
             throw new Error('Wrong projected neural phase');
           const legalActions=rnadLegalActions(view);
@@ -64,10 +73,34 @@ export function evaluateThreePhaseAgainstBasic({
           }
           return ai.choose({observation,legalActions,seat,rng}).action;
         },
-        ...(switchGuard===RNAD_SWITCH_GUARD?{
+        ...((switchGuard===RNAD_SWITCH_GUARD||useHistory)?{
           accepted({seat,round,action}){
-            // Called after trusted Match acceptance, not at proposal.
-            ai.accepted({seat,round,phase,action});
+            // Called after authority acceptance, not from the proposal.
+            if(useHistory){
+              if(phase==='battle'&&pendingOwn?.requestType==='turn'){
+                acceptedHistory.lastActive=Number.isSafeInteger(pendingOwn.active)?
+                  pendingOwn.active:-1;
+                if(action?.kind==='switch'){
+                  acceptedHistory.lastKind='switch';
+                  acceptedHistory.consecutiveSwitches=
+                    Math.min(3000,acceptedHistory.consecutiveSwitches+1);
+                  acceptedHistory.lastSwitchTarget=Number.isSafeInteger(action.index)?
+                    action.index:-1;
+                }else{
+                  acceptedHistory.lastKind='move';
+                  acceptedHistory.consecutiveSwitches=0;
+                  acceptedHistory.lastSwitchTarget=-1;
+                }
+              }else{
+                acceptedHistory.lastKind=phase==='draft'?'draft':
+                  phase==='selection'?'selection':'none';
+                acceptedHistory.consecutiveSwitches=0;
+                acceptedHistory.lastSwitchTarget=-1;
+                acceptedHistory.lastActive=-1;
+              }
+            }
+            pendingOwn=null;
+            ai?.accepted?.({seat,round,phase,action});
           }
         }:{})};
     }
