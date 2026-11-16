@@ -8,6 +8,7 @@ import {createBuiltinPhaseAgents} from '../dev/simulator/phase-agents.js';
 import {projectRnadObservation,rnadLegalActions}
   from '../../src/ml/legal-action-adapter.js';
 import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
+import {RnadSwitchLoopGuard,RNAD_SWITCH_GUARD} from './switch-loop-guard.mjs';
 import {RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
 import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
@@ -25,35 +26,50 @@ export function greedyLegalIndex(logits){
   return best;
 }
 export function evaluateThreePhaseAgainstBasic({
-  modelPath,seed=997001,pairs=128,selectionMode='sample'}={}){
+  modelPath,seed=997001,pairs=128,selectionMode='sample',
+  switchGuard='none'}={}){
   if(typeof modelPath!=='string'||!modelPath||
     !Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
     !Number.isSafeInteger(pairs)||pairs<1||pairs>128||
     seed+pairs-1>0xffffffff||
-    !['sample','greedy'].includes(selectionMode))
+    !['sample','greedy'].includes(selectionMode)||
+    !['none',RNAD_SWITCH_GUARD].includes(switchGuard))
     throw new TypeError('Invalid independent Basic opponent evaluation');
   const modelSha256=createHash('sha256').update(readFileSync(modelPath)).digest('hex');
   let wins=0;const rows=[];
   for(let i=0;i<pairs;i++)for(const candidateSeat of [0,1]){
     const model=new PersistentRNADInference(modelPath);
-    const ai=selectionMode==='sample'?new RNADMixedPolicy({
-      model,magnet:new PersistentRNADInference(modelPath),epsilon:0}):null;
+    const ai=switchGuard===RNAD_SWITCH_GUARD?
+      new RnadSwitchLoopGuard(new RNADMixedPolicy({
+        model,magnet:new PersistentRNADInference(modelPath),
+        epsilon:0,selectionMode
+      })):selectionMode==='sample'?new RNADMixedPolicy({
+        model,magnet:new PersistentRNADInference(modelPath),epsilon:0}):null;
     if(![RNAD_THREE_PHASE_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2]
       .includes(model.featureSchema))
       throw new Error('Requires separate true three-phase neural actor');
     function agent(phase){
-      return {id:'RNAD-002-frozen-'+phase,
-        select({view,seat,rng}){
+      return {id:'RNAD-002-frozen-'+phase+
+          (switchGuard===RNAD_SWITCH_GUARD?'-'+switchGuard:''),
+        select({view,seat,rng,round}){
           const observation=projectRnadObservation(view,{seat});
           if(observation.phase!==phase)
             throw new Error('Wrong projected neural phase');
           const legalActions=rnadLegalActions(view);
+          if(switchGuard===RNAD_SWITCH_GUARD)
+            return ai.choose({observation,legalActions,seat,rng,round}).action;
           if(selectionMode==='greedy'){
             const result=model.inferProjected(observation,legalActions,seat);
             return legalActions[greedyLegalIndex(result.logits)];
           }
           return ai.choose({observation,legalActions,seat,rng}).action;
-        }};
+        },
+        ...(switchGuard===RNAD_SWITCH_GUARD?{
+          accepted({seat,round,action}){
+            // Called after trusted Match acceptance, not at proposal.
+            ai.accepted({seat,round,phase,action});
+          }
+        }:{})};
     }
     const player=createBuiltinPhaseAgents({
       draft:agent('draft'),selection:agent('selection'),battle:agent('battle')});
@@ -67,7 +83,11 @@ export function evaluateThreePhaseAgainstBasic({
     rows.push({seed:seed+i,candidateSeat,won,rounds:outcome.rounds,
       score:outcome.score});
   }
-  return {schema:'rnad-three-phase-vs-basic-paired-v1',
+  return {schema:switchGuard===RNAD_SWITCH_GUARD?
+      'rnad-three-phase-switch-guard-vs-basic-paired-v1':
+      'rnad-three-phase-vs-basic-paired-v1',
+    ...(switchGuard===RNAD_SWITCH_GUARD?
+      {deployment_policy:{switch_guard:switchGuard}}:{}),
     model_sha256:modelSha256,source_sha:verifiedRunningSourceSha(),
     inference_selection_mode:selectionMode,
     engine_sha:provenance.sourceCommit,opponent_id:'basic-all-phases',
@@ -76,8 +96,9 @@ export function evaluateThreePhaseAgainstBasic({
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const a=process.argv.slice(2),opts=new Map();
-  const allowed=new Set(['--model','--seed','--pairs','--out','--selection-mode']);
-  if(![8,10].includes(a.length))throw new Error('Invalid paired evaluation CLI');
+  const allowed=new Set(['--model','--seed','--pairs','--out','--selection-mode',
+    '--switch-guard']);
+  if(![8,10,12].includes(a.length))throw new Error('Invalid paired evaluation CLI');
   for(let i=0;i<a.length;i+=2){
     if(!allowed.has(a[i])||opts.has(a[i])||typeof a[i+1]!=='string')
       throw new Error('Invalid or duplicate paired evaluation option');
@@ -89,7 +110,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const report=evaluateThreePhaseAgainstBasic({
     modelPath:opts.get('--model'),
     seed:Number(opts.get('--seed')),pairs:Number(opts.get('--pairs')),
-    selectionMode:opts.get('--selection-mode')??'sample'});
+    selectionMode:opts.get('--selection-mode')??'sample',
+    switchGuard:opts.get('--switch-guard')??'none'});
   writeFileSync(opts.get('--out'),JSON.stringify(report,null,2)+'\n',{flag:'wx'});
   console.log(JSON.stringify({matches:report.matches,wins:report.wins,
     win_rate:report.win_rate,ci95:report.ci95}));
