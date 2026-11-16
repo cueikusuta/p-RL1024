@@ -63,7 +63,9 @@ def load_examples(path):
                 len(sc['features']) != 48 or len(sc['state_features']) != 96 or
                 not isinstance(sc.get('score'), list) or
                 len(sc['score']) != 2 or
-                sorted(sc['score'], reverse=True)[0] != 4 or
+                any(type(v) is not int or v < 0 or v > 4 for v in sc['score']) or
+                sc['score'][row['seat'] if sc['won'] else 1-row['seat']] != 4 or
+                sc['score'][1-row['seat'] if sc['won'] else row['seat']] >= 4 or
                 any(type(x) not in (int, float) or not math.isfinite(x)
                     for x in sc['features'] + sc['state_features'])):
                 raise ValueError('Invalid authorized outcome candidate')
@@ -73,8 +75,10 @@ def load_examples(path):
         if len(same_sig) != 1 or len(selections) != report['ranks']:
             raise ValueError('Non-matched intervention or repeated candidate')
         instances.append((row['seed'], row['seat'], samples))
-    if len(keys) != report['pairs'] * 2:
-        raise ValueError('Missing seat-swapped seed cluster')
+    if (len(keys) != report['pairs'] * 2 or
+        report.get('baseline_wins') != sum(int(row['scenarios'][0]['won'])
+                                           for row in report['rows'])):
+        raise ValueError('Missing seat-swapped seed cluster or forged baseline count')
     return report, instances
 
 
