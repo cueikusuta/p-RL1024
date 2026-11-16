@@ -52,7 +52,15 @@ function verify(r){
   return seen;
 }
 
-export function compareV4PhaseArms(baseline,candidate){
+const familySizeCheck=n=>{
+  if(!Number.isSafeInteger(n)||n<1||n>128)
+    throw new TypeError('Invalid exploratory family comparison count');
+  return n;
+};
+const boundedCI=(gain,width)=>[Math.max(-1,gain-width),Math.min(1,gain+width)];
+
+export function compareV4PhaseArms(baseline,candidate,{familySize=1}={}){
+  familySizeCheck(familySize);
   const a=verify(baseline),b=verify(candidate);
   if(signature(baseline)!==signature(candidate)||
      baseline.mode!=='all-v3'||candidate.mode==='all-v3'||
@@ -61,6 +69,7 @@ export function compareV4PhaseArms(baseline,candidate){
   const n=baseline.pairs;
   const gain=[...a].reduce((s,[key,v])=>s+b.get(key)-v,0)/(2*n);
   const width=Math.sqrt(2*Math.log(40)/n);
+  const familyWidth=Math.sqrt(2*Math.log(40*familySize)/n);
   return {schema:'rnad-exact-aq-v4-isolated-phase-paired-gain-v1',
     source_sha:baseline.source_sha,engine_sha:baseline.engine_sha,
     original_aq_sha256:baseline.aq_base_model_sha256,
@@ -72,14 +81,19 @@ export function compareV4PhaseArms(baseline,candidate){
     baseline_wins:baseline.wins,candidate_wins:candidate.wins,
     baseline_win_rate:baseline.win_rate,
     candidate_win_rate:candidate.win_rate,
-    delta:gain,conservative_95pct_delta_bounds:[
+    delta:gain,exploratory_screen_only:true,
+    familywise_comparisons:familySize,
+    familywise_95pct_delta_bounds:boundedCI(gain,familyWidth),
+    familywise_improvement_established:gain-familyWidth>0,
+    conservative_95pct_delta_bounds:[
       Math.max(-1,gain-width),Math.min(1,gain+width)],
     improved_with_95pct_confidence:gain-width>0,
     degraded_with_95pct_confidence:gain+width<0,
     strength_established:false,champion_promoted:false};
 }
 
-export function compareV4PhaseModels(baseline,candidate){
+export function compareV4PhaseModels(baseline,candidate,{familySize=1}={}){
+  familySizeCheck(familySize);
   const a=verify(baseline),b=verify(candidate);
   if(baseline.mode!==candidate.mode||
      !['draft-v4','selection-v4','both-v4'].includes(candidate.mode)||
@@ -94,6 +108,7 @@ export function compareV4PhaseModels(baseline,candidate){
   const n=baseline.pairs;
   const gain=[...a].reduce((s,[key,v])=>s+b.get(key)-v,0)/(2*n);
   const width=Math.sqrt(2*Math.log(40)/n);
+  const familyWidth=Math.sqrt(2*Math.log(40*familySize)/n);
   return {schema:'rnad-exact-aq-v4-phase-model-paired-gain-v1',
     source_sha:baseline.source_sha,engine_sha:baseline.engine_sha,
     aq_base_model_sha256:baseline.aq_base_model_sha256,
@@ -105,6 +120,9 @@ export function compareV4PhaseModels(baseline,candidate){
     baseline_wins:baseline.wins,candidate_wins:candidate.wins,
     baseline_win_rate:baseline.win_rate,
     candidate_win_rate:candidate.win_rate,paired_delta:gain,
+    exploratory_screen_only:true,familywise_comparisons:familySize,
+    familywise_95pct_delta_bounds:boundedCI(gain,familyWidth),
+    familywise_gain_established:gain-familyWidth>0,
     conservative_95pct_delta_bounds:[Math.max(-1,gain-width),
       Math.min(1,gain+width)],
     gain_established:gain-width>0,regression_established:gain+width<0,
