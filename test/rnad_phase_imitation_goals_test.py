@@ -54,6 +54,21 @@ class PhaseGoalsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare_heldout_imitation(base,new)
 
+    def test_explicit_v4_feature_upgrade_same_teacher_and_seed(self):
+        base=report()
+        new=copy.deepcopy(base)
+        new['student_model_sha256']='e'*64
+        new['feature_schema']='rnad-three-phase-features-v4'
+        with self.assertRaises(ValueError):
+            compare_heldout_imitation(base,new)
+        result=compare_heldout_imitation(base,new,allow_feature_upgrade=True)
+        self.assertTrue(result['feature_upgrade'])
+        self.assertFalse(result['strength_established'])
+        self.assertFalse(result['is_champion'])
+        new['teacher_id']='rnad-aq-public-belief-v2'
+        with self.assertRaises(ValueError):
+            compare_heldout_imitation(base,new,allow_feature_upgrade=True)
+
     def test_thresholds_are_not_strength_and_need_improvement(self):
         base=report()
         new=copy.deepcopy(base)
