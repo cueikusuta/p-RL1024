@@ -1,8 +1,7 @@
 name: RNAD-003 validate completed switch-guard A/B without rerunning Matches
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-switch-guard-archive-audit-i5.yml']
+  # Already queued the archive-only audit in #43779757849.
+  # Do not repeat even lightweight archive downloads on every PR sync.
   workflow_dispatch:
 permissions: {}
 jobs:
