@@ -175,12 +175,15 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
           teacher='basic-stage0',features_v2=False,features_v4=False,
           phase_balanced=False,
           phase_profile='equal',label_smoothing=0.0,reuse_teacher_traces=None,
-          initial_model=None,utility_distillation=False):
+          initial_model=None,utility_distillation=False,utility_mix=1.0):
     if (type(seed) is not int or type(matches) is not int or
         type(epochs) is not int or type(three_phase) is not bool or
         type(features_v2) is not bool or
         type(features_v4) is not bool or
         type(utility_distillation) is not bool or
+        type(utility_mix) not in (int,float) or
+        not math.isfinite(utility_mix) or not 0<=utility_mix<=1 or
+        (not utility_distillation and utility_mix!=1.0) or
         (utility_distillation and
          (not features_v4 or teacher!='aq-public-strategy-selection'
           or float(label_smoothing)!=0.0)) or
@@ -257,7 +260,10 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
                 phase=event.get('phase')
                 if utility_distillation and phase in phase_regret:
                     utilities=event.get('candidate_utilities')
-                    loss=utility_teacher_loss(logits,utilities,phase)
+                    soft=utility_teacher_loss(logits,utilities,phase)
+                    hard=F.cross_entropy(logits,
+                      torch.tensor([event['choice']]))
+                    loss=utility_mix*soft+(1-utility_mix)*hard
                     phase_regret[phase]+=normalized_utility_regret(
                         utilities,int(logits[0].argmax()))
                 else:
@@ -310,6 +316,7 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
             "phase_balanced":phase_balanced,
             "phase_profile":phase_profile,
             "utility_distillation":utility_distillation,
+            "utility_hard_label_mix":float(utility_mix),
             "label_smoothing":float(label_smoothing),
             "reused_authority_accepted_teacher_traces":
                 reuse_teacher_traces is not None,
@@ -344,6 +351,7 @@ if __name__=="__main__":
     p.add_argument("--features-v2",action="store_true")
     p.add_argument("--features-v4",action="store_true")
     p.add_argument("--utility-distillation",action="store_true")
+    p.add_argument("--utility-mix",type=float,default=1.0)
     p.add_argument("--phase-balanced",action="store_true")
     p.add_argument("--phase-profile",choices=["equal","draft-selection","selection-focus"],
                    default="equal")
@@ -359,6 +367,7 @@ if __name__=="__main__":
                            features_v2=args.features_v2,
                            features_v4=args.features_v4,
                            utility_distillation=args.utility_distillation,
+                           utility_mix=args.utility_mix,
                            phase_balanced=args.phase_balanced,
                            phase_profile=args.phase_profile,
                            label_smoothing=args.label_smoothing,
