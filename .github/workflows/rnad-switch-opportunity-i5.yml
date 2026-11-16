@@ -1,8 +1,7 @@
 name: RNAD-003 opportunity-cost switching — normal and c005 128-Match extended learning
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-switch-opportunity-i5.yml']
+  # First passing contracts run: 43787170970 (before this trigger edit).
+  # Keep costly study manual-only after the initial launch.
   workflow_dispatch:
 permissions: {}
 jobs:
