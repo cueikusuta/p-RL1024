@@ -1,9 +1,7 @@
 name: RNAD-I5 v3-U4 exact-checkpoint 64-to-128 continuation and original AQ AB
 on:
-  # One source-pinned 64-to-128 continuation; disable push after queuing.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-v3-u4-cont128-aq-i5.yml']
+  # One-off exact checkpoint continuation is #43829072730.
+  # No repeated training on source synchronization; manual only.
   workflow_dispatch:
 permissions: {}
 concurrency:
