@@ -29,7 +29,10 @@ jobs:
           import json
           from pathlib import Path
           m=json.loads(Path('docs/research/rnad/TEACHER_SIGNAL_AUDIT_MANIFEST.json').read_text())
-          if (m.get('schema')!='rnad-i5-teacher-signal-audit-v1' or\n              m.get('origin_run')!=43957735875 or\n              m.get('expected_matches')!=32 or\n              m.get('iteration') not in (1,2)):
+          if (m.get('schema')!='rnad-i5-teacher-signal-audit-v1' or
+              m.get('origin_run')!=43957735875 or
+              m.get('expected_matches')!=32 or
+              m.get('iteration') not in (1,2)):
               raise ValueError('Unregistered immutable AQ public teacher audit')
           PY
       - name: Reuse authority-accepted teacher traces from completed research artifact
