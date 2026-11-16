@@ -51,7 +51,7 @@ export function runRnadAcceptanceSmoke({
   phasePolicy=null,phasePolicies=null,
   policyVersion='rnad-stage0-fixed-untrained',opponentPolicyVersion=policyVersion,
   policyVersions=[policyVersion,policyVersion],
-  maxRounds=64,maxDecisionsPerRound=3000
+  maxRounds=64,maxDecisionsPerRound=3000,includeAcceptedHistory=false
 }={}){
   if(!positiveSeed(seed)||!hexSha(sourceSha)||!hexSha(engineSnapshotSha)||
     typeof matchId!=='string'||!matchId||typeof experimentId!=='string'||
@@ -64,6 +64,7 @@ export function runRnadAcceptanceSmoke({
     engineSnapshotSha!==provenance.sourceCommit||sourceSha!==verifiedRunningSourceSha()||
     typeof policyVersion!=='string'||!policyVersion||
     typeof opponentPolicyVersion!=='string'||!opponentPolicyVersion||
+    typeof includeAcceptedHistory!=='boolean'||
     !Array.isArray(policyVersions)||policyVersions.length!==2||
     policyVersions.some(x=>typeof x!=='string'||!x))
     throw new TypeError('Invalid RNAD smoke provenance or policy');
@@ -76,13 +77,21 @@ export function runRnadAcceptanceSmoke({
   const agents=[0,1].map(seat=>{
     const collector=collectors[seat];
     const seatPhasePolicy=phasePolicies?.[seat]??phasePolicy;
+    const acceptedHistory={lastKind:'none',consecutiveSwitches:0,
+      lastSwitchTarget:-1,lastActive:-1};
     // A single per-seat collector follows accepted draft -> selection ->
     // Battle in order.  The other seat's pending action is never visible.
     function actor(stage){
+      let pendingOwn=null;
       return {
         id:seatPhasePolicy?'rnad-three-phase-'+stage:'rnad-stage0-actor',
         select({view,context,round,rng}){
           const observation=projectRnadObservation(view,{seat,context});
+          if(includeAcceptedHistory)
+            observation.acceptedHistory={...acceptedHistory};
+          // Proposal alone must not update trusted history.
+          pendingOwn={active:observation.self?.active??-1,
+            requestType:observation.requestType??null};
           const legalActions=rnadLegalActions(view);
           const choose=seatPhasePolicy??policy;
           const proposed=choose({observation,legalActions,round,seat,rng});
@@ -102,6 +111,30 @@ export function runRnadAcceptanceSmoke({
         accepted({action,authorityReceipt,round}){
           const index=collector.commit(action,authorityReceipt)-1;
           timeline.push({seat,index});
+          if(includeAcceptedHistory){
+            if(stage==='battle'&&pendingOwn?.requestType==='turn'){
+              acceptedHistory.lastActive=Number.isSafeInteger(pendingOwn.active)?
+                pendingOwn.active:-1;
+              if(action?.kind==='switch'){
+                acceptedHistory.lastKind='switch';
+                acceptedHistory.consecutiveSwitches=
+                  Math.min(3000,acceptedHistory.consecutiveSwitches+1);
+                acceptedHistory.lastSwitchTarget=Number.isSafeInteger(action.index)?
+                  action.index:-1;
+              }else{
+                acceptedHistory.lastKind='move';
+                acceptedHistory.consecutiveSwitches=0;
+                acceptedHistory.lastSwitchTarget=-1;
+              }
+            }else{
+              acceptedHistory.lastKind=stage==='draft'?'draft':
+                stage==='selection'?'selection':'none';
+              acceptedHistory.consecutiveSwitches=0;
+              acceptedHistory.lastSwitchTarget=-1;
+              acceptedHistory.lastActive=-1;
+            }
+          }
+          pendingOwn=null;
           // Optional trusted policy memory may update only after the
           // one-use authoritative Match receipt has been consumed.
           seatPhasePolicy?.accepted?.({seat,round,phase:stage,action});
