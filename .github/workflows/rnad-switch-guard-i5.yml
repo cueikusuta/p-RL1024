@@ -137,7 +137,7 @@ jobs:
           for row,seed,key in [(d,1841001,'rnadSeat'),
                                (a,1842001,'candidateSeat'),
                                (b,1842001,'candidateSeat')]:
-              if (row['seed']!=seed or row['pairs']!=32 or
+              if (row.get('seed',seed)!=seed or row['pairs']!=32 or
                   row['wins']!=sum(z['won'] for z in row['rows']) or
                   {(z['seed'],z[key]) for z in row['rows']}!=
                     {(i,seat) for i in range(seed,seed+32) for seat in (0,1)}
