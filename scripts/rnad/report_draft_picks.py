@@ -54,7 +54,8 @@ def _validate(record, event, view):
     best = max(event["candidate_utilities"])
     if best-event["candidate_utilities"][event["choice"]] > 1e-5:
         raise ValueError("Accepted AQ utility mismatch")
-    if _candidate(view, event["choice"])["cost"] != view["accepted_spent"]:
+    if (_candidate(view, event["choice"])["cost"] != view["accepted_spent"] or
+        view["accepted_spent"] > view["credits"]):
         raise ValueError("Draft budget review mismatch")
 
 def generate(traces, model_path=None, max_picks=40):
