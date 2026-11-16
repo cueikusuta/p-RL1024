@@ -16,6 +16,8 @@ import {encodeRnadThreePhaseDecisionV2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
   from '../../src/ml/rnad-phase-features-v2.js';
 import {encodeRnadThreePhaseDecisionV3,RNAD_THREE_PHASE_FEATURE_SCHEMA_V3}
   from '../../src/ml/rnad-phase-features-v3.js';
+import {encodeRnadThreePhaseDecisionV4,RNAD_THREE_PHASE_FEATURE_SCHEMA_V4}
+  from '../../src/ml/rnad-phase-features-v4.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
 function argsMap(argv){
@@ -29,15 +31,17 @@ function argsMap(argv){
 }
 export function createLearningTrajectory({seed,modelPath,magnetPath,
   matchId='rnad-match-'+seed,epsilon=.02,threePhase=false,
-  featuresV2=false,featuresV3=false,switchGuard='none',switchCost='none',
+  featuresV2=false,featuresV3=false,featuresV4=false,
+  switchGuard='none',switchCost='none',
   opponentModelPath=null,learnerSeat=null}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
      !['none',RNAD_SWITCH_GUARD].includes(switchGuard)||
      !['none',SWITCH_OPPORTUNITY_OBJECTIVE].includes(switchCost)||
+     (featuresV4&&(featuresV2||featuresV3||!threePhase))||
      (featuresV3&&(featuresV2||!threePhase))||
      (switchCost!== 'none'&&
        (switchGuard!==RNAD_SWITCH_GUARD||!threePhase||
-        !(featuresV2||featuresV3))))
+        !(featuresV2||featuresV3||featuresV4))))
     throw new TypeError('Invalid bounded RNAD seed or guarded policy');
   const league=opponentModelPath!==null;
   if(league&&(!featuresV3||switchGuard!==RNAD_SWITCH_GUARD||
@@ -52,12 +56,13 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
     model:new PersistentRNADInference(modelPath),
     magnet:new PersistentRNADInference(magnetPath),epsilon
   });
-  const featureSchema=featuresV3?RNAD_THREE_PHASE_FEATURE_SCHEMA_V3:
+  const featureSchema=featuresV4?RNAD_THREE_PHASE_FEATURE_SCHEMA_V4:
+    featuresV3?RNAD_THREE_PHASE_FEATURE_SCHEMA_V3:
     featuresV2?RNAD_THREE_PHASE_FEATURE_SCHEMA_V2:
     threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA;
   if(typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
-    typeof featuresV3!=='boolean'||
-    ((featuresV2||featuresV3)&&!threePhase)||
+    typeof featuresV3!=='boolean'||typeof featuresV4!=='boolean'||
+    ((featuresV2||featuresV3||featuresV4)&&!threePhase)||
     neural.model.featureSchema!==featureSchema)
     throw new TypeError('RNAD model and rollout feature schemas disagree');
   if(switchGuard===RNAD_SWITCH_GUARD&&!threePhase)
@@ -79,21 +84,24 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
     return policy;
   }):null;
   const result=runRnadAcceptanceSmoke({
-    seed,matchId,experimentId:(featuresV3?'RNAD-004-3phase-v3':
+    seed,matchId,experimentId:(featuresV4?'RNAD-005-3phase-v4':
+      featuresV3?'RNAD-004-3phase-v3':
       featuresV2?'RNAD-003-3phase-v2':
       threePhase?'RNAD-002-3phase':'RNAD-001')+
       (guarded?'-'+RNAD_SWITCH_GUARD:'')+objectiveSuffix,
     sourceSha:verifiedRunningSourceSha(),
     engineSnapshotSha:provenance.sourceCommit,
-    opponentPolicyVersion:(featuresV3?'RNAD-004-three-phase-v3':
+    opponentPolicyVersion:(featuresV4?'RNAD-005-three-phase-v4':
+      featuresV3?'RNAD-004-three-phase-v3':
       featuresV2?'RNAD-003-three-phase-v2':
       threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner')+
       (guarded?'-'+RNAD_SWITCH_GUARD:'')+objectiveSuffix,
-    policyVersion:(featuresV3?'RNAD-004-three-phase-v3':
+    policyVersion:(featuresV4?'RNAD-005-three-phase-v4':
+      featuresV3?'RNAD-004-three-phase-v3':
       featuresV2?'RNAD-003-three-phase-v2':
       threePhase?'RNAD-002-three-phase':'RNAD-001-neural-learner')+
       (guarded?'-'+RNAD_SWITCH_GUARD:'')+objectiveSuffix,
-    includeAcceptedHistory:featuresV3,
+    includeAcceptedHistory:featuresV3||featuresV4,
     ...(league?{policyVersions:[0,1].map(seat=>
       (featuresV3?'RNAD-004-three-phase-v3':'RNAD-003-three-phase-v2')+
       '-'+RNAD_SWITCH_GUARD+(seat===learnerSeat?
@@ -122,7 +130,9 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
     if(!guarded&&row.policy_eligible_actions)
       throw new Error('Unexpected guarded Actor support in unguarded learning');
     const support=row.policy_eligible_actions??row.legal_actions;
-    const encoded=featuresV3?
+    const encoded=featuresV4?
+      encodeRnadThreePhaseDecisionV4(row.observation,support):
+      featuresV3?
       encodeRnadThreePhaseDecisionV3(row.observation,support):
       featuresV2?
       encodeRnadThreePhaseDecisionV2(row.observation,support):
@@ -155,7 +165,9 @@ export function createLearningTrajectory({seed,modelPath,magnetPath,
   const payoff0=result.winner===0?1:-1;
   events.at(-1).reward[0]+=payoff0;
   events.at(-1).reward[1]-=payoff0;
-  return {schema:featuresV3?
+  return {schema:featuresV4?
+      'rnad-accepted-three-phase-v4-training-match-v1':
+      featuresV3?
       'rnad-accepted-three-phase-v3-training-match-v1':
       opportunity?
       'rnad-accepted-three-phase-v2-opportunity-training-match-v1':
@@ -184,6 +196,7 @@ if(process.argv[1]?.endsWith('/export-trajectory.mjs')){
   if((a['three-phase']!==undefined&&a['three-phase']!=='true')||
      (a['features-v2']!==undefined&&a['features-v2']!=='true')||
      (a['features-v3']!==undefined&&a['features-v3']!=='true')||
+     (a['features-v4']!==undefined&&a['features-v4']!=='true')||
      (a['switch-guard']!==undefined&&a['switch-guard']!==RNAD_SWITCH_GUARD)||
      (a['switch-cost']!==undefined&&
       a['switch-cost']!==SWITCH_OPPORTUNITY_OBJECTIVE)||
@@ -195,6 +208,7 @@ if(process.argv[1]?.endsWith('/export-trajectory.mjs')){
     threePhase:a['three-phase']==='true',
     featuresV2:a['features-v2']==='true',
     featuresV3:a['features-v3']==='true',
+    featuresV4:a['features-v4']==='true',
     switchGuard:a['switch-guard']??'none',
     switchCost:a['switch-cost']??'none',
     opponentModelPath:a['opponent-model']??null,
