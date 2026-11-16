@@ -3,11 +3,11 @@
 import {analyzeSetCapabilities} from '../../src/ai/set-capabilities.js';
 
 const safeInt=x=>Number.isSafeInteger(x)&&x>=0;
-export function summarizeAcceptedDraftPick(observation,legalActions,choice,utilities,data){
+export function summarizeAcceptedDraftPick(observation,legalActions,choice,utilities,data,requireTeacherBest=true){
   if(observation?.phase!=='draft'||!Array.isArray(legalActions)||
      !legalActions.length||!safeInt(choice)||choice>=legalActions.length||
      !Array.isArray(utilities)||utilities.length!==legalActions.length||
-     utilities.some(x=>!Number.isFinite(x)))
+     utilities.some(x=>!Number.isFinite(x))||typeof requireTeacherBest!=='boolean')
     throw new TypeError('Invalid accepted draft review inputs');
   const carry=observation.self?.carry??[];
   const fresh=observation.self?.fresh??[];
@@ -44,7 +44,8 @@ export function summarizeAcceptedDraftPick(observation,legalActions,choice,utili
     utilities[b]-utilities[a]||a-b);
   const picked=candidates[choice];
   const pickedSpent=picked.reduce((s,i)=>s+roster[i].credit_cost,0);
-  if(pickedSpent>credits||utilities[ranks[0]]-utilities[choice]>1e-5)
+  if(pickedSpent>credits||(requireTeacherBest&&
+      utilities[ranks[0]]-utilities[choice]>1e-5))
     throw new Error('Untrusted draft utility or accepted choice');
   return {
     schema:'rnad-accepted-draft-pick-review-v1',
