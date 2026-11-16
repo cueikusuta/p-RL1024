@@ -1,10 +1,7 @@
 name: RNAD-I5 v3-U4 exact-checkpoint 128-to-256 continuation and original AQ AB
 on:
-  # One bounded source-pinned 128-to-256 exact continuation.
-  # This launch-only push trigger is disabled after the run queues.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-v3-u4-cont256-aq-i5.yml']
+  # Full-state continuation run #43924729663 was source-pinned and queued.
+  # Further research is manual-only; never retrain on PR synchronization.
   workflow_dispatch:
 permissions: {}
 concurrency:
