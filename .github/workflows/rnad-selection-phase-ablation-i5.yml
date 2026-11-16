@@ -1,9 +1,7 @@
 name: RNAD-I5 bounded selection-vs-equal AQ imitation diagnostic
 on:
-  # One small real-trace paired study, then switch to manual dispatch only.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-selection-phase-ablation-i5.yml']
+  # Already launched the bounded comparative study as run #43813688708.
+  # Do not automatically repeat real-Match learning on PR synchronization.
   workflow_dispatch:
 permissions: {}
 concurrency:
