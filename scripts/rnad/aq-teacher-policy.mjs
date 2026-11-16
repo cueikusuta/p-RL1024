@@ -4,6 +4,8 @@
 // is intentionally not sent through the RNAD seat projection.
 import {chooseStrategyTeam} from '../../src/ai/team-assessment.js';
 import {chooseTacticalSelection} from '../../src/ai/selection-tactical.js';
+import {rankStrategySelections} from '../../src/ai/team-assessment.js';
+import {mapPublicAQSelectionScores} from './selection-oracle.mjs';
 import {rankStrategyV2Actions,commitStrategyV2Choice}
   from '../../aq-runtime/src/ai/strategy-v2.js';
 import {assessCompactMatchup,assessMatchup}
@@ -19,10 +21,13 @@ import data from '../../data/catalog/battle-data.json' with {type:'json'};
 import {RNAD_OBSERVATION_SCHEMA} from '../../src/ml/legal-action-adapter.js';
 
 export const AQ_TEACHER_ID='rnad-aq-public-belief-v2';
+export const AQ_STRATEGY_SELECTION_TEACHER_ID='rnad-aq-public-strategy-selection-v1';
 export {AQ_WEIGHTS_SHA256};
 const sign=x=>JSON.stringify(x);
 const v2Weights=Object.freeze({blend:.28,exposure:.75,continuation:.4});
-export function createPublicAQTeacher(){
+export function createPublicAQTeacher({selectionMode='tactical'}={}){
+  if(!['tactical','strategy-public'].includes(selectionMode))
+    throw new TypeError('Unsupported versioned public AQ selection mode');
   const model=createAQ();
   const seats=[0,1].map(()=>({
     round:0,belief:null,memory:{},selected:[],guard:createI877AntiStall({maxNonAttacks:5}),
@@ -46,7 +51,12 @@ export function createPublicAQTeacher(){
     if(observation.phase==='draft'){
       proposed=chooseStrategyTeam(observation,{data,fastDraftValidation:true});
     }else if(observation.phase==='selection'){
-      proposed=chooseTacticalSelection(observation,{data,sets:playableSets});
+      if(selectionMode==='strategy-public'){
+        const ranking=rankStrategySelections(observation,{catalog:playableSets,data});
+        proposed=mapPublicAQSelectionScores(ranking,legalActions).bestAction;
+      }else{
+        proposed=chooseTacticalSelection(observation,{data,sets:playableSets});
+      }
       own.pending={round,phase:'selection',action:proposed,
         roster:observation.self.team};
     }else{
