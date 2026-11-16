@@ -266,7 +266,8 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
     for (logits,value),est,term in zip(inputs,targets,terms):
         if logits is None:
             continue  # Frozen league actor is an opponent, never train it.
-        if not phase_eligible_for_loss(term['phase'],phase_learning_profile):
+        if (phase_learning_profile!='all' and
+            not phase_eligible_for_loss(term['phase'],phase_learning_profile)):
             continue  # All phases still advance GRU/target and V-trace history.
         policy_losses.append(neurd_policy_loss(logits,est['q_targets'],
                                                 beta=2.0,q_clip=10.0,
