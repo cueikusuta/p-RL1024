@@ -15,6 +15,7 @@ import {chooseTeam,chooseSelection} from '../dev/simulator/draft-ai.js';
 import {playableSets} from '../../src/production-runtime.js';
 import data from '../../data/catalog/battle-data.json' with {type:'json'};
 import provenance from '../../provenance/manifest.json' with {type:'json'};
+import {aqPublicUtilityScores} from './aq-public-utilities.mjs';
 import {createPublicAQTeacher,AQ_TEACHER_ID,AQ_STRATEGY_SELECTION_TEACHER_ID,AQ_WEIGHTS_SHA256}
   from './aq-teacher-policy.mjs';
 
@@ -31,10 +32,11 @@ function stage0ThreePhaseTeacher({observation,legalActions,rng}){
     referenceLogProbability:-Math.log(legalActions.length),predictedValue:0};
 }
 export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0',
-  featuresV2=false,featuresV4=false}={}){
+  featuresV2=false,featuresV4=false,utilityLabels=false}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
     typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
-    typeof featuresV4!=='boolean'||
+    typeof featuresV4!=='boolean'||typeof utilityLabels!=='boolean'||
+    (utilityLabels&&(!featuresV4||teacher!=='aq-public-strategy-selection'))||
     ((featuresV2||featuresV4)&&!threePhase)||(featuresV2&&featuresV4)||
     !['basic-stage0','aq-public-belief','aq-public-strategy-selection'].includes(teacher)||
     (teacher!=='basic-stage0'&&!threePhase))
@@ -76,7 +78,10 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
       throw new Error('Accepted teacher action is not legal');
     return {actor:seat,phase:record.phase,
       state:f.state,actions:f.actions,
-      choice,terminal_target:seat===match.winner?1:-1};
+      choice,terminal_target:seat===match.winner?1:-1,
+      ...(utilityLabels&&record.phase!=='battle'?{
+        candidate_utilities:aqPublicUtilityScores(
+          record.observation,record.legal_actions,choice)}:{})};
   });
   if(examples.length!==match.actionCounts[0]+match.actionCounts[1]+
     (threePhase?4*match.rounds:0)||
@@ -98,6 +103,7 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
     teacher:aq?teacherId:
       threePhase?'basic-stage0-3phase':'stage0-fixed-untrained',
     ...(aq?{teacher_model_sha256:AQ_WEIGHTS_SHA256}:{}),
+    ...(utilityLabels?{utility_labels:'aq-public-phase-rank-v1'}:{}),
     rounds:match.rounds,action_counts:match.actionCounts,examples};
 }
 if(process.argv[1]?.endsWith('/export-teacher.mjs')){
@@ -106,20 +112,22 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
   const inputs={};
   for(let i=0;i<args.length;i+=2){
     const k=args[i]?.slice(2);
-    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2','features-v4'].includes(k)||
+    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2','features-v4','utility-labels'].includes(k)||
       Object.hasOwn(inputs,k))throw new Error('Invalid teacher CLI option');
     inputs[k]=args[i+1];
   }
   if(!inputs.seed||!inputs.out||
     (inputs['three-phase']!==undefined&&inputs['three-phase']!=='true')||
     (inputs['features-v2']!==undefined&&inputs['features-v2']!=='true')||
-    (inputs['features-v4']!==undefined&&inputs['features-v4']!=='true'))
+    (inputs['features-v4']!==undefined&&inputs['features-v4']!=='true')||
+    (inputs['utility-labels']!==undefined&&inputs['utility-labels']!=='true'))
     throw new Error('Usage: --seed N --out FILE [--three-phase true]');
   const trace=createTeacherMatch(Number(inputs.seed),
     {threePhase:inputs['three-phase']==='true',
      teacher:inputs.teacher??'basic-stage0',
      featuresV2:inputs['features-v2']==='true',
-     featuresV4:inputs['features-v4']==='true'});
+     featuresV4:inputs['features-v4']==='true',
+     utilityLabels:inputs['utility-labels']==='true'});
   writeFileSync(inputs.out,JSON.stringify(trace)+'\n',{flag:'wx'});
   process.stdout.write(JSON.stringify({seed:trace.seed,
     score:trace.score,examples:trace.examples.length})+'\n');
