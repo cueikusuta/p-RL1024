@@ -39,7 +39,7 @@ jobs:
           set -euo pipefail
           node scripts/verify-snapshot.mjs
           node --test test/rnad-v4-features.test.js test/rnad-selection-oracle.test.js test/rnad-public-strategy-teacher.test.js
-          python -m unittest test.rnad_phase_imitation_goals_test test.rnad_aq_imitation_metrics_test -v
+          python -m unittest discover -s test -p 'rnad_*_test.py' -v
       - name: Strict manifest and old v2 baseline integrity
         run: |
           set -euo pipefail
