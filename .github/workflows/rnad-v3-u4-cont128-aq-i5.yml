@@ -204,7 +204,7 @@ jobs:
              a.seed!==1983001||a.pairs!==64||a.matches!==128||
              a.rows.length!==128||a.champion_promoted!==false||
              a.wins!==a.rows.filter(x=>x.won).length||
-             new Set(a.rows.map(x=>x.seed+':'+x.candidateSeat)).size!==48)
+             new Set(a.rows.map(x=>x.seed+':'+x.candidateSeat)).size!==128)
             throw new Error('Untrusted or incomplete original AQ model comparison');
           console.log(JSON.stringify({variant:process.env.VARIANT,
              wins:a.wins,rate:a.win_rate,ci95:a.paired_hoeffding_95pct}));

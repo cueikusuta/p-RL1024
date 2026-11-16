@@ -1,0 +1,183 @@
+name: RNAD-I5 verify-only replay of exact 64-to-128 vs AQ experiment
+on:
+  # One corrected validation-only replay. NEVER rerun 128-Match training.
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['.github/workflows/rnad-v3-u4-aq-verify-only-i5.yml']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-aq-128-verify-replay
+  cancel-in-progress: false
+jobs:
+  replay:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions: {contents: read,actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        variant: [origin64, continued128]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VARIANT: ${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Exact prior benchmark code, not a new model implementation.
+          ref: 2fd4cfd8d550944c315fa525460c6331eb0ab3c6
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Assert fixed historical benchmark and original AQ contracts
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "2fd4cfd8d550944c315fa525460c6331eb0ab3c6"
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-vs-aq-full.test.js test/rnad-aq-aggregate.test.js
+      - name: Download already completed exact-checkpoint artifacts (no training)
+        run: |
+          set -euo pipefail
+          mkdir -p models/origin models/continued results
+          gh run download 43827510567 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-64-43827510567 --dir models/origin
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/continued
+          if [ "$VARIANT" = origin64 ]; then
+            cp models/origin/selfplay/final-model.json models/evaluated.json
+          else
+            cp models/continued/selfplay/final-model.json models/evaluated.json
+          fi
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {createOpponent,weightsSha256} from './models/aq-base.mjs';
+          const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const old='40482e0ef9c31216beedc34929a65e19277e4a4c30123e3eae0816679bb479c1';
+          const newModel='c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b';
+          const parent=sha('models/origin/selfplay/final-model.json');
+          const next=sha('models/continued/selfplay/final-model.json');
+          const chosen=sha('models/evaluated.json');
+          const lineage=JSON.parse(readFileSync('models/continued/continuation-report.json'));
+          if(parent!==old||next!==newModel||
+             lineage.origin_model_sha256!==parent||
+             lineage.continued_model_sha256!==next||
+             lineage.completed_accepted_matches!==128||
+             lineage.optimizer_updates!==512||
+             lineage.training_was_resumed!==true||
+             chosen!==(process.env.VARIANT==='origin64'?parent:next)||
+             createOpponent().modelSha256!==weightsSha256)
+            throw new Error('Wrong original AQ or 64/128 frozen checkpoint identity');
+          JS
+      - name: Replay 64 identical full 4-win AQ seed pairs for this variant
+        run: |
+          node scripts/rnad/evaluate-vs-aq-full.mjs \
+            --model models/evaluated.json --seed 1983001 --pairs 64 \
+            --phase-mode neural-all --switch-guard anti-loop-v1 \
+            --out "results/$VARIANT.json"
+      - name: Independently validate all 128 accepted complete Match rows
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {aggregateOriginalAQReports}
+            from './scripts/rnad/aggregate-original-aq.mjs';
+          import {weightsSha256} from './models/aq-base.mjs';
+          const v=process.env.VARIANT;
+          const r=JSON.parse(readFileSync('results/'+v+'.json'));
+          const actual=createHash('sha256')
+            .update(readFileSync('models/evaluated.json')).digest('hex');
+          const source='2fd4cfd8d550944c315fa525460c6331eb0ab3c6';
+          const check=aggregateOriginalAQReports([r],{
+            seedStart:1983001,seedCount:64});
+          if(r.model_sha256!==actual||r.source_sha!==source||
+             r.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
+             r.aq_base_model_sha256!==weightsSha256||
+             check.source_sha!==source||check.completed_matches!==128||
+             check.independent_paired_seeds!==64||
+             check.model_sha256!==actual||
+             check.champion_promoted!==false)
+            throw new Error('Incorrect AQ result, model, source, paired receipt or promotion');
+          console.log(JSON.stringify({variant:v,wins:r.wins,
+            matches:r.matches,win_rate:r.win_rate,
+            paired_hoeffding_95pct:r.paired_hoeffding_95pct}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-v3-aq-verified-${{ matrix.variant }}-${{ github.run_id }}
+          path: results/${{ matrix.variant }}.json
+          if-no-files-found: error
+          retention-days: 30
+  compare:
+    needs: replay
+    if: needs.replay.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {contents: read,actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 2fd4cfd8d550944c315fa525460c6331eb0ab3c6
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Download both artifact-backed full Match result blocks
+        run: |
+          set -euo pipefail
+          mkdir -p results/origin64 results/continued128
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --name "rnad-v3-aq-verified-origin64-$GITHUB_RUN_ID" \
+            --dir results/origin64
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --name "rnad-v3-aq-verified-continued128-$GITHUB_RUN_ID" \
+            --dir results/continued128
+      - name: Compute MATCHED-seed AQ gain with conservative 95 percent bound
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {aggregateOriginalAQReports}
+            from './scripts/rnad/aggregate-original-aq.mjs';
+          const old=JSON.parse(readFileSync('results/origin64/origin64.json'));
+          const newer=JSON.parse(readFileSync('results/continued128/continued128.json'));
+          const a=aggregateOriginalAQReports([old],{seedStart:1983001,seedCount:64});
+          const b=aggregateOriginalAQReports([newer],{seedStart:1983001,seedCount:64});
+          if(a.source_sha!==b.source_sha||a.engine_sha!==b.engine_sha||
+             a.model_sha256===b.model_sha256||
+             a.aq_base_model_sha256!==b.aq_base_model_sha256||
+             a.phase_mode!==b.phase_mode||a.switch_guard!==b.switch_guard)
+            throw new Error('Unpaired or mixed source/model comparison');
+          const map=rows=>new Map(rows.map(r=>[r.seed+':'+r.candidateSeat,r.won]));
+          const prior=map(old.rows),after=map(newer.rows);
+          if(prior.size!==128||after.size!==128||
+             [...prior.keys()].some(k=>!after.has(k)))
+            throw new Error('Unmatched original AQ paired Match seats');
+          const gain=(b.wins-a.wins)/128;
+          const half=Math.sqrt(2*Math.log(40)/64);
+          const report={schema:'rnad-i5-aq-v3-exact-state-64-vs-128-v1',
+            source_sha:a.source_sha,engine_sha:a.engine_sha,
+            original_aq_model_sha256:a.aq_base_model_sha256,
+            origin_model_sha256:a.model_sha256,
+            continued_model_sha256:b.model_sha256,
+            seed_start:1983001,independent_seed_pairs:64,
+            games_per_model:128,origin_wins:a.wins,continued_wins:b.wins,
+            origin_rate:a.win_rate,continued_rate:b.win_rate,
+            paired_gain:gain,paired_gain_95pct:[
+              Math.max(-1,gain-half),Math.min(1,gain+half)],
+            statistically_confirmed_gain:gain-half>0,
+            statistically_beats_aq:b.paired_hoeffding_95pct[0]>.5,
+            champion_promoted:false};
+          writeFileSync('results/comparison.json',
+            JSON.stringify(report,null,2)+'\n',{flag:'wx'});
+          console.log(JSON.stringify(report));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-v3-aq-64-128-matched-comparison-${{ github.run_id }}
+          path: results/comparison.json
+          if-no-files-found: error
+          retention-days: 30
