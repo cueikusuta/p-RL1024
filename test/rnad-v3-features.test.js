@@ -80,3 +80,19 @@ test('only authoritative completed Match receipts advance per-seat history',()=>
     }
   }
 });
+
+test('v3 represents authoritative Struggle without fabricating a normal move',()=>{
+  const observation={
+    schema:RNAD_OBSERVATION_SCHEMA,phase:'battle',seat:0,
+    turn:3,requestType:'turn',
+    self:{team:structuredClone(own.slice(0,3)),active:0,
+      remaining:3,canSwitch:true,canMega:false},
+    opponent:{types:['Grass'],hpPercent:100,remaining:3},field:{}
+  };
+  const result=encodeRnadThreePhaseDecisionV3(observation,[
+    {kind:'move',index:'struggle'}, {kind:'switch',index:1}
+  ]);
+  assert.equal(result.actions.length,2);
+  assert.equal(result.actions[0].length,32);
+  assert.ok(result.actions[0].every(Number.isFinite));
+});
