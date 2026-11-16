@@ -18,7 +18,10 @@ import torch
 from scripts.rnad.neural import (RNADNetwork, freeze_magnet, export_json,
                                  load_exported_json, BATTLE_FEATURE_SCHEMA,
                                  THREE_PHASE_FEATURE_SCHEMA,
-                                 THREE_PHASE_FEATURE_SCHEMA_V2)
+                                 THREE_PHASE_FEATURE_SCHEMA_V2,
+                                 THREE_PHASE_FEATURE_SCHEMA_V3,
+                                 STATE_FEATURES_V3,ACTION_FEATURES_V3,
+                                 migrate_v2_export_to_v3)
 from scripts.rnad.two_player import rnad_targets, neurd_policy_loss
 from scripts.rnad.checkpoint import save_checkpoint, restore_checkpoint
 
@@ -43,13 +46,14 @@ def state_hash(net):
 
 
 def run_match(seed, model, magnet, directory, *,
-              three_phase=False,features_v2=False,switch_guard='none',
-              switch_cost='none'):
+              three_phase=False,features_v2=False,features_v3=False,
+              switch_guard='none',switch_cost='none'):
     directory.mkdir(parents=True,exist_ok=True)
     model_path=directory/'actor.json'
     magnet_path=directory/'magnet.json'
     output=directory/(f'accepted-seed{seed}.json')
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V3 if features_v3 else
+                    THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
     export_json(model,model_path,feature_schema=feature_schema)
@@ -63,6 +67,8 @@ def run_match(seed, model, magnet, directory, *,
         command.extend(['--three-phase','true'])
     if features_v2:
         command.extend(['--features-v2','true'])
+    if features_v3:
+        command.extend(['--features-v3','true'])
     if switch_guard!='none':
         command.extend(['--switch-guard',switch_guard])
     if switch_cost!='none':
@@ -72,6 +78,7 @@ def run_match(seed, model, magnet, directory, *,
     guarded=switch_guard=='anti-loop-v1'
     opportunity=switch_cost=='opportunity-v1'
     if (row.get('schema')!=(
+        'rnad-accepted-three-phase-v3-training-match-v1' if features_v3 else
         'rnad-accepted-three-phase-v2-opportunity-training-match-v1'
             if opportunity else
         'rnad-accepted-three-phase-v2-anti-loop-training-match-v1' if guarded
@@ -167,8 +174,8 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
         if seat not in (0,1):
             raise ValueError('Invalid seat in accepted timeline')
         state=event['state'];actions=event['actions']
-        if (len(state)!=32 or not actions or
-            any(len(action)!=16 for action in actions) or
+        if (len(state)!=net.state_features or not actions or
+            any(len(action)!=net.action_features for action in actions) or
             not all(math.isfinite(float(x)) for x in state) or
             not all(math.isfinite(float(x)) for action in actions for x in action) or
             not 0 <= event['action_index'] < len(actions) or
