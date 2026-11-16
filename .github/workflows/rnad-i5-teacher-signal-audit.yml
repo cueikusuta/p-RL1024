@@ -1,0 +1,50 @@
+name: RNAD I5 frozen teacher ties and v4 feature-alias audit
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/TEACHER_SIGNAL_AUDIT_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-utility-signal-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify deterministic audit tests and pinned origin
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s test -p 'rnad_teacher_utility_audit_test.py' -v
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/TEACHER_SIGNAL_AUDIT_MANIFEST.json').read_text())
+          if m!={'schema':'rnad-i5-teacher-signal-audit-v1','origin_run':43957735875,'expected_matches':32}:
+              raise ValueError('Unregistered immutable AQ public teacher audit')
+          PY
+      - name: Reuse authority-accepted teacher traces from completed research artifact
+        run: |
+          set -euo pipefail
+          mkdir -p input results
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir input
+          test "$(find input -type f -name 'teacher-*.json' | wc -l)" -eq 32
+          python -m scripts.rnad.audit_teacher_utility \
+            --root input --matches 32 --out results/public-aq-teacher-signal.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-utility-signal-audit-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 30
