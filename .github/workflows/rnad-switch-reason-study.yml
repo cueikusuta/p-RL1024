@@ -1,11 +1,7 @@
 name: RNAD-I5 frozen model switch-reason 8-Match diagnostic
 on:
-  # One bounded follow-up launch when the phase-collision audit is added.
-  # This push trigger is removed immediately after the first run queues.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths:
-      - 'scripts/rnad/reason-coverage-study.mjs'
+  # Run #43811523683 is already queued at the fixed source commit.
+  # Expensive study is manual-only after the bounded follow-up launch.
   workflow_dispatch:
 permissions: {}
 concurrency:
