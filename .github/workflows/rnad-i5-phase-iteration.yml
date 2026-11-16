@@ -75,18 +75,23 @@ jobs:
               json.dumps(m,indent=2)+'\n')
           print('Validated immutable baseline and source-scoped one-shot manifest')
           PY
-      - name: Train accepted AQ strategy teacher v4 and paired same-teacher imitation reports
+      - name: Train v2 and v4 with identical new AQ strategy teacher budget and seeds
         run: |
           set -euo pipefail
           m=docs/research/rnad/PHASE_ITERATION_MANIFEST.json
           field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          python -m scripts.rnad.train_teacher \
+            --out artifacts/phase-iteration/v2-retrained \
+            --seed "$(field teacher_seed)" --matches "$(field teacher_matches)" \
+            --epochs "$(field epochs)" --three-phase --features-v2 \
+            --phase-balanced --teacher aq-public-strategy-selection
           python -m scripts.rnad.train_teacher \
             --out artifacts/phase-iteration/v4-supervised \
             --seed "$(field teacher_seed)" --matches "$(field teacher_matches)" \
             --epochs "$(field epochs)" --three-phase --features-v4 \
             --phase-balanced --teacher aq-public-strategy-selection
           python -m scripts.rnad.evaluate_aq_imitation \
-            --model artifacts/phase-iteration/base/aq-supervision-v2/trained-model.json \
+            --model artifacts/phase-iteration/v2-retrained/trained-model.json \
             --teacher aq-public-strategy-selection --features-v2 \
             --seed "$(field heldout_seed)" --matches "$(field heldout_matches)" \
             --out artifacts/phase-iteration/v2-unseen
@@ -116,7 +121,7 @@ jobs:
           set -euo pipefail
           m=docs/research/rnad/PHASE_ITERATION_MANIFEST.json
           field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
-          for arm in v4-supervised v4-rnad; do
+          for arm in v2-retrained v4-supervised v4-rnad; do
             file="artifacts/phase-iteration/$arm/trained-model.json"
             if [ "$arm" = v4-rnad ]; then
               file="artifacts/phase-iteration/v4-rnad/final-model.json"
@@ -126,18 +131,27 @@ jobs:
               --phase-mode neural-all --switch-guard anti-loop-v1 \
               --out "artifacts/phase-iteration/$arm-vs-aq.json"
           done
+          node scripts/rnad/compare-original-aq-paired.mjs \
+            artifacts/phase-iteration/v2-retrained-vs-aq.json \
+            artifacts/phase-iteration/v4-supervised-vs-aq.json \
+            artifacts/phase-iteration/v2-v4-paired.json
+          node scripts/rnad/compare-original-aq-paired.mjs \
+            artifacts/phase-iteration/v4-supervised-vs-aq.json \
+            artifacts/phase-iteration/v4-rnad-vs-aq.json \
+            artifacts/phase-iteration/supervised-rnad-paired.json
           python - <<'PY'
           import json, pathlib
           root=pathlib.Path('artifacts/phase-iteration')
           records=[json.loads((root/(s+'-vs-aq.json')).read_text())
-                   for s in ['v4-supervised','v4-rnad']]
+                   for s in ['v2-retrained','v4-supervised','v4-rnad']]
           for r in records:
               assert r['matches']==2*r['pairs'] and len(r['rows'])==r['matches']
               assert not r['champion_promoted'] and r['aq_base_model_sha256']==(
                 '5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e')
-          assert records[0]['seed']==records[1]['seed']
-          print(json.dumps({'supervised_wins':records[0]['wins'],
-             'rnad_wins':records[1]['wins'],'matches':records[0]['matches'],
+          assert records[0]['seed']==records[1]['seed']==records[2]['seed']
+          print(json.dumps({'v2_wins':records[0]['wins'],
+             'v4_wins':records[1]['wins'],'rnad_wins':records[2]['wins'],
+             'matches':records[0]['matches'],
              'strength_claimed':False}))
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
