@@ -28,7 +28,8 @@ import provenance from '../../provenance/manifest.json' with {type:'json'};
 
 export const FULL_AQ_EVALUATION_SCHEMA='rnad-vs-original-aq-base-full-match-paired-v1';
 const MODES=['neural-all','aq-structure-neural-battle',
-  'aq-public-strategy-neural-battle'];
+  'aq-public-strategy-neural-battle',
+  'aq-public-draft-neural-rest','aq-public-selection-neural-rest'];
 const frozenV2E=Object.freeze({blend:.28,exposure:.75,continuation:.4});
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
@@ -53,7 +54,9 @@ export function createRnadAQMatchSession({modelPath,seat,phaseMode='neural-all',
     new RnadSwitchLoopGuard(neural):null;
   const structural=phaseMode==='aq-structure-neural-battle'?
     createPublicAQTeacher():
-    phaseMode==='aq-public-strategy-neural-battle'?
+    ['aq-public-strategy-neural-battle',
+     'aq-public-draft-neural-rest',
+     'aq-public-selection-neural-rest'].includes(phaseMode)?
     createPublicAQTeacher({selectionMode:'strategy-public'}):null;
   let round=null,pending=null,accepted=0;
   const phaseCounts={draft:0,selection:0,battle:0};
@@ -72,7 +75,12 @@ export function createRnadAQMatchSession({modelPath,seat,phaseMode='neural-all',
       throw new Error('Missing accepted current draft round');
     const legalActions=rnadLegalActions(view);
     if(historyNeeded)obs.acceptedHistory={...ownHistory};
-    const delegated=Boolean(structural&&obs.phase!=='battle');
+    const delegated=Boolean(structural&&(
+      phaseMode==='aq-public-draft-neural-rest'?obs.phase==='draft':
+      phaseMode==='aq-public-selection-neural-rest'?obs.phase==='selection':
+      obs.phase!=='battle'));
+    // Isolate exactly one public teacher phase; other phases use the
+    // unchanged neural actor and accepted GRU history on each seat.
     // A structural draft/selection choice still contributes an observation
     // to the frozen battle GRU. The GRU update is state-based; ignore its
     // proposed action and accept only the structural teacher action.
