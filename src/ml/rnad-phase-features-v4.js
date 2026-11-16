@@ -16,7 +16,6 @@ const ownPool=o=>o.phase==='draft'?
   [...(o.self?.carry??[]),...(o.self?.fresh??[])]:o.self?.team??[];
 const typeList=p=>Array.isArray(p?.types)?p.types:[];
 const speed=p=>Number(p?.stats?.spe??p?.baseStats?.spe??0);
-const has=(p,tag)=>analyzeSetCapabilities(p,data).tags.includes(tag);
 const moveId=m=>typeof m==='string'?m:m?.id;
 function publicTypes(o){
   const names=o.phase==='selection'?o.opponent?.species:[];
@@ -39,11 +38,14 @@ function matchup(p,foeTypes){
     Math.max(0,...types.map(t=>effectiveness(t,typeList(p),data.typeChart))));
   return [mean(damages),Math.min(...damages),mean(threats.map(v=>bound(v,4)))];
 }
-function semantics(selected,o,foes){
+function semantics(selected,o,foes,caps){
   const allSpe=selected.map(speed), avg=mean(allSpe);
   const tagged=selected.map(p=>({
-    attack:has(p,'attack'),setup:has(p,'setup'),screen:has(p,'screen'),
-    pass:has(p,'batonPass'),trick:has(p,'trickRoom'),
+    attack:caps.get(p.instanceId).has('attack'),
+    setup:caps.get(p.instanceId).has('setup'),
+    screen:caps.get(p.instanceId).has('screen'),
+    pass:caps.get(p.instanceId).has('batonPass'),
+    trick:caps.get(p.instanceId).has('trickRoom'),
   }));
   const count=x=>tagged.filter(t=>t[x]).length;
   const complementary=(a,b)=>tagged.some((left,i)=>left[a]&&
@@ -75,6 +77,8 @@ export function encodeRnadThreePhaseDecisionV4(observation,legalActions){
       state:prior.state,actions:prior.actions};
   const own=ownPool(observation);
   const byId=new Map(own.map(p=>[p.instanceId,p]));
+  const caps=new Map(own.map(p=>[p.instanceId,
+    new Set(analyzeSetCapabilities(p,data).tags)]));
   const foes=publicTypes(observation);
   const state=prior.state.slice();
   // Keep authority-accepted history channels [32..36] unchanged.
@@ -90,7 +94,7 @@ export function encodeRnadThreePhaseDecisionV4(observation,legalActions){
     const selected=choice.map(id=>byId.get(id));
     if(selected.some(p=>!p))
       throw new TypeError('Selection includes unknown own Pokémon');
-    return [...prior.actions[i].slice(0,16),...semantics(selected,observation,foes)];
+    return [...prior.actions[i].slice(0,16),...semantics(selected,observation,foes,caps)];
   });
   if(state.length!==48||actions.some(a=>a.length!==32||
       a.some(x=>!Number.isFinite(x)))||state.some(x=>!Number.isFinite(x)))
