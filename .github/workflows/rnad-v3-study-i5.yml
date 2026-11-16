@@ -1,9 +1,8 @@
 name: RNAD-004 v3 features and 1-vs-4 updates diagnostic
-# Fresh run checks all four arms after Struggle candidate fix and league test.
+# Heavy four-arm 16-Match training is manual-only. PR paths filters
+# inspect the full cumulative diff and would rerun this study on every sync.
+# Preserve already-started pinned pilots; do not duplicate costly training.
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-v3-study-i5.yml']
   workflow_dispatch:
 permissions: {}
 jobs:
