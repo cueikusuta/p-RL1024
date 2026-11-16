@@ -1,0 +1,135 @@
+name: RNAD-I5 selection loss frozen-v2 weight-only finetune (8 Match)
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['.github/workflows/rnad-selection-warmstart-i5.yml']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-warmstart-oneoff
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions: {contents: read,actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        profile: [equal, selection-focus]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PROFILE: ${{ matrix.profile }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify frozen AQ weights, new optimizer and phase gradient contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p 'rnad_phase_focus_test.py' -v
+          python -m unittest discover -s test -p 'rnad_aq_imitation_metrics_test.py' -v
+          mkdir -p artifacts/frozen-aq
+          gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-semantic-v2-43743143190 --dir artifacts/frozen-aq
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          root=Path('artifacts/frozen-aq/aq-supervision-v2')
+          p=root/'trained-model.json'
+          old=json.loads((root/'teacher-report.json').read_text())
+          h=hashlib.sha256(p.read_bytes()).hexdigest()
+          assert h=='9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b'
+          assert old['feature_schema']=='rnad-three-phase-features-v2'
+          assert old['trained_model_sha256']=='732b7b3651a48a4fd6f21c12974e6f041239424104d511efe2b328ab1b12970d'
+          assert old['teacher_weights_sha256']=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e'
+          assert old['teacher_completed_matches']==128 and old['is_champion'] is False
+          PY
+      - name: Finetune both phase policies from SAME verified frozen v2 actor
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.train_teacher \
+            --three-phase --features-v2 --teacher aq-public-belief \
+            --phase-balanced --phase-profile "$PROFILE" \
+            --initial-model artifacts/frozen-aq/aq-supervision-v2/trained-model.json \
+            --seed 996901 --matches 8 --epochs 2 \
+            --out "artifacts/i5-warmstart-$PROFILE/train"
+      - name: Evaluate new policies on fresh disjoint held-out real 4-win Matches
+        run: |
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --features-v2 \
+            --model "artifacts/i5-warmstart-$PROFILE/train/trained-model.json" \
+            --seed 997301 --matches 8 \
+            --out "artifacts/i5-warmstart-$PROFILE/heldout"
+      - name: Validate explicit weight-only origin, scores, and paired seed identity
+        run: |
+          python - <<'PY'
+          import os,json,hashlib,math,subprocess
+          from pathlib import Path
+          profile=os.environ['PROFILE']
+          root=Path('artifacts')/('i5-warmstart-'+profile)
+          frozen=Path('artifacts/frozen-aq/aq-supervision-v2/trained-model.json')
+          t=json.loads((root/'train/teacher-report.json').read_text())
+          h=json.loads((root/'heldout/heldout-imitation.json').read_text())
+          sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          source=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          if not (t['warmstart_source_model_file_sha256']==sha(frozen) and
+             t['warmstart_optimizer_reused'] is False and
+             t['initial_model_sha256']=='732b7b3651a48a4fd6f21c12974e6f041239424104d511efe2b328ab1b12970d' and
+             t['phase_profile']==profile and t['phase_balanced'] is True and
+             t['seed']==996901 and t['teacher_completed_matches']==8 and
+             t['teacher_updates']==16 and
+             h['seed']==997301 and h['matches']==8 and
+             t['source_sha']==h['source_sha']==source and
+             t['engine_sha']==h['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b' and
+             h['student_model_sha256']==sha(root/'train/trained-model.json') and
+             t['is_champion'] is False and h['is_champion'] is False):
+             raise ValueError('Invalid frozen weight-only origin/optimizer/heldout')
+          def tracehash(sub,start):
+              buf=b''.join((root/sub/'teacher-matches'/f'teacher-{seed}.json').read_bytes()+b'\\0'
+                 for seed in range(start,start+8))
+              return hashlib.sha256(buf).hexdigest()
+          out={'schema':'rnad-i5-v2-frozen-selection-phase-finetune-v1',
+             'source_sha':source,'origin_model_sha256':sha(frozen),
+             'profile':profile,'initial_tensor_sha256':t['initial_model_sha256'],
+             'trained_tensor_sha256':t['trained_model_sha256'],
+             'trained_json_sha256':sha(root/'train/trained-model.json'),
+             'fresh_optimizer':True,'train_seed':996901,'heldout_seed':997301,
+             'train_matches':8,'heldout_matches':8,
+             'train_trace_sha256':tracehash('train',996901),
+             'heldout_trace_sha256':tracehash('heldout',997301),
+             'phases':h['phases'],'is_champion':False,
+             'model_improvement_confirmed':False}
+          for phase,v in h['phases'].items():
+              if not(v['examples']>=16 and
+                 math.isfinite(v['mean_normalized_cross_entropy']) and
+                 0<=v['top1_accuracy']<=v['top3_accuracy']<=v['top10_accuracy']<=1):
+                  raise ValueError('Untrusted held-out phase metrics')
+              print(json.dumps({'profile':profile,'phase':phase,
+                  'n':v['examples'],'top1':v['top1_accuracy'],
+                  'top10':v['top10_accuracy'],
+                  'normalized_ce':v['mean_normalized_cross_entropy']}))
+          (root/'warmstart-report.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-v2-selection-warmstart-${{ matrix.profile }}-${{ github.run_id }}
+          path: |
+            artifacts/i5-warmstart-${{ matrix.profile }}/train/teacher-report.json
+            artifacts/i5-warmstart-${{ matrix.profile }}/train/trained-model.json
+            artifacts/i5-warmstart-${{ matrix.profile }}/heldout/heldout-imitation.json
+            artifacts/i5-warmstart-${{ matrix.profile }}/warmstart-report.json
+          if-no-files-found: warn
+          retention-days: 30
