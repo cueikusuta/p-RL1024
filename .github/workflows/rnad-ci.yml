@@ -16,6 +16,8 @@ on:
       - 'scripts/rnad/evaluate-direct.mjs'
       - 'test/rnad-direct-eval.test.js'
       - '.github/workflows/rnad-ci.yml'
+      - '.github/workflows/rnad-i5-v5-outcome-pilot.yml'
+      - '.github/workflows/rnad-i5-v5-outcome-recovery.yml'
       - 'docs/research/rnad/**'
   workflow_dispatch:
 permissions: {}
