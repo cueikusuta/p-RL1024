@@ -233,7 +233,8 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
 
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
           eta=.2,magnet_period=4,initial_model=None,three_phase=False,
-          features_v2=False,switch_guard='none',switch_cost='none'):
+          features_v2=False,features_v3=False,switch_guard='none',
+          switch_cost='none',updates_per_match=1,migrate_from_v2=False):
     if (not isinstance(seed,int) or not 1 <= seed <= 0xffffffff or
         not isinstance(matches,int) or not 1 <= matches <= 16 or
         not isinstance(eta,(float,int)) or not math.isfinite(float(eta)) or
@@ -241,27 +242,41 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         type(magnet_period) is not int or not 1 <= magnet_period <= 256 or
         type(three_phase) is not bool or
         type(features_v2) is not bool or (features_v2 and not three_phase) or
+        type(features_v3) is not bool or
+        (features_v3 and (features_v2 or not three_phase)) or
+        type(updates_per_match) is not int or updates_per_match not in (1,4) or
+        type(migrate_from_v2) is not bool or
+        (migrate_from_v2 and not features_v3) or
         switch_guard not in ('none','anti-loop-v1') or
-        (switch_guard!='none' and not (three_phase and features_v2)) or
+        (switch_guard!='none' and not
+         (three_phase and (features_v2 or features_v3))) or
         switch_cost not in ('none','opportunity-v1') or
         (switch_cost!='none' and
-            (switch_guard!='anti-loop-v1' or not features_v2))):
+            (switch_guard!='anti-loop-v1' or not
+             (features_v2 or features_v3)))):
         raise ValueError('Training must bound seed, matches, eta and magnet period')
     torch.set_num_threads(1)
     path=Path(out)
     path.mkdir(parents=True,exist_ok=True)
     torch.manual_seed(seed);random.seed(seed)
-    net=RNADNetwork()
-    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
+    net=(RNADNetwork(state_features=STATE_FEATURES_V3,
+                     action_features=ACTION_FEATURES_V3)
+         if features_v3 else RNADNetwork())
+    feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V3 if features_v3 else
+                    THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
-    model_id=('RNAD-003-3phase-v2' if features_v2 else
+    model_id=('RNAD-004-3phase-v3' if features_v3 else
+              'RNAD-003-3phase-v2' if features_v2 else
               'RNAD-002-3phase' if three_phase else 'RNAD-001')+(
                   '-anti-loop-v1' if switch_guard!='none' else '')+(
-                  '-opportunity-v1' if switch_cost!='none' else '')
+                  '-opportunity-v1' if switch_cost!='none' else '')+(
+                  '-u4' if updates_per_match==4 else '')
     initialization_sha256=(
-        load_exported_json(net,initial_model,
-                           expected_feature_schema=feature_schema)
+        (migrate_v2_export_to_v3(net,initial_model)
+         if migrate_from_v2 else
+         load_exported_json(net,initial_model,
+                            expected_feature_schema=feature_schema))
         if initial_model is not None else "none")
     target=copy.deepcopy(net)
     magnet=freeze_magnet(net)
