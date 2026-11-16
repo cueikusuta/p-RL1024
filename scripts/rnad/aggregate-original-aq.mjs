@@ -26,7 +26,9 @@ export function aggregateOriginalAQReports(reports,{seedStart,seedCount}={}){
        r.champion_promoted!==false||
        !['none','anti-loop-v1'].includes(r.switch_guard)||
        !['neural-all','aq-structure-neural-battle',
-         'aq-public-strategy-neural-battle'].includes(r.phase_mode)||
+         'aq-public-strategy-neural-battle',
+         'aq-public-draft-neural-rest',
+         'aq-public-selection-neural-rest'].includes(r.phase_mode)||
        !Number.isSafeInteger(r.seed)||r.seed<seedStart||
        !Number.isSafeInteger(r.pairs)||r.pairs<1||
        r.seed+r.pairs>seedStart+seedCount||
