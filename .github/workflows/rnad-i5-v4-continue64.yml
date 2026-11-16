@@ -1,0 +1,165 @@
+name: RNAD I5 v4 utility selection 64-match selfplay continuation
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/CONTINUE64_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-v4-continue64-one-writer
+  cancel-in-progress: false
+jobs:
+  continue64:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU learning tools
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Load frozen stage3 utility teacher and existing v3 battle
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-v4-phase-ablation.test.js test/rnad-v4-features.test.js
+          python -m unittest discover -s test -p 'rnad_*_test.py' -v
+          mkdir -p archive models/v3 models results
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir archive
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          mapfile -t candidates < <(find archive -type f -path '*/v4-utility/trained-model.json')
+          test "${#candidates[@]}" -eq 1
+          cp "${candidates[0]}" models/initial-v4.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {PersistentRNADInference} from './scripts/rnad/infer.mjs';
+          const h=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const m=JSON.parse(readFileSync('docs/research/rnad/CONTINUE64_MANIFEST.json'));
+          if(m.schema!=='rnad-i5-v4-continue64-v1'||m.iteration!==1||
+             m.source_run!==43957735875||m.matches!==64||
+             !Number.isSafeInteger(m.seed)||m.seed<1||
+             !Number.isSafeInteger(m.aq_seed)||m.aq_seed<=m.seed+64||
+             !Number.isSafeInteger(m.aq_pairs)||m.aq_pairs<1||m.aq_pairs>100)
+            throw new Error('Invalid exact state continuation schedule');
+          if(h('models/initial-v4.json')!==
+            '3624014308a4667a15cf2a567dc7836cf6b8e60a6e754eac3b9d0dbfe4ad0c8c'||
+             h('models/v3/selfplay/final-model.json')!==
+            'c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'||
+             new PersistentRNADInference('models/initial-v4.json')
+               .featureSchema!=='rnad-three-phase-features-v4')
+            throw new Error('Source-bound model SHA or actor feature mismatch');
+          console.log(JSON.stringify({source_run:m.source_run,
+            initial_sha:h('models/initial-v4.json'),frozen_v3_sha:
+            h('models/v3/selfplay/final-model.json')}));
+          JS
+      - name: Continue R-NaD with full optimizer and RNG checkpoint, 4 x 16 Matches
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/CONTINUE64_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for iteration in 1 2 3 4; do
+            flags=()
+            if [ "$iteration" -gt 1 ]; then flags+=(--resume); fi
+            python -m scripts.rnad.train \
+              --seed "$(field seed)" --matches 16 \
+              --three-phase --features-v4 --switch-guard anti-loop-v1 \
+              --updates-per-match 4 --initial-model models/initial-v4.json \
+              --out artifacts/v4-continue64 "${flags[@]}"
+            cp artifacts/v4-continue64/report.json "results/train-$iteration.json"
+          done
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          r=json.loads(Path('artifacts/v4-continue64/report.json').read_text())
+          initial=hashlib.sha256(Path('models/initial-v4.json').read_bytes()).hexdigest()
+          if r['schema']!='rnad-three-phase-v4-training-report-v1' or (
+            r['completed_matches']!=64 or r['updates']!=256 or
+            r['initialization_sha256']!=initial or
+            r['feature_schema']!='rnad-three-phase-features-v4' or
+            r['is_champion'] is not False):
+              raise ValueError('Incomplete strict 64-Match continued R-NaD')
+          print(json.dumps({'completed_matches':r['completed_matches'],
+            'updates':r['updates'],'checkpoint_sha256':r['last_match_checkpoint_sha']}))
+          PY
+      - name: Exact original AQ-Base paired Match comparisons with frozen v3 battle
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/CONTINUE64_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for source in teacher continued; do
+            if [ "$source" = teacher ]; then file=models/initial-v4.json
+            else file=artifacts/v4-continue64/final-model.json; fi
+            for mode in all-v3 selection-v4; do
+              node scripts/rnad/evaluate-v4-composite-vs-aq.mjs \
+                --v4 "$file" --v3 models/v3/selfplay/final-model.json \
+                --seed "$(field aq_seed)" --pairs "$(field aq_pairs)" \
+                --mode "$mode" --out "results/$source-$mode.json"
+            done
+          done
+          for mode in draft-v4 both-v4; do
+            node scripts/rnad/evaluate-v4-composite-vs-aq.mjs \
+              --v4 artifacts/v4-continue64/final-model.json \
+              --v3 models/v3/selfplay/final-model.json \
+              --seed "$(field aq_seed)" --pairs "$(field aq_pairs)" \
+              --mode "$mode" --out "results/continued-$mode.json"
+          done
+      - name: Check source/paired improvement against teacher and v3
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {compareV4PhaseArms,compareV4PhaseModels}
+            from './scripts/rnad/compare-v4-phase-arms.mjs';
+          const get=(source,phase)=>JSON.parse(readFileSync(
+            'results/'+source+'-'+phase+'.json'));
+          const model=compareV4PhaseModels(
+            get('teacher','selection-v4'),get('continued','selection-v4'));
+          const phases=['draft-v4','selection-v4','both-v4'].map(mode=>
+            compareV4PhaseArms(get('continued','all-v3'),get('continued',mode)));
+          const teacher=compareV4PhaseArms(get('teacher','all-v3'),
+            get('teacher','selection-v4'));
+          const src=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(model.source_sha!==src||phases.some(x=>x.source_sha!==src)||
+             model.champion_promoted||teacher.champion_promoted)
+            throw new Error('Wrong source or implicit Champion promotion');
+          const report={schema:'rnad-i5-v4-64matched-aq-comparison-v1',
+            source_sha:src,teacher_vs_v3:teacher,continued_vs_teacher:model,
+            continued_vs_v3:phases,champion_promoted:false};
+          writeFileSync('results/summary.json',JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify({
+            teacher_selection_wins:teacher.candidate_wins,
+            v3_control_wins:teacher.baseline_wins,
+            continued_selection_wins:model.candidate_wins,
+            continued_vs_teacher_delta:model.paired_delta,
+            continued_vs_teacher_ci:model.conservative_95pct_delta_bounds,
+            continued_vs_v3:phases.map(x=>({mode:x.candidate_mode,
+              wins:x.candidate_wins,delta:x.delta,ci:x.conservative_95pct_delta_bounds}))}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-v4-continue64-${{ github.run_id }}
+          path: |
+            artifacts/v4-continue64/final-model.json
+            artifacts/v4-continue64/report.json
+            artifacts/v4-continue64/checkpoints/
+            results/
+          if-no-files-found: warn
+          retention-days: 30
