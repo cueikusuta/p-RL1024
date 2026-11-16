@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {compareV4PhaseArms,compareV4PhaseModels}
   from '../scripts/rnad/compare-v4-phase-arms.mjs';
-import {COMPOSITE_SCHEMA}
+import {COMPOSITE_SCHEMA,COMPOSITE_MODES}
   from '../scripts/rnad/evaluate-v4-composite-vs-aq.mjs';
 import {weightsSha256} from '../models/aq-base.mjs';
 import provenance from '../provenance/manifest.json' with {type:'json'};
@@ -76,4 +76,13 @@ test('P2 multiple phase comparisons widen familywise CI but never auto-promote',
   const model=compareV4PhaseModels(report('selection-v4'),c,{familySize:6});
   assert.equal(model.familywise_comparisons,6);
   assert.equal(model.exploratory_screen_only,true);
+});
+
+test('selection ensemble has a monotonically increasing v4 share',()=>{
+  const modes=['all-v3','selection-quarter-v4','selection-half-v4',
+    'selection-threequarter-v4','selection-v4'];
+  assert.deepEqual(modes.map(mode=>COMPOSITE_MODES[mode].selection),
+    [1,.75,.5,.25,0]);
+  assert.ok(modes.every(mode=>
+    COMPOSITE_MODES[mode].draft===1&&COMPOSITE_MODES[mode].battle===1));
 });
