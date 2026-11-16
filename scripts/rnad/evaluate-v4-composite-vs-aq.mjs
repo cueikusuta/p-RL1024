@@ -125,7 +125,7 @@ export function createV4CompositeAQSession({v4Path,v3Path,seat,mode}={}){
   return {select,commit,stats,finish};
 }
 export function evaluateV4CompositeAgainstOriginalAQ({v4Path,v3Path,
-  seed=1980001,pairs=24,mode='blend-half'}={}){
+  seed=1980001,pairs=24,mode='all-v3'}={}){
   if(typeof v4Path!=='string'||!v4Path||
      typeof v3Path!=='string'||!v3Path||
      !Number.isSafeInteger(seed)||seed<1||
