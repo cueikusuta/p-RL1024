@@ -244,9 +244,9 @@ jobs:
                   'rnad-three-phase-switch-guard-vs-basic-paired-v1')):
                   raise ValueError('Incomplete/wrong source held-out 4-win pairs '+key)
               if direct:
-                  teacher,student=key[7:].split('-vs-')
-                  if not (d['teacher_model_sha256']==h(models[student]) and
-                    d['rnad_model_sha256']==h(models[teacher])):
+                  student,teacher=key[7:].split('-vs-')
+                  if not (d['teacher_model_sha256']==h(models[teacher]) and
+                    d['rnad_model_sha256']==h(models[student])):
                       # key: direct-u128-vs-u64 => rnad=u128, teacher=u64
                       raise ValueError('Wrong direct actor SHA')
                   if d['deployment_policy']!={'teacher_switch_guard':'anti-loop-v1',
