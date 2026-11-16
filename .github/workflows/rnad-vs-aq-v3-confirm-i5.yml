@@ -1,9 +1,7 @@
 name: RNAD-I5 v3-u4 exact AQ 128 paired seed confirmation
 on:
-  # One immutable source/weights follow-up with new seeds; then manual only.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-vs-aq-v3-confirm-i5.yml']
+  # Source-pinned 128-paired-seed run #43826887088 already queued.
+  # No implicit rerun as the Draft PR changes: dispatch only.
   workflow_dispatch:
 permissions: {}
 concurrency:
