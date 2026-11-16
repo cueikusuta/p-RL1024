@@ -56,20 +56,26 @@ def validate_report(report, min_examples=256):
     return teacher_id
 
 
-def compare_heldout_imitation(base, candidate, *, min_examples=256):
+def compare_heldout_imitation(base, candidate, *, min_examples=256,
+                              allow_feature_upgrade=False):
     old_teacher = validate_report(base, min_examples)
     new_teacher = validate_report(candidate, min_examples)
     if (old_teacher != new_teacher or
         base['schema'] != candidate['schema'] or
+        (not allow_feature_upgrade and
+         base.get('feature_schema') != candidate.get('feature_schema')) or
         any(base.get(key) != candidate.get(key) for key in (
             'source_sha', 'engine_sha', 'teacher_model_sha256',
-            'feature_schema', 'seed', 'matches')) or
+            'seed', 'matches')) or
         base['student_model_sha256'] == candidate['student_model_sha256']):
         raise ValueError('Require different students, identical teacher, feature, seed and source')
     result = {'schema':'rnad-phase-imitation-screen-v1',
               'teacher_id':old_teacher,
               'seed':base['seed'], 'matches':base['matches'],
               'min_examples_per_phase':min_examples,
+              'feature_upgrade':bool(base.get('feature_schema')!=candidate.get('feature_schema')),
+              'baseline_feature_schema':base.get('feature_schema'),
+              'candidate_feature_schema':candidate.get('feature_schema'),
               'is_champion':False,
               'strength_established':False,
               'phases':{}}
@@ -108,12 +114,14 @@ if __name__ == '__main__':
     parser.add_argument('--candidate', required=True)
     parser.add_argument('--out', required=True)
     parser.add_argument('--min-examples', type=int, default=256)
+    parser.add_argument('--allow-feature-upgrade', action='store_true')
     args = parser.parse_args()
     if not 16 <= args.min_examples <= 100000:
         parser.error('Invalid minimum phase sample size')
     report = compare_heldout_imitation(
         json.loads(Path(args.baseline).read_text()),
         json.loads(Path(args.candidate).read_text()),
-        min_examples=args.min_examples)
+        min_examples=args.min_examples,
+        allow_feature_upgrade=args.allow_feature_upgrade)
     Path(args.out).write_text(json.dumps(report, indent=2, allow_nan=False)+'\n')
     print(json.dumps(report, indent=2, allow_nan=False))
