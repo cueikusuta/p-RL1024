@@ -5,6 +5,7 @@ on:
     paths: ['.github/workflows/rnad-guard-eval-recovery-i5.yml']
   workflow_dispatch:
 permissions: {}
+jobs:
   evaluate:
     if: github.repository == 'cueikusuta/p-RL1024'
     runs-on: ubuntu-latest
