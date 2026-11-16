@@ -105,38 +105,44 @@ def audit_trace_files(paths,expected_matches=32):
     files=list(paths)
     if len(files)!=expected_matches or not files:
         raise ValueError('Expected complete immutable accepted teacher Match count')
-    source=None
-    engine=None
+    source_engine=[None,None]
     seeds=set()
-    events=[]
-    for path in files:
-        data=json.loads(Path(path).read_text())
-        if (data.get('teacher')!=EXPECTED_TEACHER or
-            data.get('teacher_model_sha256')!=EXPECTED_SHA or
-            data.get('utility_labels')!='aq-public-phase-rank-v1' or
-            data.get('feature_schema')!='rnad-three-phase-features-v4' or
-            data.get('completed') is not True or
-            data.get('score',[0,0])[data.get('winner',-1)]!=4 or
-            not isinstance(data.get('examples'),list) or
-            type(data.get('seed')) is not int):
-            raise ValueError('Invalid frozen teacher Match receipt')
-        if data['seed'] in seeds:
-            raise ValueError('Duplicate teacher training seed')
-        seeds.add(data['seed'])
-        if source is None:
-            source,engine=data['source_sha'],data['engine_sha']
-        elif data.get('source_sha')!=source or data.get('engine_sha')!=engine:
-            raise ValueError('Mixed source/engine frozen teacher traces')
-        events.extend(data['examples'])
+
+    def accepted_events():
+        for path in files:
+            # Stream Match by Match: the draft action tensors can be large.
+            data=json.loads(Path(path).read_text())
+            if (data.get('teacher')!=EXPECTED_TEACHER or
+                data.get('teacher_model_sha256')!=EXPECTED_SHA or
+                data.get('utility_labels')!='aq-public-phase-rank-v1' or
+                data.get('feature_schema')!='rnad-three-phase-features-v4' or
+                data.get('completed') is not True or
+                data.get('score',[0,0])[data.get('winner',-1)]!=4 or
+                not isinstance(data.get('examples'),list) or
+                type(data.get('seed')) is not int):
+                raise ValueError('Invalid frozen teacher Match receipt')
+            if data['seed'] in seeds:
+                raise ValueError('Duplicate teacher training seed')
+            seeds.add(data['seed'])
+            if source_engine[0] is None:
+                source_engine[:]=[data['source_sha'],data['engine_sha']]
+            elif ([data.get('source_sha'),data.get('engine_sha')] != source_engine):
+                raise ValueError('Mixed source/engine frozen teacher traces')
+            yield from data['examples']
+
+    summary=analyze_events(accepted_events())
+    if len(seeds)!=expected_matches:
+        raise ValueError('Incomplete independent teacher seed block')
     return {
         'schema':'rnad-public-aq-utility-signal-audit-v1',
-        'source_sha':source,'engine_sha':engine,
+        'source_sha':source_engine[0],'engine_sha':source_engine[1],
         'teacher_model_sha256':EXPECTED_SHA,
         'accepted_matches':len(files),'independent_seeds':len(seeds),
-        'phase_metrics':analyze_events(events),
+        'phase_metrics':summary,
         'exploratory_diagnostic_only':True,
         'strength_established':False,'champion_promoted':False,
     }
+
 
 
 if __name__=='__main__':
