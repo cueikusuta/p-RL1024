@@ -1,0 +1,86 @@
+name: RNAD-I5 frozen model switch-reason 8-Match diagnostic
+on:
+  # One bounded research launch on this new script's first push. Subsequent
+  # research is manual-only; never rerun heavy studies for unrelated PR sync.
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - 'scripts/rnad/reason-coverage-study.mjs'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-switch-reasons-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model: [base128, base256, c005]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODEL: ${{ matrix.model }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify source snapshot and immutable frozen v2 model SHA
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          mkdir -p models reports
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+          test -f "models/$MODEL.json"
+          test -f models/manifest.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const m=JSON.parse(readFileSync('models/manifest.json'));
+          const id=process.env.MODEL;
+          const h=createHash('sha256').update(readFileSync('models/'+id+'.json')).digest('hex');
+          if(m.schema!=='rnad-i5-queued-evaluation-models-v1'||
+             m.models[id]!==h||
+             m.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
+             m.is_champion!==false)throw new Error('Untrusted archived frozen model');
+          JS
+      - name: Complete eight REAL four-win Match decisions (no training)
+        run: |
+          set -euo pipefail
+          node scripts/rnad/reason-coverage-study.mjs \
+            --model "$MODEL" --model-file "models/$MODEL.json" \
+            --manifest models/manifest.json --seed 1860001 --matches 8 \
+            --out "reports/coverage-$MODEL.json"
+      - name: Validate complete source-bound reason report
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const p=JSON.parse(readFileSync('reports/coverage-'+process.env.MODEL+'.json'));
+          if(p.schema!=='rnad-i5-frozen-greedy-switch-reason-study-v1'||
+             p.model_id!==process.env.MODEL||
+             p.source_sha!==execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()||
+             p.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
+             p.seed_start!==1860001||p.completed_matches!==8||
+             p.records.length!==8||!p.both_seats||!p.all_complete_four_win||
+             p.model_improvement_confirmed!==false||p.is_champion!==false||
+             !p.records.every((x,i)=>x.seed===1860001+i&&x.score[x.winner]===4)||
+             p.by_seat.some(s=>Object.values(s.reason_counts)
+               .reduce((n,x)=>n+x,0)!==s.voluntary_switches))
+            throw new Error('Invalid frozen reason diagnostic evidence');
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-frozen-reason-${{ matrix.model }}-${{ github.run_id }}
+          path: reports/coverage-${{ matrix.model }}.json
+          if-no-files-found: warn
+          retention-days: 30
