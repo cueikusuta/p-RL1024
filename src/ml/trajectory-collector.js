@@ -26,8 +26,8 @@ export function createRnadTrajectoryCollector({
     source_sha:sourceSha,engine_snapshot_sha:engineSnapshotSha};
   const records=[];
   let pending=null,finished=false,lastRound=0;
-  function propose({phase,round,observation,legalActions,action,
-    behaviorLogProbability,referenceLogProbability,predictedValue}={}){
+  function propose({phase,round,observation,legalActions,policyEligibleActions,
+    action,behaviorLogProbability,referenceLogProbability,predictedValue}={}){
     if(finished||pending||!phases.has(phase)||!positiveInt(round)||
       round>64||round<lastRound||!isObject(observation)||
       observation.schema!==RNAD_OBSERVATION_SCHEMA||
@@ -37,12 +37,24 @@ export function createRnadTrajectoryCollector({
     const target=key(action);
     if(!legal.some(candidate=>key(candidate)===target))
       throw new TypeError('Proposed action not in the exact legal set');
+    // A deployment guard may reduce policy support but never grant authority:
+    // keep all authoritative legal candidates AND record the narrowed set.
+    // Actor log-probabilities refer to this support, not the full legal set.
+    let eligible=null;
+    if(policyEligibleActions!==undefined){
+      eligible=validateRnadLegalActions(policyEligibleActions);
+      const authority=new Set(legal.map(key));
+      if(eligible.some(candidate=>!authority.has(key(candidate)))||
+         !eligible.some(candidate=>key(candidate)===target))
+        throw new TypeError('Guard support is not a legal accepted subset');
+    }
     if(![behaviorLogProbability,referenceLogProbability,predictedValue]
       .every(finite)||behaviorLogProbability>0||referenceLogProbability>0||
       Math.abs(predictedValue)>1e6)
       throw new TypeError('Invalid behavior/reference/value');
     pending={...meta,round,phase,observation_schema_version:RNAD_OBSERVATION_SCHEMA,
       observation:clone(observation),legal_actions:legal,
+      ...(eligible===null?{}:{policy_eligible_actions:eligible}),
       accepted_action:clone(action),
       behavior_log_probability:behaviorLogProbability,
       reference_log_probability:referenceLogProbability,
