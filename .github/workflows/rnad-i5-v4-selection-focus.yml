@@ -143,18 +143,20 @@ jobs:
           const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
           const rows=['original','focus','continued'].map(name=>{
             const v=get(name,'selection-v4');
-            const r=compareV4PhaseArms(control,v,{familySize:3});
-            if(r.source_sha!==source||r.familywise_comparisons!==3)
+            const r=compareV4PhaseArms(control,v,{familySize:5});
+            if(r.source_sha!==source||r.familywise_comparisons!==5)
               throw new Error('Wrong source or unadjusted selection A/B');
             return {name,...r};
           });
           const focus=compareV4PhaseModels(get('original','selection-v4'),
-            get('focus','selection-v4'),{familySize:2});
+            get('focus','selection-v4'),{familySize:5});
           const continued=compareV4PhaseModels(get('focus','selection-v4'),
-            get('continued','selection-v4'),{familySize:2});
+            get('continued','selection-v4'),{familySize:5});
           const report={schema:'rnad-i5-selection-focus-study-v1',
             source_sha:source,predeclared_arms:rows.map(x=>x.name),
             familywise_method:'Bonferroni_Hoeffding95',
+            familywise_hypotheses:5,exploratory_only:true,
+            confirmatory_claim_allowed:false,
             rows,focus_vs_original:focus,continued_vs_focus:continued,
             champion_promoted:false};
           writeFileSync('results/selection-study.json',JSON.stringify(report,null,2)+'\n');
