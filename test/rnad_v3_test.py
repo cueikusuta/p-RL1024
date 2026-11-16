@@ -13,7 +13,7 @@ from scripts.rnad.train import train_match
 
 
 class V3RepresentationTest(unittest.TestCase):
-  def test_v2_to_v3_warmstart_preserves_old_zero-extra_logits(self):
+  def test_v2_to_v3_warmstart_preserves_old_zero_extra_logits(self):
     torch.manual_seed(347)
     old=RNADNetwork()
     expanded=RNADNetwork(state_features=48,action_features=32)
