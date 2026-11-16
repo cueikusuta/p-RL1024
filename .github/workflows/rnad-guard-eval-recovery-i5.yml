@@ -1,8 +1,7 @@
 name: RNAD-003 recover guarded model evaluations without repeating 64-Match training
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-guard-eval-recovery-i5.yml']
+  # The original 64-Match models have been archived. Only their pending
+  # evaluations were queued in run #43782430025. Avoid duplicate run-on-PR.
   workflow_dispatch:
 permissions: {}
 jobs:
