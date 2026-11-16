@@ -1,0 +1,15 @@
+{
+  "schema": "rnad-i5-v5-outcome-pilot-v1",
+  "teacher_seed": 2310001,
+  "teacher_matches": 4,
+  "heldout_seed": 2311001,
+  "heldout_matches": 4,
+  "selfplay_seed": 2312001,
+  "selfplay_matches": 2,
+  "aq_seed": 2313001,
+  "aq_pairs": 4,
+  "outcome_train_seed": 2314001,
+  "outcome_heldout_seed": 2315001,
+  "outcome_pairs": 4,
+  "outcome_ranks": 3
+}
