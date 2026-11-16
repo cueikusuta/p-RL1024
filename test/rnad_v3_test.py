@@ -71,5 +71,42 @@ class V3RepresentationTest(unittest.TestCase):
     self.assertTrue(any(not torch.equal(first[k],p)
                         for k,p in net.state_dict().items()))
 
+class V3LeagueOpponentTest(unittest.TestCase):
+  def test_frozen_opponent_contributes_to_two_player_target_but_never_updates(self):
+    torch.manual_seed(371)
+    net=RNADNetwork(state_features=48,action_features=32)
+    target=copy.deepcopy(net)
+    magnet=freeze_magnet(net)
+    enemy=copy.deepcopy(net).eval()
+    for p in enemy.parameters():
+      p.requires_grad_(False)
+    opt=torch.optim.Adam(net.parameters(),lr=3e-4)
+    scheduler=torch.optim.lr_scheduler.StepLR(opt,step_size=100,gamma=.98)
+    original={k:v.detach().clone() for k,v in enemy.state_dict().items()}
+    events=[]
+    for seat in (0,1):
+      state=[.15]*48
+      actions=[[.1]*32,[.35]*32]
+      with torch.no_grad():
+        source=magnet if seat==0 else enemy
+        logits,_,_=source(torch.tensor([state]),torch.tensor([actions]),
+                          source.initial_memory())
+        p=torch.softmax(logits[0],dim=-1)
+      events.append({'actor':seat,'state':state,'actions':actions,
+        'action_index':0,'behavior_prob':float(.98*p[0]+.02/2),
+        'magnet_log_prob':float(torch.log(p[0])),
+        'reward':[0,0] if seat==0 else [1,-1]})
+    stats=train_match(net,target,magnet,opt,scheduler,{'events':events},
+                      eta=.2,frozen_opponent=enemy,learner_seat=0)
+    self.assertEqual(stats['accepted_decisions'],2)
+    self.assertEqual(stats['learning_decisions'],1)
+    self.assertTrue(all(torch.equal(original[k],v)
+                        for k,v in enemy.state_dict().items()))
+    self.assertEqual(scheduler.last_epoch,1)
+    with self.assertRaises(ValueError):
+      train_match(net,target,magnet,opt,scheduler,{'events':events},
+                  frozen_opponent=enemy,learner_seat=None)
+
+
 if __name__=='__main__':
   unittest.main()
