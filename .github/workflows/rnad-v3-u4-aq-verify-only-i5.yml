@@ -1,9 +1,7 @@
 name: RNAD-I5 verify-only replay of exact 64-to-128 vs AQ experiment
 on:
-  # One corrected validation-only replay. NEVER rerun 128-Match training.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-v3-u4-aq-verify-only-i5.yml']
+  # Validation-only replay #43922641425 already started on fixed source.
+  # Never retrigger expensive 4-win AQ evaluation on PR synchronization.
   workflow_dispatch:
 permissions: {}
 concurrency:
