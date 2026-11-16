@@ -27,28 +27,38 @@ function attackPressure(p,foeTypes,legalMoveIndices=null) {
   return best;
 }
 export function acceptedVoluntarySwitchOpportunity(row) {
-  const zero={cost:0,pressure:0,target_pressure:0,reason:'not-penalized'};
-  if(row?.phase!=='battle'||row?.accepted_action?.kind!=='switch'||
-     row?.observation?.requestType!=='turn')return zero;
+  // Diagnostic reason codes are metadata only: never alter the reward,
+  // executable legal support, original observations or checkpoint format.
+  const zero=reason=>({cost:0,pressure:0,target_pressure:0,reason});
+  if(row?.phase!=='battle'||row?.accepted_action?.kind!=='switch')
+    return zero('not-voluntary-switch');
+  if(row?.observation?.requestType!=='turn')
+    return zero('non-turn-switch');
   const obs=row.observation;
   const team=obs.self?.team,active=obs.self?.active;
   const target=team?.[row.accepted_action.index];
   const p=team?.[active];
   const foeTypes=typeSet(obs.opponent);
-  if(!p||!target||!foeTypes.length||
-     !Number.isFinite(p.hp)||!Number.isFinite(p.maxHP)||p.maxHP<=0||
-     p.hp/p.maxHP<.65||p.status)return zero;
+  if(!p||!target)return zero('missing-known-team');
+  if(!foeTypes.length)return zero('opponent-type-unrevealed');
+  if(!Number.isFinite(p.hp)||!Number.isFinite(p.maxHP)||p.maxHP<=0)
+    return zero('invalid-own-hp');
+  if(p.hp/p.maxHP<.65)return zero('own-hp-below-65-percent');
+  if(p.status)return zero('own-status');
   // Danger of a super-effective incoming attack makes protective switching
   // strategically legitimate even if the active Pokémon could attack.
   if(foeTypes.some(type=>
-       effectiveness(type,typeSet(p),catalog.typeChart)>=2))return zero;
+       effectiveness(type,typeSet(p),catalog.typeChart)>=2))
+    return zero('public-type-threat');
   const moves=new Set(row.legal_actions.filter(a=>
     a.kind==='move'&&Number.isInteger(a.index)).map(a=>a.index));
-  if(!moves.size)return zero;
+  if(!moves.size)return zero('no-legal-attack');
   const pressure=attackPressure(p,foeTypes,moves);
   const targetPressure=attackPressure(target,foeTypes);
-  if(pressure<=.30||targetPressure>pressure+.10)
-    return {...zero,pressure,target_pressure:targetPressure};
+  if(pressure<=.30)return {...zero('low-attack-pressure'),
+    pressure,target_pressure:targetPressure};
+  if(targetPressure>pressure+.10)return {...zero('better-switch-attack'),
+    pressure,target_pressure:targetPressure};
   const cost=MAX_SWITCH_COST*clip((pressure-.30)/.70);
   return {cost,pressure,target_pressure:targetPressure,
     reason:'lost-available-attack'};
@@ -78,4 +88,47 @@ export function shapeSwitchOpportunity(events,originalDecisions){
     max_per_switch:MAX_SWITCH_COST,
     max_per_seat:MAX_MATCH_SWITCH_COST_PER_SEAT,
     cost_per_seat:consumed};
+}
+
+// Read-only diagnostic over an authority-accepted, complete Match decision
+// timeline. The caller must separately verify its source/engine/seed/receipt;
+// this helper cannot establish provenance from arbitrary JSON.
+export function summarizeAcceptedSwitchOpportunities(rows){
+  if(!Array.isArray(rows)||!rows.length||rows.some(row=>
+    !row||![0,1].includes(row.player_seat)||
+    !['draft','selection','battle'].includes(row.phase)||
+    !Array.isArray(row.legal_actions)||!row.observation||
+    !row.accepted_action))
+    throw new TypeError('Expected trusted accepted two-seat Match decisions');
+  // Compute the exact existing per-seat cap without mutating accepted rows.
+  const clonedEvents=rows.map(row=>({
+    actor:row.player_seat,phase:row.phase,reward:[0,0]
+  }));
+  const shaped=shapeSwitchOpportunity(clonedEvents,rows);
+  const bySeat=[0,1].map(seat=>({
+    seat,voluntary_switches:0,shaped_switches:0,
+    cost:shaped.cost_per_seat[seat],reason_counts:{}
+  }));
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i],seat=row.player_seat;
+    if(row.phase!=='battle'||row.accepted_action?.kind!=='switch'||
+       row.observation.requestType!=='turn')continue;
+    const original=acceptedVoluntarySwitchOpportunity(row);
+    const actual=clonedEvents[i].switch_opportunity_cost;
+    const reason=original.cost>0&&actual===0?
+      'match-budget-exhausted':
+      original.cost>actual+1e-12?'match-budget-clipped':original.reason;
+    const entry=bySeat[seat];
+    entry.voluntary_switches++;
+    if(actual>0)entry.shaped_switches++;
+    entry.reason_counts[reason]=(entry.reason_counts[reason]??0)+1;
+  }
+  return {
+    schema:'rnad-switch-opportunity-reason-diagnostic-v1',
+    objective:SWITCH_OPPORTUNITY_OBJECTIVE,
+    voluntary_switches:bySeat.reduce((n,s)=>n+s.voluntary_switches,0),
+    shaped_switches:bySeat.reduce((n,s)=>n+s.shaped_switches,0),
+    cost_per_seat:shaped.cost_per_seat,
+    by_seat:bySeat
+  };
 }

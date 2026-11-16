@@ -4,7 +4,8 @@ import {
   SWITCH_OPPORTUNITY_OBJECTIVE,
   MAX_MATCH_SWITCH_COST_PER_SEAT,
   acceptedVoluntarySwitchOpportunity,
-  shapeSwitchOpportunity
+  shapeSwitchOpportunity,
+  summarizeAcceptedSwitchOpportunities
 } from '../scripts/rnad/switch-opportunity.mjs';
 
 const poke=(speciesId,types,moves,hp=100)=>({
@@ -93,4 +94,71 @@ test('no shaping on draft, selection, status moves, or non-switch accepted actio
     assert.equal(meta.cost_per_seat[0],0);
     assert.deepEqual(items[0].reward,[0,0]);
   }
+});
+
+test('reason codes distinguish voluntary skips without changing opportunity cost',()=>{
+  const cases=[
+    ['not-voluntary-switch',r=>{r.accepted_action={kind:'move',index:0};}],
+    ['non-turn-switch',r=>{r.observation.requestType='replacement';}],
+    ['missing-known-team',r=>{r.observation.self.team.splice(1,1);}],
+    ['opponent-type-unrevealed',r=>{r.observation.opponent.types=[];}],
+    ['invalid-own-hp',r=>{r.observation.self.team[0].maxHP=0;}],
+    ['own-hp-below-65-percent',r=>{r.observation.self.team[0].hp=30;}],
+    ['own-status',r=>{r.observation.self.team[0].status='PAR';}],
+    ['public-type-threat',r=>{r.observation.self.team[0].types=['Fire'];}],
+    ['no-legal-attack',r=>{r.legal_actions=[action];}],
+    ['low-attack-pressure',r=>{r.observation.self.team[0].moves=[
+      {id:'tackle',pp:20,maxPP:20}
+    ];}]
+  ];
+  for(const [reason,change] of cases){
+    const row=clone(base);change(row);
+    const found=acceptedVoluntarySwitchOpportunity(row);
+    assert.equal(found.cost,0,reason);
+    assert.equal(found.reason,reason);
+  }
+  assert.equal(acceptedVoluntarySwitchOpportunity(base).reason,
+    'lost-available-attack');
+});
+
+test('read-only accepted action diagnostic accounts for both seats and cap',()=>{
+  const rows=Array.from({length:80},(_,i)=>({
+    ...clone(base),player_seat:i%2
+  }));
+  const before=clone(rows);
+  const result=summarizeAcceptedSwitchOpportunities(rows);
+  assert.deepEqual(rows,before);
+  assert.equal(result.schema,'rnad-switch-opportunity-reason-diagnostic-v1');
+  assert.equal(result.voluntary_switches,80);
+  assert.equal(result.shaped_switches,
+    result.by_seat.reduce((n,s)=>n+s.shaped_switches,0));
+  for(const seat of result.by_seat){
+    assert.equal(seat.voluntary_switches,40);
+    assert.ok(seat.shaped_switches>0&&seat.shaped_switches<40);
+    assert.ok(seat.reason_counts['match-budget-exhausted']>0);
+    assert.equal(Object.values(seat.reason_counts)
+      .reduce((n,x)=>n+x,0),seat.voluntary_switches);
+    assert.ok(seat.cost<=MAX_MATCH_SWITCH_COST_PER_SEAT+1e-12);
+  }
+  assert.throws(()=>summarizeAcceptedSwitchOpportunities([]),/trusted/);
+  assert.throws(()=>summarizeAcceptedSwitchOpportunities([
+    {...clone(base),player_seat:3}
+  ]),/trusted/);
+});
+
+test('diagnostic excludes mandatory switches and retains zero-sum seat accounting',()=>{
+  const rows=[clone(base),clone(base),clone(base),clone(base)];
+  rows[0].player_seat=0;
+  rows[1].player_seat=0;rows[1].observation.requestType='pivot';
+  rows[2].player_seat=1;rows[2].observation.opponent.types=[];
+  rows[3].player_seat=1;rows[3].observation.self.team[0].hp=20;
+  const result=summarizeAcceptedSwitchOpportunities(rows);
+  assert.equal(result.voluntary_switches,3);
+  assert.equal(result.shaped_switches,1);
+  assert.deepEqual(result.by_seat[0].reason_counts,
+    {'lost-available-attack':1});
+  assert.deepEqual(result.by_seat[1].reason_counts,
+    {'opponent-type-unrevealed':1,'own-hp-below-65-percent':1});
+  assert.equal(result.cost_per_seat[1],0);
+  assert.ok(result.cost_per_seat[0]>0);
 });
