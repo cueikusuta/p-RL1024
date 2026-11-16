@@ -11,7 +11,9 @@ from scripts.rnad.neural import (RNADNetwork, load_exported_json,
                                  THREE_PHASE_FEATURE_SCHEMA,
                                  THREE_PHASE_FEATURE_SCHEMA_V2,
                                  THREE_PHASE_FEATURE_SCHEMA_V4,
-                                 STATE_FEATURES_V3,ACTION_FEATURES_V3)
+                                 THREE_PHASE_FEATURE_SCHEMA_V5,
+                                 STATE_FEATURES_V3,ACTION_FEATURES_V3,
+                                 STATE_FEATURES_V5,ACTION_FEATURES_V5)
 from scripts.rnad.train import current_git_sha,frozen_engine_sha
 from scripts.rnad.train_teacher import (collect,AQ_WEIGHTS_SHA256,
                                        normalized_utility_regret)
@@ -53,20 +55,26 @@ def per_decision_metrics(logits, chosen):
 
 
 def evaluate(model,*,seed=996301,matches=16,out,features_v2=False,
-             features_v4=False,teacher='aq-public-belief',utility_labels=False):
+             features_v4=False,features_v5=False,
+             teacher='aq-public-belief',utility_labels=False):
     if (not isinstance(seed,int) or not 1<=seed<=0xffffffff-32 or
-        not 1<=matches<=32 or (features_v2 and features_v4) or
+        not 1<=matches<=32 or
+        sum((features_v2,features_v4,features_v5))>1 or
         teacher not in ('aq-public-belief','aq-public-strategy-selection') or
         type(utility_labels) is not bool or
         (utility_labels and (teacher!='aq-public-strategy-selection' or
-                             not (features_v2 or features_v4)))):
+                             not (features_v2 or features_v4 or features_v5)))):
         raise ValueError('Invalid held-out data bounds')
     model=Path(model)
     torch.set_num_threads(1)
-    net=(RNADNetwork(state_features=STATE_FEATURES_V3,
+    net=(RNADNetwork(state_features=STATE_FEATURES_V5,
+                     action_features=ACTION_FEATURES_V5)
+         if features_v5 else
+         RNADNetwork(state_features=STATE_FEATURES_V3,
                      action_features=ACTION_FEATURES_V3)
          if features_v4 else RNADNetwork())
-    schema=(THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
+    schema=(THREE_PHASE_FEATURE_SCHEMA_V5 if features_v5 else
+            THREE_PHASE_FEATURE_SCHEMA_V4 if features_v4 else
             THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2
             else THREE_PHASE_FEATURE_SCHEMA)
     model_sha=load_exported_json(net,model,
@@ -76,7 +84,8 @@ def evaluate(model,*,seed=996301,matches=16,out,features_v2=False,
     folder.mkdir(parents=True,exist_ok=False)
     traces=collect(seed,matches,folder,three_phase=True,
                    teacher=teacher,features_v2=features_v2,
-                   features_v4=features_v4,utility_labels=utility_labels)
+                   features_v4=features_v4,features_v5=features_v5,
+                   utility_labels=utility_labels)
     stat={phase:{'correct':0,'examples':0,'cross_entropy':0.0,
                  'teacher_top3':0,'teacher_top10':0,'legal_candidates':0,
                  'teacher_probability_sum':0.0,'entropy_sum':0.0,
@@ -167,6 +176,7 @@ if __name__=='__main__':
     p.add_argument('--out',required=True)
     p.add_argument('--features-v2',action='store_true')
     p.add_argument('--features-v4',action='store_true')
+    p.add_argument('--features-v5',action='store_true')
     p.add_argument('--utility-labels',action='store_true')
     p.add_argument('--teacher',choices=['aq-public-belief',
         'aq-public-strategy-selection'],default='aq-public-belief')
@@ -174,5 +184,6 @@ if __name__=='__main__':
     print(json.dumps(evaluate(opts.model,seed=opts.seed,matches=opts.matches,
                               out=opts.out,features_v2=opts.features_v2,
                               features_v4=opts.features_v4,
+                              features_v5=opts.features_v5,
                               teacher=opts.teacher,
                               utility_labels=opts.utility_labels),indent=2))
