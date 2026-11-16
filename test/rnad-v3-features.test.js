@@ -7,8 +7,11 @@ import {encodeRnadThreePhaseDecisionV3,
   from '../src/ml/rnad-phase-features-v3.js';
 import {projectRnadObservation,RNAD_OBSERVATION_SCHEMA}
   from '../src/ml/legal-action-adapter.js';
-import {runRnadAcceptanceSmoke,verifiedRunningSourceSha}
+import {runRnadAcceptanceSmoke,verifiedRunningSourceSha,
+  stage0FixedPolicy}
   from '../scripts/dev/simulator/rnad-match.js';
+import {compareAcceptedRnadCandidateCollisions}
+  from '../scripts/rnad/action-collision-diagnostic.mjs';
 import provenance from '../provenance/manifest.json' with {type:'json'};
 
 const own=Array.from({length:6},(_,i)=>({
@@ -95,4 +98,34 @@ test('v3 represents authoritative Struggle without fabricating a normal move',()
   assert.equal(result.actions.length,2);
   assert.equal(result.actions[0].length,32);
   assert.ok(result.actions[0].every(Number.isFinite));
+});
+
+test('v2/v3 collision diagnostic covers real accepted draft, selection and battle',()=>{
+  // This is an untrained, deterministic authority integration test. It
+  // measures feature aliasing, NOT teacher imitation or win-rate strength.
+  const result=runRnadAcceptanceSmoke({
+    seed:22003,matchId:'feature-collisions-22003',
+    sourceSha:verifiedRunningSourceSha(),
+    engineSnapshotSha:provenance.sourceCommit,
+    phasePolicy:stage0FixedPolicy,includeAcceptedHistory:true
+  });
+  assert.equal(result.completed,true);
+  assert.equal(result.score[result.winner],4);
+  const rows=result.jointTimeline.map(({seat,index})=>
+    result.trajectories[seat].decisions[index]);
+  const count=compareAcceptedRnadCandidateCollisions(rows);
+  assert.equal(count.schema,'rnad-i5-three-phase-accepted-collision-diagnostic-v1');
+  for(const phase of ['draft','selection','battle']){
+    const s=count.phases[phase];
+    assert.ok(s.decisions>0);
+    assert.ok(s.legal_candidates>=s.decisions);
+    assert.ok(s.v3_duplicate_candidates<=s.v2_duplicate_candidates);
+    assert.ok(s.v3_duplicate_fraction<=s.v2_duplicate_fraction);
+  }
+  assert.equal(count.model_strength_improvement_confirmed,false);
+  assert.throws(()=>compareAcceptedRnadCandidateCollisions(
+    rows.filter(r=>r.phase!=='draft')),/Missing draft/);
+  assert.throws(()=>compareAcceptedRnadCandidateCollisions([
+    {...rows[0],accepted_action:['not-legal']}
+  ]),/accepted legal action/);
 });
