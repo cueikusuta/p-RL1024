@@ -178,7 +178,7 @@ def run_match(seed, model, magnet, directory, *,
         raise ValueError('Unexpected nonterminal or nonzero-sum reward')
     return row
 
-\nPHASE_LEARNING_PROFILES={
+PHASE_LEARNING_PROFILES={
     'all':frozenset(('draft','selection','battle')),
     'selection-only':frozenset(('selection',)),
     'draft-only':frozenset(('draft',)),
