@@ -43,7 +43,7 @@ def state_hash(net):
 
 
 def run_match(seed, model, magnet, directory, *,
-              three_phase=False,features_v2=False):
+              three_phase=False,features_v2=False,switch_guard='none'):
     directory.mkdir(parents=True,exist_ok=True)
     model_path=directory/'actor.json'
     magnet_path=directory/'magnet.json'
@@ -62,12 +62,19 @@ def run_match(seed, model, magnet, directory, *,
         command.extend(['--three-phase','true'])
     if features_v2:
         command.extend(['--features-v2','true'])
+    if switch_guard!='none':
+        command.extend(['--switch-guard',switch_guard])
     subprocess.run(command,check=True,timeout=1800)
     row=json.loads(output.read_text())
+    guarded=switch_guard=='anti-loop-v1'
     if (row.get('schema')!=(
-        'rnad-accepted-three-phase-v2-training-match-v1' if features_v2
+        'rnad-accepted-three-phase-v2-anti-loop-training-match-v1' if guarded
+        else 'rnad-accepted-three-phase-v2-training-match-v1' if features_v2
         else 'rnad-accepted-three-phase-training-match-v1' if three_phase
         else 'rnad-accepted-training-match-v1') or
+        (row.get('deployment_policy') if guarded else
+         row.get('deployment_policy',None))!=(
+            {'switch_guard':'anti-loop-v1'} if guarded else None) or
         row.get('feature_schema')!=feature_schema or
         row.get('completed') is not True or
         row.get('source_sha')!=current_git_sha() or
@@ -78,6 +85,16 @@ def run_match(seed, model, magnet, directory, *,
         (4*row.get('rounds',0) if three_phase else 0) or
         not row.get('events')):
         raise ValueError('Untrusted, partial or mismatched Match training record')
+    for event in row['events']:
+        actual=event.get('policy_eligible_action_count')
+        authority=event.get('authoritative_legal_action_count')
+        if (not isinstance(actual,int) or not isinstance(authority,int) or
+            actual<1 or authority<actual or
+            actual!=len(event.get('actions',[]))):
+            raise ValueError('Incorrect guarded policy-support cardinality')
+        if guarded and event.get('phase')=='battle' and
+                actual<authority and not event.get('actions')):
+            raise ValueError('Invalid masked battle actions')
     if three_phase:
         counts={phase:sum(e.get('phase')==phase for e in row['events'])
                 for phase in ('draft','selection','battle')}
@@ -170,14 +187,16 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
 
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
           eta=.2,magnet_period=4,initial_model=None,three_phase=False,
-          features_v2=False):
+          features_v2=False,switch_guard='none'):
     if (not isinstance(seed,int) or not 1 <= seed <= 0xffffffff or
         not isinstance(matches,int) or not 1 <= matches <= 16 or
         not isinstance(eta,(float,int)) or not math.isfinite(float(eta)) or
         not 0 < eta <= 1 or
         type(magnet_period) is not int or not 1 <= magnet_period <= 256 or
         type(three_phase) is not bool or
-        type(features_v2) is not bool or (features_v2 and not three_phase)):
+        type(features_v2) is not bool or (features_v2 and not three_phase) or
+        switch_guard not in ('none','anti-loop-v1') or
+        (switch_guard!='none' and not (three_phase and features_v2))):
         raise ValueError('Training must bound seed, matches, eta and magnet period')
     torch.set_num_threads(1)
     path=Path(out)
@@ -188,7 +207,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
     model_id=('RNAD-003-3phase-v2' if features_v2 else
-              'RNAD-002-3phase' if three_phase else 'RNAD-001')
+              'RNAD-002-3phase' if three_phase else 'RNAD-001')+(
+                  '-anti-loop-v1' if switch_guard!='none' else '')
     initialization_sha256=(
         load_exported_json(net,initial_model,
                            expected_feature_schema=feature_schema)
@@ -213,7 +233,9 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                       'source_sha':current_git_sha(),
                       'engine_snapshot_sha':frozen_engine_sha(),
                       'training_code_sha':current_git_sha(),
-                      'observation_schema_version':feature_schema})
+                      'observation_schema_version':feature_schema,
+                      **({'switch_guard':switch_guard}
+                         if switch_guard!='none' else {})})
         metadata=restored['metadata']
         if metadata.get('initial_seed')!=seed:
             raise ValueError('Initial seed differs from previous run')
@@ -225,7 +247,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
     summaries=[]
     for _ in range(matches):
         data=run_match(counter,net,magnet,path/'rollouts',
-                       three_phase=three_phase,features_v2=features_v2)
+                       three_phase=three_phase,features_v2=features_v2,
+                       switch_guard=switch_guard)
         summary=train_match(net,target,magnet,optimizer,scheduler,data,eta=eta)
         completed+=1
         ids.append(data['match_id'])
@@ -243,9 +266,12 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                 'engine_snapshot_sha':frozen_engine_sha(),
                 'training_code_sha':current_git_sha(),
                 'observation_schema_version':feature_schema,
+                **({'switch_guard':switch_guard}
+                    if switch_guard!='none' else {}),
                 'opponent_policy_version':(
                     'RNAD-003-v2-selfplay' if features_v2
-                    else 'RNAD-001-selfplay'),
+                    else 'RNAD-001-selfplay')+
+                    ('-anti-loop-v1' if switch_guard!='none' else ''),
                 'completed_matches':completed,
                 'accepted_decisions':summary['accepted_decisions']+
                     (sum(x['accepted_decisions'] for x in summaries)
@@ -265,6 +291,9 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
             else 'rnad-three-phase-training-report-v1' if three_phase
             else 'rnad-smoke-training-report-v1',
             'feature_schema':feature_schema,'model_id':model_id,
+            **({'switch_guard':switch_guard,
+                'deployment_policy':{'switch_guard':switch_guard}}
+               if switch_guard!='none' else {}),
             'initialization_sha256':initialization_sha256,
             'regularization_eta':float(eta),
             'magnet_period':magnet_period,
@@ -288,10 +317,13 @@ if __name__=='__main__':
     parser.add_argument('--initial-model',default=None)
     parser.add_argument('--three-phase',action='store_true')
     parser.add_argument('--features-v2',action='store_true')
+    parser.add_argument('--switch-guard',choices=['none','anti-loop-v1'],
+                        default='none')
     args=parser.parse_args()
     print(json.dumps(train(seed=args.seed,matches=args.matches,
                            out=args.out,resume=args.resume,
                            initial_model=args.initial_model,
                            three_phase=args.three_phase,
-                           features_v2=args.features_v2),
+                           features_v2=args.features_v2,
+                           switch_guard=args.switch_guard),
                      indent=2))
