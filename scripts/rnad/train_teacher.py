@@ -5,6 +5,7 @@ not Metamon; trained weights are NOT R-NaD and never promoted.
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import math
 import random
@@ -13,7 +14,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-from scripts.rnad.neural import (RNADNetwork, export_json,
+from scripts.rnad.neural import (RNADNetwork, export_json, load_exported_json,
                                  BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA,
                                  THREE_PHASE_FEATURE_SCHEMA_V2)
 from scripts.rnad.train import state_hash, current_git_sha, frozen_engine_sha
@@ -101,10 +102,31 @@ def phase_balanced_mean_loss(events, *, enabled=False, weights=None):
         for p in ('draft','selection','battle'))/sum(weights.values())
 
 
+def initialize_teacher_model(feature_schema,initial_model=None):
+    """Optional frozen v2 actor warm start, with a NEW optimizer.
+
+    This is not an exact optimizer/magnet/RNG checkpoint resume. It copies
+    weights only, never edits the saved source model or its provenance.
+    """
+    model=RNADNetwork()
+    if initial_model is None:
+        return model,None
+    path=Path(initial_model)
+    if (feature_schema!=THREE_PHASE_FEATURE_SCHEMA_V2 or
+        not path.is_file()):
+        raise ValueError("Only an existing compatible v2 model may warm-start")
+    digest=hashlib.sha256(path.read_bytes()).hexdigest()
+    parsed=load_exported_json(model,path,expected_feature_schema=feature_schema)
+    if parsed!=digest:
+        raise ValueError("Untrusted source model SHA for teacher warm-start")
+    return model,digest
+
+
 def train(*,seed=975601,out="artifacts/rnad-teacher",
           three_phase=False,matches=32,epochs=4,
           teacher='basic-stage0',features_v2=False,phase_balanced=False,
-          phase_profile='equal',label_smoothing=0.0,reuse_teacher_traces=None):
+          phase_profile='equal',label_smoothing=0.0,reuse_teacher_traces=None,
+          initial_model=None):
     if (type(seed) is not int or type(matches) is not int or
         type(epochs) is not int or type(three_phase) is not bool or
         type(features_v2) is not bool or (features_v2 and not three_phase) or
@@ -117,6 +139,10 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
         not 0 <= float(label_smoothing) <= .15 or
         (reuse_teacher_traces is not None and
          not isinstance(reuse_teacher_traces,(str,Path))) or
+        (initial_model is not None and
+         (not isinstance(initial_model,(str,Path)) or
+          not three_phase or not features_v2 or
+          teacher!='aq-public-belief')) or
         not 1<=matches<=256 or not 1<=epochs<=6 or
         teacher not in ('basic-stage0','aq-public-belief') or
         (teacher=='aq-public-belief' and not three_phase) or
@@ -127,11 +153,11 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
     random.seed(seed)
     folder=Path(out)
     folder.mkdir(parents=True,exist_ok=True)
-    model=RNADNetwork()
-    initial_hash=state_hash(model)
     feature_schema=(THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
+    model,initial_file_sha=initialize_teacher_model(feature_schema,initial_model)
+    initial_hash=state_hash(model)
     export_json(model,folder/"initial-model.json",feature_schema=feature_schema)
     traces=collect(seed,matches,folder,three_phase=three_phase,
                    teacher=teacher,features_v2=features_v2,
@@ -224,6 +250,8 @@ def train(*,seed=975601,out="artifacts/rnad-teacher",
             "seed":seed,
             "teacher_completed_matches":matches,"teacher_updates":matches*epochs,
             "initial_model_sha256":initial_hash,
+            "warmstart_source_model_file_sha256":initial_file_sha,
+            "warmstart_optimizer_reused":False,
             "trained_model_sha256":trained_hash,
             "epochs":results,"rnad_updates":0,"is_champion":False}
     (folder/"teacher-report.json").write_text(json.dumps(
@@ -244,6 +272,7 @@ if __name__=="__main__":
                    default="equal")
     p.add_argument("--label-smoothing",type=float,default=0.0)
     p.add_argument("--reuse-teacher-traces",default=None)
+    p.add_argument("--initial-model",default=None)
     p.add_argument("--teacher",choices=["basic-stage0","aq-public-belief"],
                    default="basic-stage0")
     args=p.parse_args()
@@ -254,5 +283,6 @@ if __name__=="__main__":
                            phase_balanced=args.phase_balanced,
                            phase_profile=args.phase_profile,
                            label_smoothing=args.label_smoothing,
-                           reuse_teacher_traces=args.reuse_teacher_traces),
+                           reuse_teacher_traces=args.reuse_teacher_traces,
+                           initial_model=args.initial_model),
                      indent=2))
