@@ -87,8 +87,8 @@ export function compareV4PhaseArms(baseline,candidate,{familySize=1}={}){
     familywise_improvement_established:gain-familyWidth>0,
     conservative_95pct_delta_bounds:[
       Math.max(-1,gain-width),Math.min(1,gain+width)],
-    improved_with_95pct_confidence:gain-width>0,
-    degraded_with_95pct_confidence:gain+width<0,
+    improved_with_95pct_confidence:gain-familyWidth>0,
+    degraded_with_95pct_confidence:gain+familyWidth<0,
     strength_established:false,champion_promoted:false};
 }
 
@@ -125,7 +125,8 @@ export function compareV4PhaseModels(baseline,candidate,{familySize=1}={}){
     familywise_gain_established:gain-familyWidth>0,
     conservative_95pct_delta_bounds:[Math.max(-1,gain-width),
       Math.min(1,gain+width)],
-    gain_established:gain-width>0,regression_established:gain+width<0,
+    gain_established:gain-familyWidth>0,
+    regression_established:gain+familyWidth<0,
     champion_promoted:false};
 }
 
