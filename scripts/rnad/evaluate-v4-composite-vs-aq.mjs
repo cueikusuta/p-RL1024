@@ -23,6 +23,9 @@ export const COMPOSITE_MODES=Object.freeze({
   'all-v4':{draft:0,selection:0,battle:0},
   'draft-v4':{draft:0,selection:1,battle:1},
   'selection-v4':{draft:1,selection:0,battle:1},
+  'selection-quarter-v4':{draft:1,selection:.75,battle:1},
+  'selection-half-v4':{draft:1,selection:.5,battle:1},
+  'selection-threequarter-v4':{draft:1,selection:.25,battle:1},
   'both-v4':{draft:0,selection:0,battle:1}
 });
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
