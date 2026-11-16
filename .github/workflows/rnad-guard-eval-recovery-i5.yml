@@ -1,0 +1,193 @@
+name: RNAD-003 recover guarded model evaluations without repeating 64-Match training
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-guard-eval-recovery-i5.yml']
+  workflow_dispatch:
+permissions: {}
+  evaluate:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 160
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        initial: [base128, base256, c005]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: cueikusuta/p-RL1024
+      INITIAL: ${{ matrix.initial }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 571bac81d62373ab063c2e1508b0647122786e80
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Restore frozen/updated models from THIS run only
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "571bac81d62373ab063c2e1508b0647122786e80"
+          mkdir -p models "results/$INITIAL"
+          gh run download 43757054212 --repo "$GH_REPO" \
+            --name rnad-i5-queue-models-43757054212 --dir models
+          gh run download 43781276450 --repo "$GH_REPO" \
+            --name "rnad-i5-guard-train-$INITIAL-43781276450" \
+            --dir "results/$INITIAL"
+          test -f "results/$INITIAL/final-model.json"
+          node scripts/verify-snapshot.mjs
+      - name: Paired updated-vs-frozen SAME-original both guarded, independent seeds
+        run: |
+          node scripts/rnad/evaluate-direct.mjs \
+            --teacher "models/$INITIAL.json" \
+            --rnad "results/$INITIAL/final-model.json" \
+            --seed 1760001 --pairs 64 --selection-mode greedy \
+            --guard-teacher anti-loop-v1 --guard-rnad anti-loop-v1 \
+            --out results/learned-vs-frozen.json
+      - name: Baseline original guarded model vs Basic on independent same seeds
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "models/$INITIAL.json" --seed 1761001 --pairs 64 \
+            --selection-mode greedy --switch-guard anti-loop-v1 \
+            --out results/frozen-vs-basic.json
+      - name: New trained guarded model vs Basic on the exact baseline holdout
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "results/$INITIAL/final-model.json" --seed 1761001 --pairs 64 \
+            --selection-mode greedy --switch-guard anti-loop-v1 \
+            --out results/trained-vs-basic.json
+      - name: Verify source, full four-win results, exact model SHA, seed and seat
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          model=os.environ['INITIAL'];p=Path('results')
+          sh=lambda f:hashlib.sha256(Path(f).read_bytes()).hexdigest()
+          read=lambda name:json.loads((p/name).read_text())
+          train=read(f'{model}/study-report.json')
+          a=read('frozen-vs-basic.json');b=read('trained-vs-basic.json')
+          d=read('learned-vs-frozen.json')
+          old=sh(f'models/{model}.json')
+          new=sh(f'results/{model}/final-model.json')
+          if not(train['initial_model']==model and train['initial_model_sha256']==old
+              and train['final_model_json_sha256']==new
+              and old!=new
+              and all(z['source_sha']==train['source_sha']
+                  and z['engine_sha']==train['engine_sha'] for z in (a,b,d))
+              and a['model_sha256']==old and b['model_sha256']==new
+              and d['teacher_model_sha256']==old
+              and d['rnad_model_sha256']==new
+              and d['schema']=='rnad-direct-switch-guard-paired-v1'
+              and d['deployment_policy']=={
+                'teacher_switch_guard':'anti-loop-v1',
+                'rnad_switch_guard':'anti-loop-v1'}
+              and all(z['schema']=='rnad-three-phase-switch-guard-vs-basic-paired-v1'
+                  and z['deployment_policy']=={'switch_guard':'anti-loop-v1'}
+                  and z['opponent_id']=='basic-all-phases'
+                  and z['champion_promoted'] is False
+                  for z in (a,b))
+              and d['is_champion'] is False):
+              raise ValueError('Wrong original/learned source, model, or guarded identity')
+          for z,start,key in ((a,1761001,'candidateSeat'),(b,1761001,'candidateSeat'),
+                              (d,1760001,'rnadSeat')):
+              rows=z['rows']
+              if not (z['pairs']==64 and z['matches']==128
+                  and z['wins']==sum(r['won'] for r in rows)
+                  and len(rows)==128
+                  and {(r['seed'],r[key]) for r in rows}==
+                      {(i,seat) for i in range(start,start+64) for seat in (0,1)}
+                  and all(r['score'][r[key] if r['won'] else 1-r[key]]==4
+                      for r in rows)
+                  and z['inference_selection_mode']=='greedy'):
+                  raise ValueError('Invalid independent paired four-win Match coverage')
+          report={
+            'schema':'rnad-i5-guarded-warmstart-64-evaluation-v1',
+            'source_sha':train['source_sha'],'engine_sha':train['engine_sha'],
+            'original_model':model,'old_model_sha256':old,'new_model_sha256':new,
+            'training_completed_matches':64,
+            'new_vs_original_guarded_wins_128':d['wins'],
+            'old_guarded_vs_basic_wins_128':a['wins'],
+            'learned_guarded_vs_basic_wins_128':b['wins'],
+            'seed_direct':1760001,'seed_basic':1761001,
+            'valid_full_four_win_matches':True,
+            'statistical_improvement_confirmed':False,'is_champion':False}
+          (p/f'{model}/evaluation-report.json').write_text(
+              json.dumps(report,indent=2,allow_nan=False)+'\n')
+          print(json.dumps(report),flush=True)
+          PY
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-guard-eval-${{ matrix.initial }}-${{ github.run_id }}
+          path: |
+            results/${{ matrix.initial }}/evaluation-report.json
+            results/learned-vs-frozen.json
+            results/frozen-vs-basic.json
+            results/trained-vs-basic.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  aggregate:
+    needs: evaluate
+    if: needs.evaluate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch exactly three successful same-run research reports
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rnad-guard-aggregate
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --pattern "rnad-i5-guard-eval-*-$GITHUB_RUN_ID" \
+            --dir /tmp/rnad-guard-aggregate
+      - name: Aggregate measured results without treating 64 pairs as established strength
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path('/tmp/rnad-guard-aggregate')
+          data={}
+          for name in ('base128','base256','c005'):
+              files=list(root.rglob('evaluation-report.json'))
+              found=[json.loads(f.read_text()) for f in files
+                  if json.loads(f.read_text()).get('original_model')==name]
+              if len(found)!=1:
+                  raise ValueError('Missing/duplicated trained guarded evaluation '+name)
+              x=found[0]
+              if (x['schema']!='rnad-i5-guarded-warmstart-64-evaluation-v1'
+                  or x['training_completed_matches']!=64
+                  or x['valid_full_four_win_matches'] is not True
+                  or x['is_champion'] is not False):
+                  raise ValueError('Invalid source-bound guarded training result')
+              data[name]=x
+          if len({(x['source_sha'],x['engine_sha'])
+                  for x in data.values()})!=1:
+              raise ValueError('Mixed guarded training code/engine')
+          report={'schema':'rnad-i5-comparable-guarded-warmstarts-v1',
+              'training':{'per_model_completed_matches':64,
+                          'models':['base128','base256','c005'],
+                          'policy':'anti-loop-v1',
+                          'full_state_continuation':False},
+              'experiments':data,
+              'independent_ai_review_complete':False,
+              'statistical_improvement_confirmed':False,
+              'is_champion':False}
+          (root/'summary.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps({name:{
+              'head_to_head_new_wins_128':d['new_vs_original_guarded_wins_128'],
+              'basic_old_wins_128':d['old_guarded_vs_basic_wins_128'],
+              'basic_new_wins_128':d['learned_guarded_vs_basic_wins_128']}
+              for name,d in data.items()}),flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-guarded-warmstarts-summary-${{ github.run_id }}
+          path: /tmp/rnad-guard-aggregate/summary.json
+          if-no-files-found: error
+          retention-days: 30
