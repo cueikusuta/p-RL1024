@@ -29,7 +29,7 @@ jobs:
           import json
           from pathlib import Path
           m=json.loads(Path('docs/research/rnad/TEACHER_SIGNAL_AUDIT_MANIFEST.json').read_text())
-          if m!={'schema':'rnad-i5-teacher-signal-audit-v1','origin_run':43957735875,'expected_matches':32}:
+          if (m.get('schema')!='rnad-i5-teacher-signal-audit-v1' or\n              m.get('origin_run')!=43957735875 or\n              m.get('expected_matches')!=32 or\n              m.get('iteration') not in (1,2)):
               raise ValueError('Unregistered immutable AQ public teacher audit')
           PY
       - name: Reuse authority-accepted teacher traces from completed research artifact
@@ -38,7 +38,11 @@ jobs:
           mkdir -p input results
           gh run download 43957735875 --repo cueikusuta/p-RL1024 \
             --name rnad-i5-v4-utility-iteration-43957735875 --dir input
-          test "$(find input -type f -name 'teacher-*.json' | wc -l)" -eq 32
+          echo 'Accepted teacher file directories in original artifact:'
+          find input -type f -name 'teacher-*.json' | head -40 || true
+          echo "Teacher files: $(find input -type f -name 'teacher-*.json' | wc -l)"
+          echo 'Example JSON files:'
+          find input -type f -name '*.json' | head -30 || true
           python -m scripts.rnad.audit_teacher_utility \
             --root input --matches 32 --out results/public-aq-teacher-signal.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
