@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {compareV4PhaseArms}
+import {compareV4PhaseArms,compareV4PhaseModels}
   from '../scripts/rnad/compare-v4-phase-arms.mjs';
 import {COMPOSITE_SCHEMA}
   from '../scripts/rnad/evaluate-v4-composite-vs-aq.mjs';
@@ -43,4 +43,18 @@ test('v4 phase comparison strictly rejects missing, duplicate and forged evidenc
     {...b,v3_model_sha256:'e'.repeat(64)},
     {...b,rows:b.rows.map((x,i)=>i===0?{...x,candidateSeat:1}:x)},
   ])assert.throws(()=>compareV4PhaseArms(a,row));
+});
+
+test('same-phase stronger v4 model is compared on exact seats and frozen v3',()=>{
+  const base=report('selection-v4'),candidate=report('selection-v4',true);
+  candidate.v4_model_sha256='d'.repeat(64);
+  const r=compareV4PhaseModels(base,candidate);
+  assert.equal(r.paired_delta,.5);
+  assert.equal(r.matches_per_model,8);
+  assert.equal(r.gain_established,false);
+  assert.equal(r.champion_promoted,false);
+  assert.throws(()=>compareV4PhaseModels(base,{...candidate,seed:404001}));
+  assert.throws(()=>compareV4PhaseModels(base,{...candidate,mode:'draft-v4'}));
+  assert.throws(()=>compareV4PhaseModels(base,{...candidate,
+    v3_model_sha256:'e'.repeat(64)}));
 });
