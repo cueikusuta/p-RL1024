@@ -91,6 +91,7 @@ export function runRnadAcceptanceSmoke({
             throw new TypeError('Policy must return an action and logged probabilities');
           collector.propose({
             phase:stage,round,observation,legalActions,
+            policyEligibleActions:proposed.policyEligibleActions,
             action:proposed.action,
             behaviorLogProbability:proposed.behaviorLogProbability,
             referenceLogProbability:proposed.referenceLogProbability,
