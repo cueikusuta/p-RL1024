@@ -17,7 +17,10 @@ const all=[...distinct.values()];
 const types=p=>[...data.species[p.speciesId].types].sort().join('/');
 const grouped=new Map();
 for(const p of all){const k=types(p);if(!grouped.has(k))grouped.set(k,[]);grouped.get(k).push(p);}
-const roster=all.slice(0,6).map((p,i)=>({...p,instanceId:'fixture-'+i}));
+const roster=all.slice(0,6).map((p,i)=>({...p,
+  instanceId:'fixture-'+i,
+  types:data.species[p.speciesId].types,
+  baseStats:p.baseStats??data.species[p.speciesId].baseStats}));
 function observation(foe,others){
   return projectRnadObservation({phase:'selection',round:1,
     score:[0,0],budget:10,grant:10,
