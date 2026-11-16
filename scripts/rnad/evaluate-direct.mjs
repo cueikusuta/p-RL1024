@@ -12,6 +12,7 @@ import {RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
 import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
   from '../../src/ml/rnad-phase-features-v2.js';
+import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V3} from '../../src/ml/rnad-phase-features-v3.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 import {pairedHoeffding95} from './aggregate-eval.mjs';
 
@@ -43,7 +44,7 @@ export function directPairedNeuralEval({
   if(family!==new PersistentRNADInference(rnadPath).featureSchema)
     throw new Error('Cannot directly compare different actor feature schemas');
   const threePhase=[RNAD_THREE_PHASE_FEATURE_SCHEMA,
-    RNAD_THREE_PHASE_FEATURE_SCHEMA_V2].includes(family);
+    RNAD_THREE_PHASE_FEATURE_SCHEMA_V2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V3].includes(family);
   const rows=[];
   let wins=0;
   for(let offset=0;offset<pairs;offset++){
@@ -63,6 +64,7 @@ export function directPairedNeuralEval({
         (ctx.seat===rnadSeat?rnad:teacher).accepted?.(ctx);
       };
       const result=runRnadAcceptanceSmoke({
+        includeAcceptedHistory:family===RNAD_THREE_PHASE_FEATURE_SCHEMA_V3,
         seed:sampleSeed,matchId:'direct-neural-'+sampleSeed+'-'+rnadSeat,
         experimentId:threePhase?'RNAD-002-direct-heldout':'RNAD-001-direct-heldout',
         sourceSha:verifiedRunningSourceSha(),
