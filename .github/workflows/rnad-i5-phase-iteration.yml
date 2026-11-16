@@ -61,7 +61,7 @@ jobs:
               not 1<=m['heldout_matches']<=32 or
               not 1<=m['selfplay_matches']<=16 or
               not 1<=m['aq_pairs']<=100 or
-              any(m[k]<1 for k in ['teacher_seed','heldout_seed','selfplay_seed','aq_seed']))):
+              any(m[k]<1 for k in ['teacher_seed','heldout_seed','selfplay_seed','aq_seed'])):
               raise ValueError('Invalid bounded one-shot experiment manifest')
           if not (m['teacher_seed']+m['teacher_matches']<m['heldout_seed'] and
               m['heldout_seed']+m['heldout_matches']<m['selfplay_seed'] and
