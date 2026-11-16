@@ -9,6 +9,8 @@ import {PersistentRNADInference,RNADMixedPolicy} from './infer.mjs';
 import {RnadSwitchLoopGuard} from './switch-loop-guard.mjs';
 import {summarizeAcceptedSwitchOpportunities}
   from './switch-opportunity.mjs';
+import {compareAcceptedRnadCandidateCollisions}
+  from './action-collision-diagnostic.mjs';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
@@ -63,6 +65,14 @@ export function probe({model,modelFile,manifestFile,seed,matches,out}){
   const bySeat=[0,1].map(seat=>({seat,voluntary_switches:0,
     shaped_switches:0,cost:0,reason_counts:{}}));
   const records=[];
+  const totals=['draft','selection','battle'].map(phase=>[phase,{
+    decisions:0,legal_candidates:0,
+    v2_duplicate_candidates:0,v3_duplicate_candidates:0,
+    v2_tied_chosen_decisions:0,v3_tied_chosen_decisions:0,
+    v2_any_collision_decisions:0,v3_any_collision_decisions:0,
+    v3_reduced_collisions_decisions:0
+  }]);
+  const phaseCollisions=Object.fromEntries(totals);
   for(let n=0;n<matches;n++){
     const matchSeed=seed+n;
     // A fresh independent two-seat actor/magnet/guard per Match: no
@@ -74,7 +84,10 @@ export function probe({model,modelFile,manifestFile,seed,matches,out}){
       sourceSha:source,engineSnapshotSha:provenance.sourceCommit,
       phasePolicies:policies,policy:ctx=>policies[ctx.seat](ctx),
       policyVersion:'RNAD-003-v2-frozen-greedy-anti-loop-v1',
-      opponentPolicyVersion:'RNAD-003-v2-frozen-greedy-anti-loop-v1'
+      opponentPolicyVersion:'RNAD-003-v2-frozen-greedy-anti-loop-v1',
+      // This changes only the trusted receipt record. The frozen v2 Actor
+      // ignores v3 history; v3 features are encoded only after acceptance.
+      includeAcceptedHistory:true
     });
     if(!result.completed||!result.trajectories||
        !result.jointTimeline||!result.jointTimeline.length||
@@ -91,6 +104,12 @@ export function probe({model,modelFile,manifestFile,seed,matches,out}){
     });
     const tally=summarizeAcceptedSwitchOpportunities(rows);
     addCounts(bySeat,tally.by_seat);
+    const collisions=compareAcceptedRnadCandidateCollisions(rows);
+    for(const [phase,stats] of Object.entries(collisions.phases)){
+      const target=phaseCollisions[phase];
+      for(const key of Object.keys(target))
+        target[key]+=stats[key];
+    }
     records.push({seed:matchSeed,winner:result.winner,score:result.score,
       rounds:result.rounds,accepted_decisions:rows.length,
       voluntary_switches:tally.voluntary_switches,
@@ -99,7 +118,16 @@ export function probe({model,modelFile,manifestFile,seed,matches,out}){
       decisions:rows.length,voluntary:tally.voluntary_switches,
       shaped:tally.shaped_switches}));
   }
-  const report={schema:'rnad-i5-frozen-greedy-switch-reason-study-v1',
+  for(const stats of Object.values(phaseCollisions)){
+    stats.v2_duplicate_fraction=
+      stats.v2_duplicate_candidates/stats.legal_candidates;
+    stats.v3_duplicate_fraction=
+      stats.v3_duplicate_candidates/stats.legal_candidates;
+    if(stats.decisions<1||
+       stats.v3_duplicate_candidates>stats.v2_duplicate_candidates)
+      throw new Error('Incomplete or invalid three-phase collision accounting');
+  }
+  const report={schema:'rnad-i5-frozen-greedy-switch-reason-study-v2',
     source_sha:source,engine_sha:provenance.sourceCommit,
     model_origin_source_sha:manifest.source_sha,
     model_id:model,model_sha256:fingerprint,
@@ -107,7 +135,7 @@ export function probe({model,modelFile,manifestFile,seed,matches,out}){
     reward_objective_measured:'opportunity-v1-counterfactual-read-only',
     seed_start:seed,completed_matches:matches,
     both_seats:true,all_complete_four_win:true,
-    by_seat:bySeat,records,
+    by_seat:bySeat,records,phase_feature_collisions:phaseCollisions,
     voluntary_switches:bySeat.reduce((n,s)=>n+s.voluntary_switches,0),
     shaped_switches:bySeat.reduce((n,s)=>n+s.shaped_switches,0),
     model_improvement_confirmed:false,is_champion:false};

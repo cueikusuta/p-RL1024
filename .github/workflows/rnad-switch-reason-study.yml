@@ -1,7 +1,11 @@
 name: RNAD-I5 frozen model switch-reason 8-Match diagnostic
 on:
-  # First source-pinned diagnostic is already queued as run #43810575487.
-  # No automatic repeated costly Matches on unrelated PR changes.
+  # One bounded follow-up launch when the phase-collision audit is added.
+  # This push trigger is removed immediately after the first run queues.
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - 'scripts/rnad/reason-coverage-study.mjs'
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -61,7 +65,7 @@ jobs:
           import {readFileSync} from 'node:fs';
           import {execFileSync} from 'node:child_process';
           const p=JSON.parse(readFileSync('reports/coverage-'+process.env.MODEL+'.json'));
-          if(p.schema!=='rnad-i5-frozen-greedy-switch-reason-study-v1'||
+          if(p.schema!=='rnad-i5-frozen-greedy-switch-reason-study-v2'||
              p.model_id!==process.env.MODEL||
              p.source_sha!==execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()||
              p.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
@@ -70,7 +74,12 @@ jobs:
              p.model_improvement_confirmed!==false||p.is_champion!==false||
              !p.records.every((x,i)=>x.seed===1860001+i&&x.score[x.winner]===4)||
              p.by_seat.some(s=>Object.values(s.reason_counts)
-               .reduce((n,x)=>n+x,0)!==s.voluntary_switches))
+               .reduce((n,x)=>n+x,0)!==s.voluntary_switches)||
+             !['draft','selection','battle'].every(phase=>{
+               const x=p.phase_feature_collisions?.[phase];
+               return x&&x.decisions>0&&x.legal_candidates>=x.decisions&&
+                 x.v3_duplicate_candidates<=x.v2_duplicate_candidates;
+             }))
             throw new Error('Invalid frozen reason diagnostic evidence');
           JS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
