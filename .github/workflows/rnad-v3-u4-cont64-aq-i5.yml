@@ -1,9 +1,7 @@
 name: RNAD-I5 v3-U4 exact-checkpoint 16-to-64 continuation and original AQ AB
 on:
-  # One bounded checkpoint-resumed research experiment. Manual thereafter.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-v3-u4-cont64-aq-i5.yml']
+  # Exact checkpoint continuation #43827510567 has completed training.
+  # Subsequent training is manual-only, not a PR synchronization side effect.
   workflow_dispatch:
 permissions: {}
 concurrency:

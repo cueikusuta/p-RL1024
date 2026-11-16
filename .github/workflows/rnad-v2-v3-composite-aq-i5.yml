@@ -1,9 +1,7 @@
 name: RNAD-I5 frozen v2-v3 multi-policy composite against original AQ
 on:
-  # One fixed small multi-phase screen. Subsequent runs manually only.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-v2-v3-composite-aq-i5.yml']
+  # Initial composite run #43828136480 is pinned to its source commit.
+  # Follow-up research is manual only; avoid duplicate full AQ matches.
   workflow_dispatch:
 permissions: {}
 concurrency:
