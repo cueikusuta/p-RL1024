@@ -157,7 +157,11 @@ def run_match(seed, model, magnet, directory, *,
     return row
 
 
-def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
+def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
+                frozen_opponent=None, learner_seat=None):
+    if (frozen_opponent is None)!=(learner_seat is None) or (
+            frozen_opponent is not None and learner_seat not in (0,1)):
+        raise ValueError('Frozen league opponent must have a specific learner seat')
     # The two policy states and the critic target are rolled forward only
     # on their own seat's information states. Hidden opponent moves never
     # become inputs to either recurrent Actor.
@@ -167,6 +171,12 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
     memories=[net.initial_memory() for _ in range(2)]
     target_mem=[target.initial_memory() for _ in range(2)]
     magnet_mem=[magnet.initial_memory() for _ in range(2)]
+    opp_memory=frozen_opponent.initial_memory() if frozen_opponent else None
+    if frozen_opponent:
+        frozen_opponent.eval()
+        if frozen_opponent.state_features!=net.state_features or (
+            frozen_opponent.action_features!=net.action_features):
+            raise ValueError('Frozen league opponent feature mismatch')
     inputs=[]
     terms=[]
     for event in data['events']:
@@ -183,6 +193,18 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
             raise ValueError('Invalid feature/action/probability data')
         x=torch.tensor([state],dtype=torch.float32)
         a=torch.tensor([actions],dtype=torch.float32)
+        if frozen_opponent is not None and seat!=learner_seat:
+            with torch.no_grad():
+                logits,value,opp_memory=frozen_opponent(x,a,opp_memory)
+                pi=torch.softmax(logits[0],dim=-1)
+                if abs(math.log(float(pi[event['action_index']]))-
+                       float(event['magnet_log_prob']))>1e-3:
+                    raise ValueError('Frozen league opponent magnet mismatch')
+            terms.append({'actor':seat,'reward':event['reward'],
+                'pi':pi,'magnet':pi,'behavior_prob':float(event['behavior_prob']),
+                'value':float(value[0]),'action_index':event['action_index']})
+            inputs.append((None,None))
+            continue
         logits,value,next_h=net(x,a,memories[seat])
         memories[seat]=next_h.detach()  # bounded truncated BPTT
         with torch.no_grad():
@@ -205,11 +227,15 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
     policy_losses=[]
     value_losses=[]
     for (logits,value),est in zip(inputs,targets):
+        if logits is None:
+            continue  # Frozen league actor is an opponent, never train it.
         policy_losses.append(neurd_policy_loss(logits,est['q_targets'],
                                                 beta=2.0,q_clip=10.0,
                                                 is_c=est['c']))
         value_losses.append((value-torch.tensor(
             est['value_target'],dtype=value.dtype))**2)
+    if not policy_losses:
+        raise ValueError('No accepted own-seat decisions in league Match')
     loss=sum(policy_losses)/len(policy_losses)+(
          .5*sum(value_losses)/len(value_losses))
     if not torch.isfinite(loss):
@@ -228,6 +254,7 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2):
             'critic_loss':float(sum(value_losses).detach()/len(value_losses)),
             'policy_loss':float(sum(policy_losses).detach()/len(policy_losses)),
             'accepted_decisions':len(terms),
+            'learning_decisions':len(policy_losses),
             'behavior_ratio_max':max(x['ratio'] for x in targets)}
 
 
