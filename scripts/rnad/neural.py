@@ -20,8 +20,11 @@ THREE_PHASE_FEATURE_SCHEMA = "rnad-three-phase-features-v1"
 THREE_PHASE_FEATURE_SCHEMA_V2 = "rnad-three-phase-features-v2"
 THREE_PHASE_FEATURE_SCHEMA_V3 = "rnad-three-phase-features-v3"
 THREE_PHASE_FEATURE_SCHEMA_V4 = "rnad-three-phase-features-v4"
+THREE_PHASE_FEATURE_SCHEMA_V5 = "rnad-three-phase-features-v5"
 STATE_FEATURES_V3 = 48
 ACTION_FEATURES_V3 = 32
+STATE_FEATURES_V5 = 96
+ACTION_FEATURES_V5 = 48
 
 
 class RNADNetwork(nn.Module):
@@ -31,7 +34,8 @@ class RNADNetwork(nn.Module):
         super().__init__()
         if (state_features,action_features) not in (
             (STATE_FEATURES,ACTION_FEATURES),
-            (STATE_FEATURES_V3,ACTION_FEATURES_V3)):
+            (STATE_FEATURES_V3,ACTION_FEATURES_V3),
+            (STATE_FEATURES_V5,ACTION_FEATURES_V5)):
             raise ValueError("Unsupported versioned RNAD feature widths")
         self.hidden_size = hidden
         self.state_features = state_features
@@ -76,11 +80,17 @@ def export_json(model, path, *, feature_schema=BATTLE_FEATURE_SCHEMA):
     if feature_schema not in (BATTLE_FEATURE_SCHEMA, THREE_PHASE_FEATURE_SCHEMA,
                               THREE_PHASE_FEATURE_SCHEMA_V2,
                               THREE_PHASE_FEATURE_SCHEMA_V3,
-                              THREE_PHASE_FEATURE_SCHEMA_V4):
+                              THREE_PHASE_FEATURE_SCHEMA_V4,
+                              THREE_PHASE_FEATURE_SCHEMA_V5):
         raise ValueError("Invalid RNAD export feature schema")
-    if ((feature_schema in (THREE_PHASE_FEATURE_SCHEMA_V3,
-                             THREE_PHASE_FEATURE_SCHEMA_V4)) !=
-        (model.state_features == STATE_FEATURES_V3)):
+    expected_dimensions = (
+        (STATE_FEATURES_V5,ACTION_FEATURES_V5)
+        if feature_schema==THREE_PHASE_FEATURE_SCHEMA_V5 else
+        (STATE_FEATURES_V3,ACTION_FEATURES_V3)
+        if feature_schema in (THREE_PHASE_FEATURE_SCHEMA_V3,
+                              THREE_PHASE_FEATURE_SCHEMA_V4) else
+        (STATE_FEATURES,ACTION_FEATURES))
+    if (model.state_features,model.action_features)!=expected_dimensions:
         raise ValueError("Model/feature schema mismatch on export")
     # All model parameters have exact names and dimensions; no Python eval.
     state = {key: {"shape": list(tensor.shape),
