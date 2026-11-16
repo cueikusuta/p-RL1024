@@ -1,10 +1,7 @@
 name: RNAD-I5 frozen AQ imitator phase calibration (8 held-out matches)
 on:
-  # A single retry for the teacher-report field-name correction only.
-  # The first run failed before the 8-Match evaluation, not in the learner.
-  push:
-    branches: [feat/5-rnad-stage0-contracts]
-    paths: ['.github/workflows/rnad-aq-heldout-calibration-i5.yml']
+  # Source-bound retry #43812943402 launched after field-name fix.
+  # Manual dispatch only; never retrigger expensive held-out Matches on PR sync.
   workflow_dispatch:
 permissions: {}
 concurrency:
