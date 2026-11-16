@@ -383,6 +383,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                             else feature_schema} if features_v3 else {}),
                       **({'switch_guard':switch_guard}
                          if switch_guard!='none' else {}),
+                         **({'league_pool_sha256':pool_sha}
+                            if pool is not None else {}),
                       **({'reward_objective':switch_cost}
                          if switch_cost!='none' else {})})
         metadata=restored['metadata']
@@ -395,15 +397,25 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         prior=restored['checkpoint_sha256']
     summaries=[]
     for _ in range(matches):
+        # Rotate only verified immutable opponent weights, then swap seats.
+        member=pool[completed%len(pool)] if pool is not None else None
+        learner_seat=(completed//len(pool))%2 if pool is not None else None
         data=run_match(counter,net,magnet,path/'rollouts',
                        three_phase=three_phase,features_v2=features_v2,
                        features_v3=features_v3,
-                       switch_guard=switch_guard,switch_cost=switch_cost)
+                       switch_guard=switch_guard,switch_cost=switch_cost,
+                       opponent_path=member[0] if member else None,
+                       learner_seat=learner_seat)
         # Within a Match, later passes reuse accepted data off-policy with
         # recomputed clipped importance weights, not new self-play outcomes.
-        epochs=[train_match(net,target,magnet,optimizer,scheduler,data,eta=eta)
+        epochs=[train_match(net,target,magnet,optimizer,scheduler,data,eta=eta,
+                  frozen_opponent=member[1] if member else None,
+                  learner_seat=learner_seat)
                 for _ in range(updates_per_match)]
         summary={**epochs[-1],
+                 **({'league_opponent_sha256':member[2],
+                     'league_learner_seat':learner_seat}
+                    if member else {}),
                  'optimizer_updates_this_match':updates_per_match,
                  'first_epoch_loss':epochs[0]['loss']}
         if switch_cost=='opportunity-v1':
@@ -437,6 +449,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                       else feature_schema} if features_v3 else {}),
                 **({'switch_guard':switch_guard}
                     if switch_guard!='none' else {}),
+                    **({'league_pool_sha256':pool_sha}
+                       if pool is not None else {}),
                 **({'reward_objective':switch_cost}
                     if switch_cost!='none' else {}),
                 'opponent_policy_version':(
@@ -444,7 +458,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                     'RNAD-003-v2-selfplay' if features_v2
                     else 'RNAD-001-selfplay')+
                     ('-anti-loop-v1' if switch_guard!='none' else '')+
-                    ('-opportunity-v1' if switch_cost!='none' else ''),
+                    ('-opportunity-v1' if switch_cost!='none' else '')+
+                    ('-league-v1' if pool is not None else ''),
                 'completed_matches':completed,
                 'accepted_decisions':summary['accepted_decisions']+
                     (sum(x['accepted_decisions'] for x in summaries)
@@ -478,6 +493,8 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                   THREE_PHASE_FEATURE_SCHEMA_V2 if migrate_from_v2
                   else feature_schema} if features_v3 else {}),
             'source_sha':current_git_sha(),'engine_sha':frozen_engine_sha(),
+             **({'league_pool_sha256':pool_sha}
+                if pool is not None else {}),
             'completed_matches':completed,'updates':completed*updates_per_match,
             'last_match_checkpoint_sha':prior,
             'model_sha256':state_hash(net),
@@ -501,6 +518,7 @@ if __name__=='__main__':
     parser.add_argument('--updates-per-match',type=int,choices=(1,4),
                         default=1)
     parser.add_argument('--migrate-from-v2',action='store_true')
+    parser.add_argument('--league-pool',default=None)
     parser.add_argument('--switch-guard',choices=['none','anti-loop-v1'],
                         default='none')
     parser.add_argument('--switch-cost',choices=['none','opportunity-v1'],
@@ -514,6 +532,7 @@ if __name__=='__main__':
                            features_v3=args.features_v3,
                            updates_per_match=args.updates_per_match,
                            migrate_from_v2=args.migrate_from_v2,
+                           league_pool=args.league_pool,
                            switch_guard=args.switch_guard,
                            switch_cost=args.switch_cost),
                      indent=2))
