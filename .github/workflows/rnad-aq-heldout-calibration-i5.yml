@@ -1,7 +1,10 @@
 name: RNAD-I5 frozen AQ imitator phase calibration (8 held-out matches)
 on:
-  # Source-pinned one-off evaluation run #43812780669 already started.
-  # Keep subsequent research manual-only and avoid duplicate costly Matches.
+  # A single retry for the teacher-report field-name correction only.
+  # The first run failed before the 8-Match evaluation, not in the learner.
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['.github/workflows/rnad-aq-heldout-calibration-i5.yml']
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -50,7 +53,7 @@ jobs:
           assert manifest['source_sha']=='7d98e7c18800010ef05b7a4064653fc27c794f42'
           assert manifest['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'
           assert manifest['feature_schema']=='rnad-three-phase-features-v2'
-          assert manifest['teacher_model_sha256']=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e'
+          assert manifest['teacher_weights_sha256']=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e'
           assert manifest['teacher_completed_matches']==128 and manifest['seed']==996001
           assert old['student_model_sha256']==digest=='9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b'
           assert old['seed']==996301 and old['matches']==16
