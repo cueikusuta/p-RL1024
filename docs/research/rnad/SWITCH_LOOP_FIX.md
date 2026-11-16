@@ -33,4 +33,20 @@ On the single normal seed `1720001` (not representative of the population), c005
 
 The right immediate production safety move is a **small, opt-in, accepted-only guard** as an explicitly distinct model behavior. Do not globally suppress all switches, which would weaken pivot/survival play. After sufficient independent evaluation, a better durable improvement should teach proper switch economics to the model using a new public/seat-local feature schema and properly accepted training traces.
 
-As of initial implementation: **reproduction fixed, strength still under evaluation**, no Champion promotion, no merge of Draft PR #6 to `main`. A separate ChatGPT Chat session must complete independent review before final integration.
+### Completed initial acceptance and archived A/B verification
+
+[Full Match run #43779235844](https://github.com/cueikusuta/p-RL1024/actions/runs/43779235844) completed `guard-contracts-and-repro` successfully: **10/10 focused + legacy tests passed**, and previously failing seed `1720101` finished **two full four-win Matches** on both seats using **c005 guard vs normal-gen128 guard**, with immutable models verified. The later A/B job finished all three real evaluations, but its original report-aggregation step errored by assuming a top-level `seed` field in the Basic evaluator output. Do not confuse that schema discrepancy with an actual Match failure.
+
+To avoid rerunning matches, [archive-only audit run #43779757849](https://github.com/cueikusuta/p-RL1024/actions/runs/43779757849) downloaded the exact archived frozen c005 weights and all three completed paired evaluations. The archive audit **passed** all model SHA, source/engine, both-seat seed sets, win records and four-win terminal checks; its normalized output is retained as `rnad-i5-switch-guard-archive-verification-43779757849`. The source hashes of evaluated policies are distinct from the original training source, but the frozen c005 weight bytes are identical:
+
+| Exact same frozen c005 model | Paired independent result |
+| --- | --- |
+| Guarded-vs-unguarded direct head-to-head | **33/64 wins = 51.56%** for anti-loop-v1 |
+| Unguarded vs Basic, same new seed set | **34/64 wins = 53.13%** |
+| Guarded vs Basic, same new seed set | **33/64 wins = 51.56%** |
+
+Direct seed block `1841001..1841032` and Basic seed block `1842001..1842032`, both seats. These exploratory samples have very wide uncertainty, so **no statistically demonstrated strength gain or loss**; one-win difference vs Basic must not be treated as significant. The guard is therefore a **verified loop-stability option, not a new Champion or an unconditional default**.
+
+The audit code is `scripts/rnad/audit_switch_guard_ab.py`. The original heavy workflow's optional top-level Basic seed access was fixed, and that workflow is now manual-only to avoid redundant expensive executions.
+
+As of these checks: **reproduction fixed and archived A/B verified**, no Champion promotion, no merge of Draft PR #6 to `main`. A separate ChatGPT Chat session must complete independent review before final integration.
