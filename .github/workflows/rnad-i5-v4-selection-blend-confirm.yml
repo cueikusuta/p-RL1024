@@ -26,6 +26,10 @@ jobs:
           set -euo pipefail
           node scripts/verify-snapshot.mjs
           node --test test/rnad-v4-phase-ablation.test.js test/rnad-v4-features.test.js
+          node --test test/rnad-i5-study-seeds.test.js
+          node scripts/rnad/verify-i5-study-seeds.mjs \
+            docs/research/rnad/I5_STUDY_SEED_LEDGER_2026-11-17.json \
+            docs/research/rnad/SELECTION_BLEND_CONFIRM_MANIFEST.json
           mkdir -p archive/v4 models/v3 results
           gh run download 43957735875 --repo cueikusuta/p-RL1024 \
             --name rnad-i5-v4-utility-iteration-43957735875 --dir archive/v4
