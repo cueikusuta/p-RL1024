@@ -60,7 +60,12 @@ export class RnadSwitchLoopGuard {
         proposed.action.index:null,
       turn:observation.turn??null,action:structuredClone(proposed.action)
     };
-    return proposed;
+    // The authority's full legalActions remains unchanged. Training must
+    // replay the exact *filtered policy support*, not silently recompute the
+    // magnet/behavior probabilities over the larger authoritative legal set.
+    return observation.phase==='battle'
+      ?{...proposed,policyEligibleActions:structuredClone(allowed)}
+      :proposed;
   }
   // Invoked after collector.commit() validates the one-use authority receipt.
   accepted({seat,round,phase,action}){
