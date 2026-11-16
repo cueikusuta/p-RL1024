@@ -99,10 +99,11 @@ jobs:
               --seed "$(f heldout_seed)" --matches "$(f heldout_matches)" \
               --out "artifacts/$variant-heldout"
           done
-          python -m scripts.rnad.phase_imitation_goals \
+          # Four-Match pilot is diagnostic only; the formal phase gate requires
+          # at least 24 completed teacher Matches and must not be weakened.
+          python -m scripts.rnad.compare_v5_imitation_pilot \
             --baseline artifacts/v4-heldout/heldout-imitation.json \
             --candidate artifacts/v5-heldout/heldout-imitation.json \
-            --allow-feature-upgrade --min-examples 16 \
             --out results/v4-v5-imitation-screen.json
       - name: v5 real accepted four-win R-NaD continuation smoke
         run: |
