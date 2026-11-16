@@ -33,6 +33,10 @@ export function summarizeAcceptedDraftPick(observation,legalActions,choice,utili
     credit_cost:carried.has(p.instanceId)?0:p.cost,
     is_carry:carried.has(p.instanceId),
     types:Array.isArray(p.types)?p.types.slice():[],
+    base_stats:Object.fromEntries(['hp','atk','def','spa','spd','spe'].map(k=>
+      [k,Number.isFinite((p.baseStats??p.stats??{})[k])?
+        (p.baseStats??p.stats)[k]:0])),
+    moves:Array.isArray(p.moves)?p.moves.map(x=>String(typeof x==='string'?x:x?.id??'')):[],
     item:String(p.itemId??''),
     ability:String(p.abilityId??''),
     mega:Boolean(p.mega),
