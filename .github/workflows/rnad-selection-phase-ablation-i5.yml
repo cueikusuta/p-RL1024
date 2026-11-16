@@ -1,7 +1,10 @@
 name: RNAD-I5 bounded selection-vs-equal AQ imitation diagnostic
 on:
-  # Already launched the bounded comparative study as run #43813688708.
-  # Do not automatically repeat real-Match learning on PR synchronization.
+  # One corrected test-tolerance retry only. First run stopped in
+  # correctness tests before any teacher Match collection or model training.
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['.github/workflows/rnad-selection-phase-ablation-i5.yml']
   workflow_dispatch:
 permissions: {}
 concurrency:

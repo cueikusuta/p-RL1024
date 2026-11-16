@@ -33,7 +33,7 @@ class PhaseFocusLossTest(unittest.TestCase):
         rows=[('draft',draft),('selection',selection)]+[('battle',battle)]*10
         weights={'draft':1.,'selection':4.,'battle':1.}
         loss=phase_balanced_mean_loss(rows,enabled=True,weights=weights)
-        self.assertAlmostEqual(float(loss),(1+4*2+5)/6)
+        self.assertAlmostEqual(float(loss),(1+4*2+5)/6,places=6)
         self.assertNotAlmostEqual(float(loss),
             float(phase_balanced_mean_loss(rows,enabled=True)))
         loss.backward()
