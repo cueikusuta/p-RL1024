@@ -13,7 +13,7 @@ import {chooseTeam,chooseSelection} from '../dev/simulator/draft-ai.js';
 import {playableSets} from '../../src/production-runtime.js';
 import data from '../../data/catalog/battle-data.json' with {type:'json'};
 import provenance from '../../provenance/manifest.json' with {type:'json'};
-import {createPublicAQTeacher,AQ_TEACHER_ID,AQ_WEIGHTS_SHA256}
+import {createPublicAQTeacher,AQ_TEACHER_ID,AQ_STRATEGY_SELECTION_TEACHER_ID,AQ_WEIGHTS_SHA256}
   from './aq-teacher-policy.mjs';
 
 function stage0ThreePhaseTeacher({observation,legalActions,rng}){
@@ -33,17 +33,20 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
     typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
     (featuresV2&&!threePhase)||
-    !['basic-stage0','aq-public-belief'].includes(teacher)||
-    (teacher==='aq-public-belief'&&!threePhase))
+    !['basic-stage0','aq-public-belief','aq-public-strategy-selection'].includes(teacher)||
+    (teacher!=='basic-stage0'&&!threePhase))
     throw new TypeError('Invalid teacher seed');
-  const aq=teacher==='aq-public-belief'?createPublicAQTeacher():null;
+  const aq=teacher==='basic-stage0'?null:createPublicAQTeacher({
+    selectionMode:teacher==='aq-public-strategy-selection'?'strategy-public':'tactical'});
+  const teacherId=teacher==='aq-public-strategy-selection'?
+    AQ_STRATEGY_SELECTION_TEACHER_ID:AQ_TEACHER_ID;
   const effectivePolicy=aq??stage0FixedPolicy;
   const match=runRnadAcceptanceSmoke({
     seed,matchId:'rnad-stage0-teacher-'+seed,
     experimentId:'RNAD-001-optional-stage0-imitation',
     sourceSha:verifiedRunningSourceSha(),
     engineSnapshotSha:provenance.sourceCommit,
-    policyVersion:aq?AQ_TEACHER_ID:
+    policyVersion:aq?teacherId:
       threePhase?'basic-stage0-3phase-teacher':'stage0-fixed-teacher',
     phasePolicy:aq??(threePhase?stage0ThreePhaseTeacher:null),
     policy:effectivePolicy});
@@ -75,7 +78,9 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
       examples.filter(e=>e.phase===stage).length!==2*match.rounds))||
      !examples.some(e=>e.actor===0)||!examples.some(e=>e.actor===1))
     throw new Error('Teacher match acceptance count mismatch');
-  return {schema:aq?'rnad-aq-public-belief-three-phase-teacher-v1':
+  return {schema:teacher==='aq-public-strategy-selection'?
+      'rnad-aq-public-strategy-selection-three-phase-teacher-v1':
+      aq?'rnad-aq-public-belief-three-phase-teacher-v1':
       threePhase?'rnad-basic-stage0-three-phase-teacher-v1':
       'rnad-fixed-stage0-teacher-match-v1',
     feature_schema:featuresV2?RNAD_THREE_PHASE_FEATURE_SCHEMA_V2:
@@ -83,7 +88,7 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
     source_sha:verifiedRunningSourceSha(),
     engine_sha:provenance.sourceCommit,
     seed,completed:true,winner:match.winner,score:match.score,
-    teacher:aq?AQ_TEACHER_ID:
+    teacher:aq?teacherId:
       threePhase?'basic-stage0-3phase':'stage0-fixed-untrained',
     ...(aq?{teacher_model_sha256:AQ_WEIGHTS_SHA256}:{}),
     rounds:match.rounds,action_counts:match.actionCounts,examples};
