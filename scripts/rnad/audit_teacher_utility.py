@@ -153,6 +153,7 @@ if __name__=='__main__':
     a=parser.parse_args()
     if not 1<=a.matches<=256:
         parser.error('Invalid bounded teacher count')
-    result=audit_trace_files(Path(a.root).rglob('teacher-*.json'),a.matches)
+    result=audit_trace_files((p for p in Path(a.root).rglob('teacher-*.json')
+                              if p.stem[len('teacher-'):].isdigit()),a.matches)
     Path(a.out).write_text(json.dumps(result,indent=2,allow_nan=False)+'\n')
     print(json.dumps(result,allow_nan=False))
