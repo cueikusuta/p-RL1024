@@ -92,9 +92,9 @@ def run_match(seed, model, magnet, directory, *,
             actual<1 or authority<actual or
             actual!=len(event.get('actions',[]))):
             raise ValueError('Incorrect guarded policy-support cardinality')
-        if guarded and event.get('phase')=='battle' and
-                actual<authority and not event.get('actions')):
-            raise ValueError('Invalid masked battle actions')
+        if ((not guarded or event.get('phase')!='battle') and
+            actual!=authority):
+            raise ValueError('Unauthorized policy-support mask')
     if three_phase:
         counts={phase:sum(e.get('phase')==phase for e in row['events'])
                 for phase in ('draft','selection','battle')}
