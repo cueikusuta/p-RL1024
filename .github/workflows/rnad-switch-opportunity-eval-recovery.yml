@@ -20,10 +20,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       MODEL: ${{ matrix.model }}
       TRAIN_RUN: '43787170970'
-      TRAIN_SHA: '36be4c2566afdb6e22c841b7a47a198d1615c12d'
+      # Frozen PR merge commit observed in each trusted training report.
+      # The workflow event head_sha is NOT the checkout SHA.
+      TRAIN_SHA: '03bbd42b9aa393aa8af3ede9bdb2b3ba87fdc9ea'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: {ref: '36be4c2566afdb6e22c841b7a47a198d1615c12d', fetch-depth: 0, persist-credentials: false}
+        with: {ref: '03bbd42b9aa393aa8af3ede9bdb2b3ba87fdc9ea', fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: {node-version: '22.14.0'}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
