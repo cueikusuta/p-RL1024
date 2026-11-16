@@ -7,6 +7,8 @@ import {encodeRnadThreePhaseDecision,RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
 import {encodeRnadThreePhaseDecisionV2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
   from '../../src/ml/rnad-phase-features-v2.js';
+import {encodeRnadThreePhaseDecisionV3,RNAD_THREE_PHASE_FEATURE_SCHEMA_V3}
+  from '../../src/ml/rnad-phase-features-v3.js';
 export const RNAD_MODEL_SCHEMA='rnad-small-gru-v1';
 const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const sigmoid=x=>1/(1+Math.exp(-x));
@@ -31,20 +33,28 @@ export class PersistentRNADInference{
   constructor(serialized){
     const payload=typeof serialized==='string'?JSON.parse(readFileSync(serialized,'utf8')):serialized;
     if(!payload||payload.schema!==RNAD_MODEL_SCHEMA||
-      payload.hidden!==128||payload.state_features!==32||
-      payload.action_features!==16||!payload.weights)
+      payload.hidden!==128||!payload.weights||
+      ![32,48].includes(payload.state_features)||
+      ![16,32].includes(payload.action_features))
       throw new TypeError('Wrong RNAD model/schema dimensions');
     this.featureSchema=payload.feature_schema??RNAD_FEATURE_SCHEMA;
+    this.stateFeatures=payload.state_features;
+    this.actionFeatures=payload.action_features;
+    if(this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V3?
+         this.stateFeatures!==48||this.actionFeatures!==32:
+         this.stateFeatures!==32||this.actionFeatures!==16)
+      throw new TypeError('Incompatible RNAD model feature dimensions');
     if(![RNAD_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA,
-      RNAD_THREE_PHASE_FEATURE_SCHEMA_V2].includes(this.featureSchema))
+      RNAD_THREE_PHASE_FEATURE_SCHEMA_V2,
+      RNAD_THREE_PHASE_FEATURE_SCHEMA_V3].includes(this.featureSchema))
       throw new TypeError('Unsupported RNAD model feature schema');
     const p=payload.weights,H=128;
     this.params={};
     for(const [name,shape] of Object.entries({
-      'state_proj.weight':[H,32],'state_proj.bias':[H],
+      'state_proj.weight':[H,this.stateFeatures],'state_proj.bias':[H],
       'gru.weight_ih':[3*H,H],'gru.weight_hh':[3*H,H],
       'gru.bias_ih':[3*H],'gru.bias_hh':[3*H],
-      'policy_hidden.weight':[H,H+16],'policy_hidden.bias':[H],
+      'policy_hidden.weight':[H,H+this.actionFeatures],'policy_hidden.bias':[H],
       'policy_out.weight':[1,H],'policy_out.bias':[1],
       'value_hidden.weight':[H,H],'value_hidden.bias':[H],
       'value_out.weight':[1,H],'value_out.bias':[1]}))
@@ -63,9 +73,11 @@ export class PersistentRNADInference{
     return result;
   }
   infer(state,actions,seat,{advance=true}={}){
-    if(![0,1].includes(seat)||!Array.isArray(state)||state.length!==32||
+    if(![0,1].includes(seat)||!Array.isArray(state)||
+      state.length!==this.stateFeatures||
       state.some(x=>!finite(x))||!Array.isArray(actions)||actions.length<1||
-      actions.some(a=>!Array.isArray(a)||a.length!==16||a.some(x=>!finite(x))))
+      actions.some(a=>!Array.isArray(a)||a.length!==this.actionFeatures||
+        a.some(x=>!finite(x))))
       throw new TypeError('Invalid RNAD infer inputs');
     const H=128,previous=this.memory[seat];
     const input=this.linear('state_proj',state,H).map(relu);
@@ -107,6 +119,8 @@ export class PersistentRNADInference{
       encodeRnadThreePhaseDecision(observation,legalActions):
       this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V2?
       encodeRnadThreePhaseDecisionV2(observation,legalActions):
+      this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V3?
+      encodeRnadThreePhaseDecisionV3(observation,legalActions):
       encodeRnadDecision(observation,legalActions);
     return this.infer(f.state,f.actions,seat,opts);
   }
