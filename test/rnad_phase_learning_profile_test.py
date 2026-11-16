@@ -21,6 +21,11 @@ class RnadPhaseProfileTest(unittest.TestCase):
         self.assertTrue(phase_eligible_for_loss('selection','draft-selection'))
         self.assertTrue(phase_eligible_for_loss('draft','draft-selection'))
         self.assertFalse(phase_eligible_for_loss('battle','draft-selection'))
+        # Legacy low-level synthetic events have no phase; only the
+        # unfiltered default policy path may accept them.
+        self.assertTrue(phase_eligible_for_loss(None,'all'))
+        with self.assertRaises(ValueError):
+            phase_eligible_for_loss(None,'selection-only')
 
     def test_reject_unrecognized_phase_and_non_v4_training(self):
         for phase,profile in [('battle','unknown'),('unknown','all'),
