@@ -1,0 +1,88 @@
+name: RNAD-003 opportunity-only evaluation recovery from frozen learning run
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-switch-opportunity-eval-recovery.yml']
+  workflow_dispatch:
+permissions: {}
+jobs:
+  recover:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model: [base128, base256, c005]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODEL: ${{ matrix.model }}
+      TRAIN_RUN: '43787170970'
+      TRAIN_SHA: '36be4c2566afdb6e22c841b7a47a198d1615c12d'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {ref: '36be4c2566afdb6e22c841b7a47a198d1615c12d', fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify frozen code and download successful training artifacts only
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TRAIN_SHA"
+          node scripts/verify-snapshot.mjs
+          mkdir -p models "artifacts/opportunity-$MODEL" "results/eval-$MODEL"
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+          gh run download "$TRAIN_RUN" --repo cueikusuta/p-RL1024 \
+            --name "rnad-i5-opportunity-learn-$MODEL-$TRAIN_RUN" \
+            --dir "artifacts/opportunity-$MODEL"
+          python - <<'PY'
+          import os,json,hashlib
+          from pathlib import Path
+          m=os.environ['MODEL']
+          a=Path('models')
+          manifest=json.loads((a/'manifest.json').read_text())
+          data=(a/(m+'.json')).read_bytes()
+          if not (manifest['schema']=='rnad-i5-queued-evaluation-models-v1'
+              and manifest['source_sha']=='f08a9587d6a7033546eab00ffa6479399ca71c2f'
+              and manifest['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'
+              and manifest['models'][m]==hashlib.sha256(data).hexdigest()):
+              raise ValueError('Frozen original actor mismatch')
+          report=json.loads((Path('artifacts')/('opportunity-'+m)/
+                             'study-report.json').read_text())
+          if not (report['source_sha']==os.environ['TRAIN_SHA']
+                  and report['initial_model']==m
+                  and report['complete_matches']==(128 if m=='c005' else 64)
+                  and report['opportunity_shaped_switches']>0
+                  and report['original_model_sha256']==hashlib.sha256(data).hexdigest()):
+              raise ValueError('Untrusted completed training report')
+          PY
+      - name: Correct report validator only (Basic report has no top-level seed)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/rnad/evaluate_switch_opportunity.py')
+          old='payload.get("seed",start) != start or'
+          new='(payload.get("seed",start) != start if mode=="direct" else False) or'
+          text=p.read_text()
+          if text.count(old)!=1:
+              raise ValueError('Unexpected frozen evaluator source')
+          p.write_text(text.replace(old,new))
+          PY
+      - name: Reuse exact trained models for held-out Basic and direct evaluations
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.evaluate_switch_opportunity \
+            --model "$MODEL" --initial "models/$MODEL.json" \
+            --trained "artifacts/opportunity-$MODEL" \
+            --out "results/eval-$MODEL"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-opportunity-recovery-${{ matrix.model }}-${{ github.run_id }}
+          path: results/eval-${{ matrix.model }}/
+          if-no-files-found: warn
+          retention-days: 30
