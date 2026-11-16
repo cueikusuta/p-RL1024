@@ -1,8 +1,6 @@
 name: RNAD-003 opportunity genuine checkpoint continuation 64 to 128 and c005 128 to 256
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-opportunity-followon.yml']
+  # The bounded research job has already been queued. Re-run only when explicitly needed.
   workflow_dispatch:
 permissions: {}
 jobs:

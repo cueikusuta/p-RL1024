@@ -1,8 +1,6 @@
 name: RNAD-003 opportunity-only evaluation recovery from frozen learning run
 on:
-  pull_request:
-    branches: [main]
-    paths: ['.github/workflows/rnad-switch-opportunity-eval-recovery.yml']
+  # The bounded research job has already been queued. Re-run only when explicitly needed.
   workflow_dispatch:
 permissions: {}
 jobs:
