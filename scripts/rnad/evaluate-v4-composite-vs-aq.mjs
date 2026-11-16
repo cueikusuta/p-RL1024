@@ -30,14 +30,17 @@ export const COMPOSITE_MODES=Object.freeze({
 });
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-export function createV4CompositeAQSession({v4Path,v3Path,seat,mode}={}){
+export function createV4CompositeAQSession({v4Path,v3Path,seat,mode,
+  expectedPhaseSchema='rnad-three-phase-features-v4'}={}){
   if(typeof v4Path!=='string'||!v4Path||
      typeof v3Path!=='string'||!v3Path||
      ![0,1].includes(seat)||!Object.hasOwn(COMPOSITE_MODES,mode))
     throw new TypeError('Invalid two-model AQ comparison actor');
   const v4=new PersistentRNADInference(v4Path);
   const v3=new PersistentRNADInference(v3Path);
-  if(v4.featureSchema!=='rnad-three-phase-features-v4'||
+  if(!['rnad-three-phase-features-v4',
+        'rnad-three-phase-features-v5'].includes(expectedPhaseSchema)||
+     v4.featureSchema!==expectedPhaseSchema||
      v3.featureSchema!=='rnad-three-phase-features-v3')
     throw new Error('Mixed or unsupported v4/v3 model observation schemas');
   let round=0,pending=null,accepted=0;
