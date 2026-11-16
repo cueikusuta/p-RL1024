@@ -278,7 +278,8 @@ def train_match(net, target, magnet, optimizer, scheduler, data, eta=.2,
 def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
           eta=.2,magnet_period=4,initial_model=None,three_phase=False,
           features_v2=False,features_v3=False,switch_guard='none',
-          switch_cost='none',updates_per_match=1,migrate_from_v2=False):
+          switch_cost='none',updates_per_match=1,migrate_from_v2=False,
+          league_pool=None):
     if (not isinstance(seed,int) or not 1 <= seed <= 0xffffffff or
         not isinstance(matches,int) or not 1 <= matches <= 16 or
         not isinstance(eta,(float,int)) or not math.isfinite(float(eta)) or
@@ -291,6 +292,9 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
         type(updates_per_match) is not int or updates_per_match not in (1,4) or
         type(migrate_from_v2) is not bool or
         (migrate_from_v2 and not features_v3) or
+        (league_pool is not None and
+         (not features_v3 or switch_guard!='anti-loop-v1' or
+          not isinstance(league_pool,str) or not league_pool)) or
         switch_guard not in ('none','anti-loop-v1') or
         (switch_guard!='none' and not
          (three_phase and (features_v2 or features_v3))) or
@@ -310,12 +314,42 @@ def train(*,seed=975021,matches=1,out='artifacts/rnad-001',resume=False,
                     THREE_PHASE_FEATURE_SCHEMA_V2 if features_v2 else
                     THREE_PHASE_FEATURE_SCHEMA if three_phase
                     else BATTLE_FEATURE_SCHEMA)
+    pool=None
+    pool_sha=None
+    if league_pool is not None:
+        raw_pool=Path(league_pool).read_bytes()
+        pool_sha=hashlib.sha256(raw_pool).hexdigest()
+        manifest=json.loads(raw_pool)
+        if (manifest.get('schema')!='rnad-v3-frozen-league-pool-v1' or
+            not isinstance(manifest.get('models'),list) or
+            not 1<=len(manifest['models'])<=4):
+            raise ValueError('Invalid frozen league pool manifest')
+        pool=[]
+        for member in manifest['models']:
+            if not isinstance(member,dict) or not isinstance(member.get('path'),str):
+                raise ValueError('Invalid league member')
+            model_path=Path(member['path'])
+            if (not model_path.is_file() or
+                hashlib.sha256(model_path.read_bytes()).hexdigest()!=
+                    member.get('sha256')):
+                raise ValueError('League opponent hash mismatch')
+            frozen=RNADNetwork(state_features=STATE_FEATURES_V3,
+                               action_features=ACTION_FEATURES_V3)
+            load_exported_json(frozen,model_path,
+                expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA_V3)
+            frozen.eval()
+            for param in frozen.parameters():
+                param.requires_grad_(False)
+            pool.append((model_path,frozen,member['sha256']))
+        if len({x[2] for x in pool})!=len(pool):
+            raise ValueError('League opponents must be distinct')
     model_id=('RNAD-004-3phase-v3' if features_v3 else
               'RNAD-003-3phase-v2' if features_v2 else
               'RNAD-002-3phase' if three_phase else 'RNAD-001')+(
                   '-anti-loop-v1' if switch_guard!='none' else '')+(
                   '-opportunity-v1' if switch_cost!='none' else '')+(
-                  '-u4' if updates_per_match==4 else '')
+                  '-u4' if updates_per_match==4 else '')+(
+                  '-league-v1' if pool is not None else '')
     initialization_sha256=(
         (migrate_v2_export_to_v3(net,initial_model)
          if migrate_from_v2 else
