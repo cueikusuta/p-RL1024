@@ -34,12 +34,12 @@ class NightLeaguePlanTests(unittest.TestCase):
 
     def test_invalid_wave_or_time_rejected_before_any_model_access(self):
         with self.assertRaisesRegex(ValueError, "bounded"):
-            run_one_wave(shard=0, wave=3, models="missing", output="missing", seconds=2)
+            run_one_wave(shard=0, wave=3, models="missing", battle_v5_dir="missing", output="missing", seconds=2)
         with self.assertRaisesRegex(ValueError, "bounded"):
-            run_one_wave(shard=0, wave=1, models="missing", output="missing",
+            run_one_wave(shard=0, wave=1, models="missing", battle_v5_dir="missing", output="missing",
                          seconds=MAX_LEAGUE_SECONDS_PER_WAVE + 1)
         with self.assertRaisesRegex(ValueError, "bounded"):
-            run_one_wave(shard=0, wave=1, models="missing", output="missing",
+            run_one_wave(shard=0, wave=1, models="missing", battle_v5_dir="missing", output="missing",
                          seconds=0)
 
     def test_study_is_exploratory_not_champion(self):
