@@ -52,6 +52,7 @@ jobs:
               "battle_target_top1":0.80,
               "league_training_started":False,
               "champion_promoted":False,
+              "workflow_yaml_colon_fix":True,
           }
           inputs=m["train_blocks"]+[m["development_reused_block"],m["genuinely_unseen_confirm_block"]]
           groups=[set(range(start,start+n)) for start,n in inputs]
