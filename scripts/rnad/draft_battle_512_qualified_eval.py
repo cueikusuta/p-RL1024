@@ -221,8 +221,20 @@ def evaluate(draft_old, draft_old_report, draft_new, draft_new_report,
         any(type(seed)!=int or not HOLDOUT_START<=seed<HOLDOUT_START+2000 for seed in seeds) or
         not isinstance(qualified.get('qualification_sha256'),str)):
         raise ValueError('Incomplete or duplicate qualified heldout seeds')
+    if (seeds!=sorted(seeds) or any(type(row)!=dict or
+            row.get('reason')!='strict_public_teacher_utility_invariant_failed'
+            for row in excluded)):
+        raise ValueError('Untrusted utility exclusion record')
     if set(seeds) & {row.get('seed') for row in excluded}:
         raise ValueError('Excluded teacher utility mismatch reused in holdout')
+    canon=json.dumps({'accepted_seeds':seeds,'excluded_seeds':excluded},
+        sort_keys=True,separators=(',',':')).encode()
+    if hashlib.sha256(canon).hexdigest()!=qualified['qualification_sha256']:
+        raise ValueError('Qualified public teacher seed manifest digest mismatch')
+    if (qualified.get('independent_complete_match_clusters')!=HOLDOUT_COUNT or
+        qualified.get('filter_not_based_on_model_outputs') is not True or
+        qualified.get('qualifier_is_strict_no_invariant_weakening') is not True):
+        raise ValueError('Qualified teacher population not declared correctly')
     # Selection/filtering is entirely determined by the public teacher utility
     # invariant, before reading frozen old/new students. Never use student scores.
 
@@ -309,6 +321,8 @@ def evaluate(draft_old, draft_old_report, draft_new, draft_new_report,
         "holdout_population": "strict_teacher_utility_consistent_complete_Matches_only",
         "qualified_seed_manifest": qualified,
         "qualified_seed_manifest_sha256": digest(qualified_manifest),
+        "teacher_invariant_exclusion_policy": "only exact public AQ teacher utility mismatch; every exclusion listed before model scoring",
+        "incompatible_with_unfiltered_teacher_population": True,
         "holdout_seeds": seeds,
         "excluded_seed_count": len(excluded),
         "draft": phase_summary(rows_draft, .50, "strictly_greater"),
