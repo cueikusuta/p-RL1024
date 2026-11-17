@@ -51,7 +51,10 @@ jobs:
             'expected_wall_clock_hours_approx':10,
             'source_frozen_no_revision_between_waves':True,
             'opponents':['base128','base256','c005'],
-            'features':'rnad-three-phase-features-v3',
+            'v3_league_series':15,
+            'v5_selfplay_warmstart_run':44037414890,
+            'v5_selfplay_warmstart_model':'battle-focus256-v5',
+            'features':'v3-league-v5-selfplay',
             'switch_guard':'anti-loop-v1',
             'neuRD_vtrace_training':True,
             'match_winner_four_wins_authoritative':True,
@@ -79,9 +82,13 @@ jobs:
       - name: Audit frozen inherited 128, 256 and c005 R-NaD models before expensive jobs
         run: |
           set -euo pipefail
-          mkdir -p models
+          mkdir -p models battle-v5-input
           gh run download 43757054212 --repo cueikusuta/p-RL1024 \
             --name rnad-i5-queue-models-43757054212 --dir models
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-battle-only-recovery --dir battle-v5-input
+          test -s battle-v5-input/battle/trained-model.json
+          test -s battle-v5-input/battle/teacher-report.json
           python - <<'PY'
           import hashlib,json
           from pathlib import Path
@@ -103,7 +110,7 @@ jobs:
           * This workflow NEVER calls the vulnerable gate, promotes Champion, or merges PR.
           * 20 isolated series, each with its own exact optimizer, target, magnet and RNG checkpoint.
           * Up to 20 GitHub-hosted runners per wave. Two 4h48 training windows plus setup (~10h).
-          * All opponents are frozen real previous R-NaD v3-compatible models, or same-series self-play.
+          * 15 lanes use three frozen v3 R-NaD opponents, with seat swapping; 5 lanes self-play from actual frozen v5 battle-focused teacher weights.
           EOF
 
   wave1:
@@ -139,16 +146,19 @@ jobs:
           node scripts/verify-snapshot.mjs
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check -r requirements-rnad.txt
-          mkdir -p model-input artifacts
+          mkdir -p model-input battle-v5-input artifacts
           gh run download 43757054212 --repo cueikusuta/p-RL1024 \
             --name rnad-i5-queue-models-43757054212 --dir model-input
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-battle-only-recovery --dir battle-v5-input
           python -m scripts.rnad.night_league_2026 --validate-plan > /dev/null
       - name: 'Wave 1: 4h48 real 4-win Match NeuRD/V-trace research by isolated seeded series'
         run: |
           set -euo pipefail
           python -m scripts.rnad.night_league_2026 \
             --shard ${{ matrix.shard }} --wave 1 \
-            --models model-input --out artifacts/series --seconds 17280
+            --models model-input --battle-v5-dir battle-v5-input \
+            --out artifacts/series --seconds 17280
           test -s artifacts/series/checkpoints/latest.json
           test -s artifacts/series/final-model.json
           test -s artifacts/series/wave-summary.json
@@ -203,9 +213,11 @@ jobs:
           node scripts/verify-snapshot.mjs
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check -r requirements-rnad.txt
-          mkdir -p model-input artifacts/series
+          mkdir -p model-input battle-v5-input artifacts/series
           gh run download 43757054212 --repo cueikusuta/p-RL1024 \
             --name rnad-i5-queue-models-43757054212 --dir model-input
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-battle-only-recovery --dir battle-v5-input
           gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
             --name rnad-i5-overnight-v3-wave1-${{ matrix.shard }} --dir artifacts/series
           test -s artifacts/series/checkpoints/latest.json
@@ -216,7 +228,8 @@ jobs:
           set -euo pipefail
           python -m scripts.rnad.night_league_2026 \
             --shard ${{ matrix.shard }} --wave 2 \
-            --models model-input --out artifacts/series --seconds 17280
+            --models model-input --battle-v5-dir battle-v5-input \
+            --out artifacts/series --seconds 17280
           test -s artifacts/series/checkpoints/latest.json
           test -s artifacts/series/wave-summary.json
       - name: Preserve final full-state Match-boundary research series, even on failure
