@@ -84,6 +84,16 @@ export function loadVerifiedSelectionSpecialist(raw,expectedSha256){
   if(!timingSafeEqual(actual,expected))
     throw new Error('Selection specialist SHA-256 mismatch');
   const model=validateSelectionSpecialist(JSON.parse(raw.toString()));
+  // Verification is only durable if callers cannot mutate tensor arrays after
+  // digest verification. JSON payloads have no cyclic objects.
+  const freezeDeep=value=>{
+    if(value!==null&&typeof value==='object'&&!Object.isFrozen(value)){
+      for(const child of Object.values(value))freezeDeep(child);
+      Object.freeze(value);
+    }
+    return value;
+  };
+  freezeDeep(model);
   verifiedModels.add(model);
   return model;
 }
