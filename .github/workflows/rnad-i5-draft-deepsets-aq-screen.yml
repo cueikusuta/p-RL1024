@@ -39,7 +39,7 @@ jobs:
           assert set(m)=={'schema','seed','pairs','study_run','v3_run','v4_run'}
           assert type(m['seed']) is int and 1<=m['seed']<=0xffffffff-32
           assert type(m['pairs']) is int and 1<=m['pairs']<=8
-          assert m['study_run']==43984108897
+          assert m['study_run'] in (43984108897,43986137367)
           assert m['v3_run']==43829072730 and m['v4_run']==43957735875
           assert m['seed'] not in range(2442001,2442017)
           assert m['seed'] not in range(2443001,2443005)
@@ -53,8 +53,9 @@ jobs:
             --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
           gh run download 43957735875 --repo cueikusuta/p-RL1024 \
             --name rnad-i5-v4-utility-iteration-43957735875 --dir models/v4
-          gh run download 43984108897 --repo cueikusuta/p-RL1024 \
-            --name rnad-i5-draft-deepsets-study-43984108897 --dir models/draft
+          study_run="$(node -p 'require("./docs/research/rnad/DRAFT_DEEPSETS_AQ_SCREEN_MANIFEST.json").study_run')"
+          gh run download "$study_run" --repo cueikusuta/p-RL1024 \
+            --name "rnad-i5-draft-deepsets-study-$study_run" --dir models/draft
           test -s models/v3/selfplay/final-model.json
           test -s models/v4/artifacts/v4-utility/trained-model.json
           test -s models/draft/deepsets-soft-full.json
@@ -63,7 +64,10 @@ jobs:
           import hashlib,json
           study=json.loads(Path('models/draft/draft-study.json').read_text())
           assert study['schema']=='rnad-draft-deepsets-utility-study-v1'
-          assert study['source_sha']=='1f57fa14197a2aa25e127d8409839bf1c46af491'
+          m=json.loads(Path('docs/research/rnad/DRAFT_DEEPSETS_AQ_SCREEN_MANIFEST.json').read_text())
+          expected_source={43984108897:'1f57fa14197a2aa25e127d8409839bf1c46af491',
+                           43986137367:'6b8c92bbb39e2e1fa2a2d21264eadd24a37defad'}
+          assert study['source_sha']==expected_source[m['study_run']]
           name=Path('models/draft/deepsets-soft-full.json')
           sha=hashlib.sha256(name.read_bytes()).hexdigest()
           assert sha==study['arms']['deepsets-soft-full']['weights_sha256']
