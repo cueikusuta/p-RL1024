@@ -34,7 +34,7 @@
 
 ## 実行入口と記録
 
-- 手動Workflow：[rnad-i5-fixed-n-confirmation.yml](../../../.github/workflows/rnad-i5-fixed-n-confirmation.yml)（GitHub Actionsタブから `Run workflow`）。`workflow_dispatch`だけで、通常のpushで**重い12,288Matchは自動起動しない**。
+- 手動Workflow：[rnad-i5-fixed-n-confirmation.yml](../../../.github/workflows/rnad-i5-fixed-n-confirmation.yml)。**現在はPRのfeatureブランチ上のみ**に存在するため、GitHub ActionsのUIではRun workflowボタンが表示されない場合がある。workflow_dispatchは手動のみで、通常のpushで**重い12,288Matchは自動起動しない**。権限のあるGitHub CLIから `gh workflow run rnad-i5-fixed-n-confirmation.yml --repo cueikusuta/p-RL1024 --ref feat/5-rnad-stage0-contracts` を試し、APIで対象が未登録（404）なら、既存の安全なdefault branchランチャーに登録するまで重い実験を実行しない。PR全体を検証前にマージしてはいけない。
 - プロトコル：`scripts/rnad/draft-confirmation-protocol.mjs`、ジョブ：`scripts/rnad/draft-confirmation-shard.mjs`、集約：`scripts/rnad/draft-confirmation-aggregate.mjs`。
 - 必須契約テスト：`test/rnad-draft-confirmation.test.js`（Stage 0 CIへ統合）。
 - `i5-confirm-frozen-models`：実験Run内で再配布する検証済み重み。
@@ -44,3 +44,7 @@
 **重要**：Workflowのsource/plan SHAは実行Runに固定される。失敗ジョブを再試行するときは同じRunの `rerun-failed-jobs` を使う。別Runで評価結果を見てモデル・seed・試験数を変更してやり直す行為は、新たな探索と見なす。試験内容を更新するなら**新しい事前登録と未使用seed**が必要。
 
 過去の[統計監査](./DRAFT_EVIDENCE_STATISTICAL_AUDIT_2026-11-17.md)に示した小標本の「最良」「改善」はすべて撤回済み。次の結果を表示する前に全3,072seedの完全性とCIを検証する。
+
+## 現在の実行状態
+
+本資料の追加は**基盤の準備と軽量契約テスト**である。モデル強度の固定N本評価を実行済みと解釈してはならない。外部の手動起動が成功し、48個すべての結果が揃って集約完了するまで、統計の最終結論は存在しない。
