@@ -76,7 +76,7 @@ def sharp_teacher_loss(logits, util, label):
     return .5*(-logp[label])+.5*(-torch.sum(target*logp[top]))
 
 def train_variant(events,kind,epochs=4):
-    if kind not in ("soft","sharp") or epochs!=4:
+    if kind not in ("soft","sharp") or epochs not in (4,6):
         raise ValueError("Unsupported predeclared experimental training arm")
     torch.manual_seed(SEED)
     model=DeepSetsDraft()
