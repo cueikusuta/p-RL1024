@@ -19,10 +19,11 @@ import torch
 
 from scripts.rnad.neural import (
     RNADNetwork, migrate_v2_export_to_v3, export_json,
-    THREE_PHASE_FEATURE_SCHEMA_V3,
-    STATE_FEATURES_V3, ACTION_FEATURES_V3,
+    load_exported_json, THREE_PHASE_FEATURE_SCHEMA_V3,
+    THREE_PHASE_FEATURE_SCHEMA_V5, STATE_FEATURES_V3, ACTION_FEATURES_V3,
+    STATE_FEATURES_V5, ACTION_FEATURES_V5,
 )
-from scripts.rnad.train import train, current_git_sha, frozen_engine_sha
+from scripts.rnad.train import train, current_git_sha, frozen_engine_sha, state_hash
 
 SCHEMA = "rnad-i5-early-night-league-exploratory-v1"
 SOURCE_ARCHIVE = "f08a9587d6a7033546eab00ffa6479399ca71c2f"
@@ -50,7 +51,8 @@ def strategy(shard):
     return {
         "shard": shard,
         "mode": mode,
-        "origin": OLD_NAMES[shard % len(OLD_NAMES)],
+        "origin": OLD_NAMES[shard % len(OLD_NAMES)] if mode == "league"
+                  else "battle-focus256-v5",
         "updates_per_match": 4 if shard % 2 == 0 else 1,
         "seed": FIRST_SEED + STRIDE * shard,
         "eta": .2, "magnet_period": 4,
@@ -66,14 +68,16 @@ def verify_budget_and_seeds():
         raise ValueError("Overlapping league seed streams")
     if not any(x["mode"] == "selfplay" for x in ss):
         raise ValueError("Missing selfplay control lanes")
-    if len({x["origin"] for x in ss}) != 3:
-        raise ValueError("Missing frozen origin diversity")
+    if len({x["origin"] for x in ss if x["mode"] == "league"}) != 3:
+        raise ValueError("Missing frozen league opponent origin diversity")
+    if len([x for x in ss if x["mode"] == "selfplay"]) != 5:
+        raise ValueError("Expected five v5 selfplay warm-start lanes")
     if {x["updates_per_match"] for x in ss} != {1, 4}:
         raise ValueError("Missing 1/4 update ablations")
     return ss
 
 
-def prepare_models(model_dir, series, shard):
+def prepare_models(model_dir, battle_v5_dir, series, shard):
     """Verify inherited real models and deterministic frozen v3 opponent pool."""
     settings = strategy(shard)
     root = Path(model_dir)
@@ -110,7 +114,26 @@ def prepare_models(model_dir, series, shard):
     if pool.exists() and pool.read_text() != encoded:
         raise ValueError("Frozen league pool changed between waves")
     pool.write_text(encoded)
-    return root / (settings["origin"] + ".json"), pool, sha(pool)
+    if settings["mode"] == "league":
+        return root / (settings["origin"] + ".json"), pool, sha(pool)
+    root_v5 = Path(battle_v5_dir)
+    model_file = root_v5 / "battle" / "trained-model.json"
+    study = read(root_v5 / "battle" / "teacher-report.json")
+    if (study.get("source_sha") !=
+          "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c"
+        or study.get("engine_sha") != frozen_engine_sha()
+        or study.get("teacher_completed_matches") != 256
+        or study.get("phase_profile") != "battle-focus"
+        or study.get("utility_hard_label_mix") != 0.0
+        or study.get("is_champion") is not False):
+        raise ValueError("Untrusted v5 battle-focused warmstart research")
+    actor = RNADNetwork(state_features=STATE_FEATURES_V5,
+                        action_features=ACTION_FEATURES_V5)
+    load_exported_json(actor, model_file,
+                       expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA_V5)
+    if state_hash(actor) != study["trained_model_sha256"]:
+        raise ValueError("V5 warm-start actual weights differ from source report")
+    return model_file, pool, sha(pool)
 
 
 def _safe_cleanup(series):
@@ -137,6 +160,8 @@ def _validate_checkpoint(series, settings, prev_matches, origin_sha, pool_sha):
     p = Path(series) / "checkpoints" / "latest.json"
     index = read(p)
     md = index["metadata"]
+    expected_schema = (THREE_PHASE_FEATURE_SCHEMA_V3 if
+                       settings["mode"] == "league" else THREE_PHASE_FEATURE_SCHEMA_V5)
     if (md["source_sha"] != current_git_sha()
         or md["engine_snapshot_sha"] != frozen_engine_sha()
         or md["training_code_sha"] != current_git_sha()
@@ -146,7 +171,7 @@ def _validate_checkpoint(series, settings, prev_matches, origin_sha, pool_sha):
         or md["updates"] != (prev_matches + 1) * settings["updates_per_match"]
         or md["next_match_seed"] != settings["seed"] + prev_matches + 1
         or md["model_id"].find("-anti-loop-v1") == -1
-        or md["observation_schema_version"] != THREE_PHASE_FEATURE_SCHEMA_V3
+        or md["observation_schema_version"] != expected_schema
         or md.get("league_pool_sha256") !=
             (pool_sha if settings["mode"] == "league" else None)
         or len(md.get("completed_match_ids", [])) != prev_matches + 1
@@ -157,7 +182,7 @@ def _validate_checkpoint(series, settings, prev_matches, origin_sha, pool_sha):
     return index
 
 
-def run_one_wave(*, shard, wave, models, output, seconds):
+def run_one_wave(*, shard, wave, models, battle_v5_dir, output, seconds):
     settings = strategy(shard)
     if wave not in (1, 2) or not 1 <= seconds <= MAX_LEAGUE_SECONDS_PER_WAVE:
         raise ValueError("Invalid bounded wave or time budget")
@@ -166,7 +191,8 @@ def run_one_wave(*, shard, wave, models, output, seconds):
     torch.set_num_threads(1)
     series = Path(output)
     series.mkdir(parents=True, exist_ok=True)
-    old_model, league_pool, pool_sha = prepare_models(models, series, shard)
+    old_model, league_pool, pool_sha = prepare_models(
+        models, battle_v5_dir, series, shard)
     origin_sha = sha(old_model)
     previous_index = series / "checkpoints" / "latest.json"
     if (wave == 1 and previous_index.exists()
@@ -205,8 +231,10 @@ def run_one_wave(*, shard, wave, models, output, seconds):
         result = train(
             seed=settings["seed"], matches=1, out=str(series),
             resume=prev > 0, initial_model=str(old_model),
-            three_phase=True, features_v3=True,
-            migrate_from_v2=True, switch_guard="anti-loop-v1",
+            three_phase=True, features_v3=settings["mode"] == "league",
+            features_v5=settings["mode"] == "selfplay",
+            migrate_from_v2=settings["mode"] == "league",
+            switch_guard="anti-loop-v1",
             switch_cost="none", updates_per_match=settings["updates_per_match"],
             eta=settings["eta"], magnet_period=settings["magnet_period"],
             league_pool=str(league_pool)
@@ -263,6 +291,7 @@ def main():
     p.add_argument("--shard", type=int, default=0)
     p.add_argument("--wave", type=int, choices=(1, 2), default=1)
     p.add_argument("--models", default="model-input")
+    p.add_argument("--battle-v5-dir", default="battle-v5-input")
     p.add_argument("--out", default="artifacts/series")
     p.add_argument("--seconds", type=int, default=MAX_LEAGUE_SECONDS_PER_WAVE)
     args = p.parse_args()
@@ -276,7 +305,8 @@ def main():
     else:
         verify_budget_and_seeds()
         run_one_wave(shard=args.shard, wave=args.wave,
-                     models=args.models, output=args.out,
+                     models=args.models, battle_v5_dir=args.battle_v5_dir,
+                     output=args.out,
                      seconds=args.seconds)
 
 
