@@ -43,6 +43,7 @@ def read_events(folder, start, n, *, expected_sha=None):
     events = []
     vocab = None
     engine = None
+    source = None
     for seed in range(start, start + n):
         raw = json.loads((root / f"selection-{seed}.json").read_bytes())
         if (raw.get("schema") != SCHEMA or raw.get("seed") != seed or
@@ -52,6 +53,13 @@ def read_events(folder, start, n, *, expected_sha=None):
             len(raw.get("examples", [])) != 2 * raw.get("rounds", -1) or
             len(raw["examples"]) < 1):
             raise ValueError("Invalid complete accepted rich selection Match " + str(seed))
+        sha=raw.get("source_sha")
+        if not isinstance(sha,str) or len(sha)!=40 or any(
+                x not in "0123456789abcdef" for x in sha):
+            raise ValueError("Invalid immutable research source SHA")
+        if source is None: source=sha
+        if sha!=source:
+            raise ValueError("Mixed rich teacher export sources")
         if engine is None: engine = raw.get("engine_sha")
         if raw.get("engine_sha") != engine:
             raise ValueError("Mixed game-engine snapshots")
@@ -66,6 +74,7 @@ def read_events(folder, start, n, *, expected_sha=None):
         if meta != vocab: raise ValueError("Mixed rich actor vocabularies")
         for event in raw["examples"]:
             validate_event(event, vocab)
+            event["trace_source_sha"]=sha  # metadata only; never an actor input
             events.append((seed, event))
     if len(events) < 2 * n:
         raise ValueError("Missing accepted selection decisions")
@@ -371,8 +380,9 @@ def run(train_dir, dev_dir, reference, out):
     torch.set_num_threads(1)
     train_rows,vocab,engine=read_events(train_dir,SEED_TRAIN,MATCHES_TRAIN)
     dev_rows,dev_vocab,dev_engine=read_events(dev_dir,SEED_DEV,MATCHES_DEV)
-    if vocab!=dev_vocab or engine!=dev_engine:
-        raise ValueError("Unmatched train/dev encoder or engine")
+    if (vocab!=dev_vocab or engine!=dev_engine or
+        train_rows[0][1]["trace_source_sha"]!=dev_rows[0][1]["trace_source_sha"]):
+        raise ValueError("Unmatched train/dev encoder, source or engine")
     if set(seed for seed,_ in train_rows) & set(seed for seed,_ in dev_rows):
         raise ValueError("Reused train and dev Match seed")
     dir=Path(out)
@@ -405,7 +415,7 @@ def run(train_dir, dev_dir, reference, out):
         "train_seed":SEED_TRAIN,"train_complete_matches":MATCHES_TRAIN,
         "development_seed":SEED_DEV,"development_matches":MATCHES_DEV,
         "development_block_previously_used":True,
-        "teacher_source_sha":train_rows[0][1].get("source_sha","not-in-event"),
+        "teacher_source_sha":train_rows[0][1]["trace_source_sha"],
         "engine_sha":engine,"vocab":vocab,
         "teacher":"rnad-aq-public-strategy-selection-v1",
         "teacher_components_training_only":True,
