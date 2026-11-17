@@ -141,7 +141,9 @@ jobs:
       - name: Load frozen study and original comparator with exact checksums
         run: |
           set -euo pipefail
-          mkdir -p old-model study fresh
+          mkdir -p old-model old-selection study fresh
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-selection-battle-imitation --dir old-selection
           gh run download 44039529263 --repo cueikusuta/p-RL1024 \
             --name rnad-i5-selection-specialist-fourarms --dir old-model
           gh run download 44042088126 --repo cueikusuta/p-RL1024 \
@@ -149,6 +151,7 @@ jobs:
           gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
             --name rnad-i5-selection-fresh-256-accepted-teacher --dir fresh
           test -s study/selection-followup-report.json
+          test -s old-selection/selection/trained-model.json
           test -s fresh/fresh-trace-sha256.txt
           (cd fresh && sha256sum -c fresh-trace-sha256.txt)
           echo '1b5f39cee6f00d1fe5c095442996fb706086dd4456d84ce5974a861f9e4e81cd  old-model/structured-hard.json' | sha256sum -c -
@@ -159,6 +162,7 @@ jobs:
             --followup-report study/selection-followup-report.json \
             --followup-models study \
             --reference-model old-model/structured-hard.json \
+            --v5-baseline-model old-selection/selection/trained-model.json \
             --fresh-dir fresh/traces/fresh \
             --out results/fresh-confirmation
           cat results/fresh-confirmation/FRESH_REPORT.md >> "$GITHUB_STEP_SUMMARY"
