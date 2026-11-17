@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {DeepSetsDraftPolicy,encodeOwnDraftPool,
   DRAFT_DEEPSETS_FEATURE_WIDTH}
   from '../scripts/rnad/draft-deepsets-infer.mjs';
-import {compareDeepSetsDraftAQ,DRAFT_AQ_SCREEN_SCHEMA}
+import {compareDeepSetsDraftAQ,compareDeepSetsDraftVersions,DRAFT_AQ_SCREEN_SCHEMA}
   from '../scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
 
 const dims={
@@ -96,4 +96,19 @@ test('draft paired A/B needs both seats and does not auto promote',()=>{
     ...candidate,rows:candidate.rows.slice(1)}));
   assert.throws(()=>compareDeepSetsDraftAQ(base,{
     ...candidate,source_sha:'x'.repeat(40)}));
+});
+
+test('same-training-source draft 16/32 checkpoints require matched both-seat seeds',()=>{
+  const medium=report('draft-deepsets-soft',2);
+  const full=report('draft-deepsets-soft',5);
+  medium.draft_training_source_sha='a'.repeat(40);
+  full.draft_training_source_sha='a'.repeat(40);
+  full.draft_model_sha256='b'.repeat(64);
+  const outcome=compareDeepSetsDraftVersions(medium,full);
+  assert.equal(outcome.paired_delta,.375);
+  assert.equal(outcome.strength_established,false);
+  assert.throws(()=>compareDeepSetsDraftVersions(medium,
+    {...full,draft_training_source_sha:'e'.repeat(40)}));
+  assert.throws(()=>compareDeepSetsDraftVersions(medium,
+    {...full,seed:2444002}));
 });
