@@ -106,7 +106,7 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
     const stats=result.pureRlStats?.[seat];
     if(!result.completed||![0,1].includes(result.winner)||
        result.score?.[result.winner]!==4||!stats||
-       stats.pending||stats.updates!==0||!stats.train===false||
+       stats.pending||stats.updates!==0||stats.train!==false||
        stats.accepted_decisions!==result.actionCounts[seat]+2*result.rounds||
        (picked!==null&&picked.length!==result.rounds))
       throw new Error('Incomplete authority-accepted original AQ draft Match');
