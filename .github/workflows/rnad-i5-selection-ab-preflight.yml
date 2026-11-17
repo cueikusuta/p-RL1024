@@ -1,0 +1,43 @@
+name: RNAD I5 selection A/B public rich and teacher component contracts
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_AB_PREFLIGHT_LAUNCH_2026-11-17.json]
+permissions: {}
+jobs:
+  contracts:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read}
+    env: {PYTHONHASHSEED: '0', OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1'}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify unchanged authority source, game and no league
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('docs/research/rnad/SELECTION_AB_PREFLIGHT_LAUNCH_2026-11-17.json').read_text())
+          assert a=={
+            'schema':'rnad-i5-selection-AB-preflight-v1',
+            'model_arms':['A-decomposed-score','B-detailed-attention'],
+            'original_train_matches':256,
+            'reused_development_matches':128,
+            'no_league':True,'champion_promoted':False}
+          PY
+      - name: Verify original frozen public teacher selection vs rich accepted match
+        run: node --test test/rnad-selection-rich.test.js test/rnad-selection-specialist.test.js
+      - name: Pinned CPU PyTorch and A/B gradients, attention and data leakage contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_selection_ab_test.py' -v
