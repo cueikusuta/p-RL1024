@@ -22,7 +22,7 @@ export const DRAFT_AQ_SCREEN_SCHEMA='rnad-i5-deepsets-draft-original-aq-paired-s
 const MODE=['all-v3','draft-v4','draft-deepsets-soft'];
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
 const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-function wrapForReview(actor,seat,record){
+function wrapForReview(actor,seat,record,{fullUtility=false}={}){
   let pending=null;
   return {
     select(view){
@@ -45,6 +45,22 @@ function wrapForReview(actor,seat,record){
       const {obs,legal,index}=pending;
       const pool=[...(obs.self.carry??[]),...(obs.self.fresh??[])];
       const byId=new Map(pool.map(p=>[p.instanceId,p]));
+      const carried=new Set((obs.self.carry??[]).map(p=>p.instanceId));
+      if(!fullUtility){
+        const chosen=legal[index].map(id=>byId.get(id));
+        if(chosen.some(x=>!x))throw new Error('Unknown accepted draft instance');
+        const spent=chosen.reduce((n,p)=>n+(carried.has(p.instanceId)?0:p.cost),0);
+        if(spent>obs.self.credits)throw new Error('Over-budget accepted draft');
+        record.push({round:record.length+1,credits:obs.self.credits,
+          legal_candidates:legal.length,
+          carried:[...(obs.self.carry??[])].map(p=>p.speciesName??p.speciesId),
+          offered:[...(obs.self.fresh??[])].map(p=>({
+            name:p.speciesName??p.speciesId,cost:p.cost})),
+          accepted:chosen.map(p=>p.speciesName??p.speciesId),
+          accepted_spent:spent,aq_public_rank:null,
+          aq_public_regret:null,aq_public_top5:[]});
+        pending=null;return;
+      }
       const util=legal.map(a=>scoreStrategyDraftRoster(
         a.map(id=>byId.get(id)),{
           data,credits:obs.self.credits,carry:obs.self.carry??[]}));
@@ -95,8 +111,9 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
         draftPolicy:new DeepSetsDraftPolicy(draftPath,{
           sha256:freeze.modelSha256})}:{})
     });
-    const picked=i===0&&seat===0?[]:null;
-    const session=wrapForReview(actor,seat,picked);
+    const picked=[];
+    const session=wrapForReview(actor,seat,picked,{
+      fullUtility:i===0&&seat===0});
     const result=runStrategyMatch({
       seed:seed+i,
       policies:[0,1].map(s=>s===seat?'pure-rl-linear':'aq-base'),
@@ -108,13 +125,13 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
        result.score?.[result.winner]!==4||!stats||
        stats.pending||stats.updates!==0||stats.train!==false||
        stats.accepted_decisions!==result.actionCounts[seat]+2*result.rounds||
-       (picked!==null&&picked.length!==result.rounds))
+       picked.length!==result.rounds)
       throw new Error('Incomplete authority-accepted original AQ draft Match');
     const won=result.winner===seat;
     wins+=Number(won);
     rows.push({seed:seed+i,seat,won,rounds:result.rounds,
       score:result.score,accepted_decisions:stats.accepted_decisions});
-    if(picked!==null)traces.push({seed:seed+i,seat,
+    traces.push({seed:seed+i,seat,
       score:result.score,winner:result.winner,picks:picked});
   }
   return {schema:DRAFT_AQ_SCREEN_SCHEMA,
