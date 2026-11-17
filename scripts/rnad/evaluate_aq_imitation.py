@@ -56,9 +56,10 @@ def per_decision_metrics(logits, chosen):
 
 def evaluate(model,*,seed=996301,matches=16,out,features_v2=False,
              features_v4=False,features_v5=False,
-             teacher='aq-public-belief',utility_labels=False):
+             teacher='aq-public-belief',utility_labels=False,
+             reuse_teacher_traces=None):
     if (not isinstance(seed,int) or not 1<=seed<=0xffffffff-32 or
-        not 1<=matches<=32 or
+        not 1<=matches<=128 or
         sum((features_v2,features_v4,features_v5))>1 or
         teacher not in ('aq-public-belief','aq-public-strategy-selection') or
         type(utility_labels) is not bool or
@@ -85,7 +86,8 @@ def evaluate(model,*,seed=996301,matches=16,out,features_v2=False,
     traces=collect(seed,matches,folder,three_phase=True,
                    teacher=teacher,features_v2=features_v2,
                    features_v4=features_v4,features_v5=features_v5,
-                   utility_labels=utility_labels)
+                   utility_labels=utility_labels,
+                   reuse_from=reuse_teacher_traces)
     stat={phase:{'correct':0,'examples':0,'cross_entropy':0.0,
                  'teacher_top3':0,'teacher_top10':0,'legal_candidates':0,
                  'teacher_probability_sum':0.0,'entropy_sum':0.0,
@@ -178,6 +180,7 @@ if __name__=='__main__':
     p.add_argument('--features-v4',action='store_true')
     p.add_argument('--features-v5',action='store_true')
     p.add_argument('--utility-labels',action='store_true')
+    p.add_argument('--reuse-teacher-traces',default=None)
     p.add_argument('--teacher',choices=['aq-public-belief',
         'aq-public-strategy-selection'],default='aq-public-belief')
     opts=p.parse_args()
@@ -186,4 +189,5 @@ if __name__=='__main__':
                               features_v4=opts.features_v4,
                               features_v5=opts.features_v5,
                               teacher=opts.teacher,
-                              utility_labels=opts.utility_labels),indent=2))
+                              utility_labels=opts.utility_labels,
+                              reuse_teacher_traces=opts.reuse_teacher_traces),indent=2))
