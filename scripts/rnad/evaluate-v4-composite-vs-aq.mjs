@@ -65,7 +65,7 @@ export function createV4CompositeAQSession({v4Path,v3Path,seat,mode,
       // still receive the same authority-accepted seat-local decisions.
       // All other phases remain frozen v3 and the switch guard is unchanged.
       if(draftPolicy!==null&&observation.phase==='draft'){
-        const proposal=draftPolicy.choose(observation,legalActions);
+        const proposal=draftPolicy.choose(observation,legalActions,b.logits);
         if(!Number.isSafeInteger(proposal?.index)||
            proposal.index<0||proposal.index>=legalActions.length||
            !Number.isFinite(proposal.logProbability))
