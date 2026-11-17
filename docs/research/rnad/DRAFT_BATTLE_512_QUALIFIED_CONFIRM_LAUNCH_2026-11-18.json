@@ -1,0 +1,23 @@
+{
+  "schema": "rnad-i5-draft-battle-strict-qualified-holdout512-launch-v1",
+  "frozen_source_sha": "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c",
+  "reuse_completed_training_run": 44096608535,
+  "reuse_frozen_old_draft_run": 44032488678,
+  "reuse_frozen_old_battle_run": 44037414890,
+  "first_candidate_seed": 2522001,
+  "shard_seed_interleaving": "seed=2522001+4*attempt+shard",
+  "shards": 4,
+  "accepted_matches_per_shard": 128,
+  "max_attempts_per_shard": 256,
+  "strict_teacher_utility_guard_unmodified": true,
+  "on_exact_utility_audit_failure": "record_and_exclude_complete_match_before_any_student_scoring",
+  "other_teacher_failures_are_fatal": true,
+  "population": "conditional_on_strict_AQ_public_utility_consistency",
+  "sample_size_accepted_independent_complete_matches": 512,
+  "model_selection_on_heldout": false,
+  "paired_seed_cluster_bootstrap_reps": 10000,
+  "no_retraining": true,
+  "league_gate_passed": false,
+  "champion_promoted": false,
+  "main_merged": false
+}
