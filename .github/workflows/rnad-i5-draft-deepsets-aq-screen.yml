@@ -38,7 +38,7 @@ jobs:
           assert m.get('schema')=='rnad-i5-deepsets-draft-aq-screen-v1'
           assert set(m)=={'schema','seed','pairs','study_run','v3_run','v4_run'}
           assert type(m['seed']) is int and 1<=m['seed']<=0xffffffff-32
-          assert type(m['pairs']) is int and 1<=m['pairs']<=8
+          assert type(m['pairs']) is int and 1<=m['pairs']<=32
           assert m['study_run'] in (43984108897,43986137367)
           assert m['v3_run']==43829072730 and m['v4_run']==43957735875
           assert m['seed'] not in range(2442001,2442017)
@@ -135,13 +135,13 @@ jobs:
           import {compareDeepSetsDraftAQ,compareDeepSetsDraftVersions} from './scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
           const get=m=>JSON.parse(readFileSync('results/aq-'+m+'.json'));
           const base=get('all-v3'),old=get('draft-v4'),deep=get('draft-deepsets-soft');
-          const comparisons=[compareDeepSetsDraftAQ(base,deep),
-            compareDeepSetsDraftAQ(old,deep)];
           const medium=existsSync('results/aq-draft-deepsets-medium.json')?
             get('draft-deepsets-medium'):null;
+          const comparisons=[compareDeepSetsDraftAQ(base,deep,{familySize:4}),
+            compareDeepSetsDraftAQ(old,deep,{familySize:4})];
           if(medium){
-            comparisons.push(compareDeepSetsDraftAQ(base,medium));
-            comparisons.push(compareDeepSetsDraftVersions(medium,deep));
+            comparisons.push(compareDeepSetsDraftAQ(base,medium,{familySize:4}));
+            comparisons.push(compareDeepSetsDraftVersions(medium,deep,{familySize:4}));
           }
           const report={schema:'rnad-i5-draft-closedloop-aq-compare-v1',
             source_sha:base.source_sha,engine_sha:base.engine_sha,
@@ -159,7 +159,7 @@ jobs:
           const lines=['# Deep Setsドラフト：本物AQ-Baseとの完全4勝Match検証',
             '',
             '教師到達局面の模倣ではなく、実際に受理されたドラフト＋凍結v3選出・戦闘です。',
-            '小標本screenのためChampion昇格は認めません。','',
+            '複数比較補正済みの保守的区間を使用。小標本screenではChampion昇格しません。','',
             '|条件|勝利|勝率|','|---|---:|---:|'];
           for(const [name,x] of Object.entries(report.arms))
             lines.push('|'+name+'|'+x.wins+'/'+(base.pairs*2)+'|'+(100*x.rate).toFixed(1)+'%|');
