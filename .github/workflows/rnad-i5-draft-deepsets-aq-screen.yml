@@ -1,0 +1,164 @@
+name: RNAD I5 DeepSets draft closed-loop original AQ paired screen
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/DRAFT_DEEPSETS_AQ_SCREEN_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-deepsets-draft-aq-one-writer
+  cancel-in-progress: false
+jobs:
+  paired:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Contracts, current frozen snapshot and bounded independent seeds
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-draft-deepsets-inference.test.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/DRAFT_DEEPSETS_AQ_SCREEN_MANIFEST.json').read_text())
+          assert m.get('schema')=='rnad-i5-deepsets-draft-aq-screen-v1'
+          assert set(m)=={'schema','seed','pairs','study_run','v3_run','v4_run'}
+          assert type(m['seed']) is int and 1<=m['seed']<=0xffffffff-32
+          assert type(m['pairs']) is int and 1<=m['pairs']<=8
+          assert m['study_run']==43984108897
+          assert m['v3_run']==43829072730 and m['v4_run']==43957735875
+          assert m['seed'] not in range(2442001,2442017)
+          assert m['seed'] not in range(2443001,2443005)
+          print(m)
+          PY
+      - name: Download frozen training artifacts with strict model hashes
+        run: |
+          set -euo pipefail
+          mkdir -p models/v3 models/v4 models/draft results
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir models/v4
+          gh run download 43984108897 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-deepsets-study-43984108897 --dir models/draft
+          test -s models/v3/selfplay/final-model.json
+          test -s models/v4/artifacts/v4-utility/trained-model.json
+          test -s models/draft/deepsets-soft-full.json
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          study=json.loads(Path('models/draft/draft-study.json').read_text())
+          assert study['schema']=='rnad-draft-deepsets-utility-study-v1'
+          assert study['source_sha']=='1f57fa14197a2aa25e127d8409839bf1c46af491'
+          name=Path('models/draft/deepsets-soft-full.json')
+          sha=hashlib.sha256(name.read_bytes()).hexdigest()
+          assert sha==study['arms']['deepsets-soft-full']['weights_sha256']
+          v4=hashlib.sha256(Path('models/v4/artifacts/v4-utility/trained-model.json').read_bytes()).hexdigest()
+          assert v4=='3624014308a4667a15cf2a567dc7836cf6b8e60a6e754eac3b9d0dbfe4ad0c8c'
+          v3=hashlib.sha256(Path('models/v3/selfplay/final-model.json').read_bytes()).hexdigest()
+          assert v3=='c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'
+          Path('results/frozen-model-ids.json').write_text(json.dumps({'v3':v3,'v4':v4,'draft':sha},indent=2)+'\n')
+          print({'v3':v3,'v4':v4,'draft':sha})
+          PY
+      - name: CPU PyTorch reference vs JavaScript inference on exact trained tensors
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m scripts.rnad.verify_draft_deepsets_parity \
+            --model models/draft/deepsets-soft-full.json \
+            --out results/deepsets-reference.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {DeepSetsDraftPolicy} from './scripts/rnad/draft-deepsets-infer.mjs';
+          const r=JSON.parse(readFileSync('results/deepsets-reference.json'));
+          const ids=JSON.parse(readFileSync('results/frozen-model-ids.json'));
+          const m=new DeepSetsDraftPolicy('models/draft/deepsets-soft-full.json',{sha256:ids.draft});
+          const actual=m.scoreEncoded(r.encoding);
+          const diff=Math.max(...actual.map((x,i)=>Math.abs(x-r.torch_logits[i])));
+          console.log(JSON.stringify({torch:r.torch_logits,js:actual,max_abs_error:diff}));
+          if(!Number.isFinite(diff)||diff>1e-4)
+            throw new Error('Frozen Deep Sets PyTorch/JS parity exceeds 1e-4');
+          JS
+      - name: Three matched real AQ arms including two seat swaps per seed
+        run: |
+          set -euo pipefail
+          f() { node -e 'const m=require("./docs/research/rnad/DRAFT_DEEPSETS_AQ_SCREEN_MANIFEST.json");console.log(m[process.argv[1]])' "$1"; }
+          draft_sha="$(node -p 'require("./results/frozen-model-ids.json").draft')"
+          for mode in all-v3 draft-v4 draft-deepsets-soft; do
+            node scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs \
+              --v3 models/v3/selfplay/final-model.json \
+              --v4 models/v4/artifacts/v4-utility/trained-model.json \
+              --draft models/draft/deepsets-soft-full.json \
+              --draft-sha "$draft_sha" \
+              --seed "$(f seed)" --pairs "$(f pairs)" \
+              --mode "$mode" --out "results/aq-$mode.json"
+          done
+      - name: Strict paired delta and actually accepted draft examples
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {compareDeepSetsDraftAQ} from './scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
+          const get=m=>JSON.parse(readFileSync('results/aq-'+m+'.json'));
+          const base=get('all-v3'),old=get('draft-v4'),deep=get('draft-deepsets-soft');
+          const comparisons=[compareDeepSetsDraftAQ(base,deep),
+            compareDeepSetsDraftAQ(old,deep)];
+          const report={schema:'rnad-i5-draft-closedloop-aq-compare-v1',
+            source_sha:base.source_sha,engine_sha:base.engine_sha,
+            aq_sha:base.aq_base_model_sha256,
+            draft_sha:deep.draft_model_sha256,
+            seed:base.seed,pairs:base.pairs,
+            arms:{'all-v3':{wins:base.wins,rate:base.win_rate},
+              'draft-v4':{wins:old.wins,rate:old.win_rate},
+              'draft-deepsets-soft':{wins:deep.wins,rate:deep.win_rate}},
+            comparisons,strength_established:false,
+            champion_promoted:false};
+          writeFileSync('results/paired-draft-comparison.json',JSON.stringify(report,null,2)+'\n');
+          const lines=['# Deep Setsドラフト：本物AQ-Baseとの完全4勝Match検証',
+            '',
+            '教師到達局面の模倣ではなく、実際に受理されたドラフト＋凍結v3選出・戦闘です。',
+            '小標本screenのためChampion昇格は認めません。','',
+            '|条件|勝利|勝率|','|---|---:|---:|'];
+          for(const [name,x] of Object.entries(report.arms))
+            lines.push('|'+name+'|'+x.wins+'/'+(base.pairs*2)+'|'+(100*x.rate).toFixed(1)+'%|');
+          lines.push('','|比較|対応ありΔ|95%保守的区間|','|---|---:|---|');
+          for(const c of comparisons)lines.push('|'+c.candidate_mode+' vs '+c.baseline_mode+'|'+
+            c.paired_delta.toFixed(4)+'|['+c.conservative_95pct_delta_bounds.map(x=>x.toFixed(4)).join(', ')+']|');
+          for(const mode of ['all-v3','draft-v4','draft-deepsets-soft']){
+            const trace=get(mode).accepted_draft_examples[0];
+            lines.push('','## '+mode+'：受理されたピック','',
+              'seed '+trace.seed+'／席'+trace.seat+'／試合 '+trace.score.join('–'),'');
+            for(const p of trace.picks){
+              lines.push('### Round '+p.round,'',
+                '採用：'+p.accepted.join(' / '),
+                'クレジット '+p.accepted_spent+'/'+p.credits+
+                  '、AQ公開順位 '+p.aq_public_rank+'/'+p.legal_candidates,
+                '継続：'+(p.carried.join(' / ')||'なし'),'');
+            }
+          }
+          writeFileSync('results/DRAFT_CLOSEDLOOP.md',lines.join('\n')+'\n');
+          console.log(JSON.stringify(report,null,2));
+          JS
+          cat results/DRAFT_CLOSEDLOOP.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-deepsets-aq-${{ github.run_id }}
+          path: results/
+          retention-days: 30
+          if-no-files-found: warn
