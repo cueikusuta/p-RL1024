@@ -55,6 +55,22 @@ class ThreePhaseImitation256Tests(unittest.TestCase):
         self.assertAlmostEqual(lo,.2)
         self.assertAlmostEqual(hi,.2)
 
+    def test_battle_job_preserves_utility_trace_schema_with_hard_ce(self):
+        # Public AQ traces exported with --utility-labels must be loaded with
+        # that schema; mix=0 preserves the original battle hard-label CE.
+        workflow=Path('.github/workflows/rnad-i5-threephase-imitation-256.yml').read_text()
+        section=workflow.split(
+            '- name: Train battle-focused v5 256Match hard-label teacher imitation',
+            1)[1].split('- name: Report all three phases',1)[0]
+        self.assertIn('--utility-distillation --utility-mix 0',section)
+        self.assertIn('--reuse-teacher-traces input/traces/train',section)
+        self.assertIn('--phase-profile battle-focus',section)
+        self.assertIn('--utility-labels',section)
+        # The recover-only workflow must bind the original immutable source.
+        recovery=Path('.github/workflows/rnad-i5-threephase-imitation-256-battle-recovery.yml').read_text()
+        self.assertIn('022aa9cd5b4ac37514df1d845ea00c11c3c13a5c',recovery)
+        self.assertIn('--utility-distillation --utility-mix 0',recovery)
+
     def test_teacher_imitation_metrics_are_probabilities_not_wins(self):
         v=per_decision_metrics(torch.tensor([0.1,2.0,0.3]),1)
         self.assertEqual(v['top1'],1)
