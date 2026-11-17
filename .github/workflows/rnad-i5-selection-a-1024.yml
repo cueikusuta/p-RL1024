@@ -46,6 +46,7 @@ jobs:
             'all_holdout_seeds_unseen_at_model_selection':True,
             'league_training_started':False,
             'champion_promoted':False,
+            'standalone_test_import_fix_revision':1,
           }
           blocks=[set(range(a,a+n)) for a,n in
               (x['train_blocks']+[x['old_reused_development'],x['fresh_complete_match_holdout']])]
