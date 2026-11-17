@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {DeepSetsDraftPolicy,BlendedDeepSetsDraftPolicy,encodeOwnDraftPool,
+import {DeepSetsDraftPolicy,BlendedDeepSetsDraftPolicy,
+  CreditAwareDeepSetsDraftPolicy,encodeOwnDraftPool,
   DRAFT_DEEPSETS_FEATURE_WIDTH}
   from '../scripts/rnad/draft-deepsets-infer.mjs';
 import {compareDeepSetsDraftAQ,compareDeepSetsDraftVersions,DRAFT_AQ_SCREEN_SCHEMA}
@@ -151,4 +152,20 @@ test('same-seed public AQ draft probe is exploratory and strictly paired',()=>{
     ...teacher,seed:2444002}));
   assert.throws(()=>comparePublicDraftAgainstV3(base,{
     ...teacher,rows:teacher.rows.slice(1)}));
+});
+
+test('opt-in credit calibration uses only own costs and legal support',()=>{
+  withZeroModel(path=>{
+    const deep=new DeepSetsDraftPolicy(path);
+    assert.throws(()=>new CreditAwareDeepSetsDraftPolicy(deep,{costWeight:2}));
+    const actor=new CreditAwareDeepSetsDraftPolicy(deep,{costWeight:.5});
+    const obs=observation();
+    const selected=actor.choose(obs,legal);
+    assert.ok([0,1].includes(selected.index));
+    assert.ok(Number.isFinite(selected.logProbability));
+    assert.equal(actor.modelSha256,deep.modelSha256);
+    const secrets={...obs,opponent:{unrevealed:{team:['secret']}}};
+    assert.deepEqual(actor.choose(secrets,legal),selected);
+    assert.throws(()=>actor.choose(obs,[legal[0].slice(1)]));
+  });
 });
