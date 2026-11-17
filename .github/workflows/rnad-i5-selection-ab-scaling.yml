@@ -1,0 +1,202 @@
+name: RNAD I5 A/B 512-Match scaling both models
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_AB_SCALING_LAUNCH_2026-11-17.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-AB-512-scaling-once
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read}
+    env: {PYTHONHASHSEED: '0', OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1'}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify immutable engine and registered sample / training budgets
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/SELECTION_AB_SCALING_LAUNCH_2026-11-17.json').read_text())
+          assert m=={
+            'schema':'rnad-i5-selection-AB-512-scaling-launch-v1',
+            'previous_full_teacher_run':44047154334,
+            'train_blocks':[[2471001,256],[2477001,256]],
+            'reused_development_block':[2472001,128],
+            'new_confirmation_block':[2479001,512],
+            'arms':['A-decomposed-teacher','B-detailed-attention'],
+            'train_seeds':[90251,90252,90253],
+            'checkpoint_epochs':[10,20],
+            'last_fresh_block_now_training':True,
+            'comparison_policy':'dev-selection-per-arm-before-fresh',
+            'fresh_two_comparison_familywise_confidence':0.95,
+            'train_only':True,
+            'league_training_started':False,
+            'champion_promoted':False,
+          }
+          PY
+      - name: Native actor boundary and canonical action contracts
+        run: node --test test/rnad-selection-rich.test.js
+      - name: Pinned CPU Torch A/B gradient, seed disjointness and 512 paired CI tests
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_selection_ab_test.py' -v
+          python -m unittest discover -s test -p 'rnad_selection_ab_scaling_test.py' -v
+  train_both:
+    needs: preflight
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    outputs:
+      promising: ${{ steps.fit.outputs.promising }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Download the saved 256+256 accepted training Matches and 128 reused development Matches
+        run: |
+          set -euo pipefail
+          mkdir -p input/train-a input/train-b input/dev prior/ab prior/structured
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-256-train-rich --dir input/train-a
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-fresh-256-rich --dir input/train-b
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-128-old-dev-rich --dir input/dev
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-models-and-dev-study --dir prior/ab
+          gh run download 44039529263 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-specialist-fourarms --dir prior/structured
+          echo '1b5f39cee6f00d1fe5c095442996fb706086dd4456d84ce5974a861f9e4e81cd  prior/structured/structured-hard.json' | sha256sum -c -
+          test "$(find input/train-a -name 'selection-*.json' | wc -l)" -eq 256
+          test "$(find input/train-b -name 'selection-*.json' | wc -l)" -eq 256
+          test "$(find input/dev -name 'selection-*.json' | wc -l)" -eq 128
+      - name: Train both methods on 512 complete Matches, three fixed seeds, checkpoints at epoch 10 and 20
+        id: fit
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_ab_scaling \
+            --train-a input/train-a --train-b input/train-b --dev-dir input/dev \
+            --old-dir prior/ab --old-report prior/ab/selection-AB-development.json \
+            --reference prior/structured/structured-hard.json --out results/selection-ab-scaling
+          cat results/selection-ab-scaling/SELECTION_AB_SCALING_DEV.md >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads(Path('results/selection-ab-scaling/selection-AB-scaling-development.json').read_text())
+          assert len(data['trials'])==12
+          promising=any(
+            data['trials'][data['dev_selected_models'][kind]]['reused_development_metrics']['top1'] >
+            data['historical_models'][kind]['top1']+.005
+            for kind in ('A','B'))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write(f'promising={str(promising).lower()}\n')
+          print('Fresh 512 confirmation allowed:',promising,flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-AB-512-3seed-checkpoints
+          path: results/selection-ab-scaling/
+          if-no-files-found: warn
+          retention-days: 90
+  gather_fresh:
+    needs: train_both
+    if: github.repository == 'cueikusuta/p-RL1024' && needs.train_both.outputs.promising == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Generate truly unused 512 accepted teacher Matches from original verified exporter
+        run: |
+          set -euo pipefail
+          git switch --detach a7224b05eeef49650794b24546576119dffed951
+          test "$(git rev-parse HEAD)" = a7224b05eeef49650794b24546576119dffed951
+          node scripts/verify-snapshot.mjs
+          mkdir -p traces/fresh
+          python - <<'PY'
+          import subprocess
+          for i in range(512):
+              seed=2479001+i
+              subprocess.run(['node','scripts/rnad/export-selection-rich.mjs',
+                  '--seed',str(seed),'--out',f'traces/fresh/selection-{seed}.json'],
+                  stdout=subprocess.DEVNULL,check=True,timeout=480)
+              if (i+1)%64==0:
+                  print('Fresh accepted complete Matches:',i+1,'of 512',flush=True)
+          PY
+          test "$(find traces/fresh -name 'selection-*.json' | wc -l)" -eq 512
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-AB-scaling-fresh-512
+          path: traces/fresh/
+          if-no-files-found: error
+          retention-days: 90
+  confirm:
+    needs: [train_both, gather_fresh]
+    if: github.repository == 'cueikusuta/p-RL1024' && needs.gather_fresh.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Pinned CPU torch
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Load only preregistered models and unseen complete Match seeds
+        run: |
+          set -euo pipefail
+          mkdir -p models fresh prior
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-512-3seed-checkpoints --dir models
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-scaling-fresh-512 --dir fresh
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-models-and-dev-study --dir prior
+          test -s models/selection-AB-scaling-development.json
+          test -s prior/selection-AB-development.json
+      - name: Independent per-arm paired 512 Match 97.5 percent CI (FWER 95 percent across both)
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_ab_scaling_confirm \
+            --models-dir models --study-json models/selection-AB-scaling-development.json \
+            --old-dir prior --old-report prior/selection-AB-development.json \
+            --fresh-dir fresh --out results/scaling-fresh
+          cat results/scaling-fresh/SELECTION_AB_SCALING_FRESH.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-AB-512-fresh-confirmation
+          path: results/scaling-fresh/
+          if-no-files-found: warn
+          retention-days: 90
