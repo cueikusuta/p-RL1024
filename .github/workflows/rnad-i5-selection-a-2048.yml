@@ -1,0 +1,265 @@
+name: RNAD I5 A-only 2048 accepted teacher Match study
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/SELECTION_A_2048_LAUNCH_2026-11-17.json
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-A-2048-registered-study
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read}
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify source snapshot, explicit goal threshold and launch manifest
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("docs/research/rnad/SELECTION_A_2048_LAUNCH_2026-11-17.json").read_text())
+          assert m=={
+              "schema":"rnad-i5-selection-A-2048-launch-v1",
+              "model":"A-decomposed-core20-lead6",
+              "previous_study_run":44054675522,
+              "previous_frozen_model":"selection-A-1024-e40-s90253.pt",
+              "teacher_source_commit":"a7224b05eeef49650794b24546576119dffed951",
+              "train_blocks":[[2471001,256],[2477001,256],[2479001,512],
+                              [2481001,512],[2483001,512]],
+              "development_reused_block":[2472001,128],
+              "genuinely_unseen_confirm_block":[2485001,1024],
+              "train_complete_matches":2048,
+              "seeds":[90251,90252,90253],
+              "checkpoint_epochs":[40,60],
+              "selection_target_top1":0.50,
+              "draft_target_top1_strictly_greater":0.50,
+              "battle_target_top1":0.80,
+              "league_training_started":False,
+              "champion_promoted":False,
+          }
+          inputs=m["train_blocks"]+[m["development_reused_block"],m["genuinely_unseen_confirm_block"]]
+          groups=[set(range(start,start+n)) for start,n in inputs]
+          assert sum(n for _,n in m["train_blocks"])==2048
+          assert all(not(groups[i]&groups[j]) for i in range(len(groups))
+                     for j in range(i+1,len(groups)))
+          gate=json.loads(Path("docs/research/rnad/LEAGUE_ENTRY_GATE_2026-11-17.json").read_text())
+          assert gate["phase_top1_targets"]=={
+              "draft":{"threshold":.5,"comparison":"strictly_greater"},
+              "selection":{"threshold":.5,"comparison":"at_least"},
+              "battle":{"threshold":.8,"comparison":"at_least"}}
+          assert gate["league_training_started"] is False
+          PY
+      - name: Original public/own actor privacy and exact teacher decomposition
+        run: node --test test/rnad-selection-rich.test.js
+      - name: Pinned torch, selection A 2048 and league threshold contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_selection_a_2048_test.py' -v
+          python -m unittest discover -s test -p 'rnad_league_entry_gate_test.py' -v
+          python -m unittest discover -s test -p 'rnad_selection_ab_test.py' -v
+
+  gather_train_new:
+    needs: preflight
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Freeze original accepted teacher before new Match generation
+        run: |
+          set -euo pipefail
+          git switch --detach a7224b05eeef49650794b24546576119dffed951
+          test "$(git rev-parse HEAD)" = a7224b05eeef49650794b24546576119dffed951
+          node scripts/verify-snapshot.mjs
+      - name: Generate 512 complete newly accepted teacher Matches only for training
+        run: |
+          set -euo pipefail
+          mkdir -p traces/train-new
+          python - <<'PY'
+          import subprocess
+          for j in range(512):
+              seed=2483001+j
+              subprocess.run(['node','scripts/rnad/export-selection-rich.mjs',
+                  '--seed',str(seed),'--out',f'traces/train-new/selection-{seed}.json'],
+                  check=True,stdout=subprocess.DEVNULL,timeout=480)
+              if (j+1)%64==0:print('A2048 TRAIN accepted',j+1,'/512',flush=True)
+          PY
+          test "$(find traces/train-new -name 'selection-*.json' | wc -l)" -eq 512
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-A-2048-new-train-512
+          path: traces/train-new/
+          retention-days: 90
+          if-no-files-found: error
+
+  train_A:
+    needs: [preflight, gather_train_new]
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU torch and study dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Reuse all original complete accepted train/development blocks and SHA frozen model archives
+        run: |
+          set -euo pipefail
+          mkdir -p input/train-1 input/train-2 input/train-3 input/train-4 input/train-5 input/dev prior/A1024 prior/A512
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-256-train-rich --dir input/train-1
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-fresh-256-rich --dir input/train-2
+          gh run download 44050779939 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-scaling-fresh-512 --dir input/train-3
+          gh run download 44054675522 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-A-1024-fresh-512 --dir input/train-4
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-A-2048-new-train-512 --dir input/train-5
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-128-old-dev-rich --dir input/dev
+          gh run download 44054675522 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-A-1024-six-models --dir prior/A1024
+          gh run download 44050779939 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-512-3seed-checkpoints --dir prior/A512
+          for n in 1 2 3 4 5; do test "$(find "input/train-$n" -name 'selection-*.json' | wc -l)" -gt 200; done
+          test -s prior/A1024/selection-A-1024-development.json
+          test -s prior/A512/selection-AB-scaling-development.json
+      - name: Train only A: 2048 Matches, seeds 90251-90253, epochs 40 and 60
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_a_2048 \
+            --train-1 input/train-1 --train-2 input/train-2 \
+            --train-3 input/train-3 --train-4 input/train-4 \
+            --train-5 input/train-5 --dev input/dev \
+            --old-study prior/A1024/selection-A-1024-development.json \
+            --old-dir prior/A1024 \
+            --original-study prior/A512/selection-AB-scaling-development.json \
+            --original-dir prior/A512 --out results/A2048
+          cat results/A2048/SELECTION_A_2048_DEV.md >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("results/A2048/selection-A-2048-development.json").read_text())
+          assert r["schema"]=="rnad-i5-selection-A-2048-supervised-study-v1"
+          assert len(r["models"])==6
+          assert r["preselected_model"] in r["models"]
+          assert r["league_training_started"] is False
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-A-2048-six-models-and-dev
+          path: results/A2048/
+          retention-days: 90
+          if-no-files-found: warn
+
+  gather_fresh:
+    needs: train_A
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Reuse exact immutable teacher source and accepted authority
+        run: |
+          set -euo pipefail
+          git switch --detach a7224b05eeef49650794b24546576119dffed951
+          test "$(git rev-parse HEAD)" = a7224b05eeef49650794b24546576119dffed951
+          node scripts/verify-snapshot.mjs
+      - name: Generate distinct genuinely unseen 1024 accepted complete four-win teacher Matches
+        run: |
+          set -euo pipefail
+          mkdir -p traces/fresh
+          python - <<'PY'
+          import subprocess
+          for j in range(1024):
+              seed=2485001+j
+              subprocess.run(['node','scripts/rnad/export-selection-rich.mjs',
+                  '--seed',str(seed),'--out',f'traces/fresh/selection-{seed}.json'],
+                  check=True,stdout=subprocess.DEVNULL,timeout=480)
+              if (j+1)%128==0:print('A2048 FRESH accepted',j+1,'/1024',flush=True)
+          PY
+          test "$(find traces/fresh -name 'selection-*.json' | wc -l)" -eq 1024
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-A-2048-new-fresh-1024
+          path: traces/fresh/
+          retention-days: 90
+          if-no-files-found: error
+
+  confirm:
+    needs: [train_A, gather_fresh]
+    if: github.repository == 'cueikusuta/p-RL1024' && needs.gather_fresh.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Pinned CPU torch
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Retrieve SHA-pinned selected and legacy weights, then independent holdout
+        run: |
+          set -euo pipefail
+          mkdir -p new old orig fresh
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-A-2048-six-models-and-dev --dir new
+          gh run download 44054675522 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-A-1024-six-models --dir old
+          gh run download 44050779939 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-512-3seed-checkpoints --dir orig
+          test -s new/selection-A-2048-development.json
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-A-2048-new-fresh-1024 --dir fresh
+      - name: Independent 1024-Match paired 95pct improvement CI and new selection >=50pct gate diagnostic
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_a_2048_confirm \
+            --study new/selection-A-2048-development.json --new-models new \
+            --old-study old/selection-A-1024-development.json --old-models old \
+            --orig-study orig/selection-AB-scaling-development.json --orig-models orig \
+            --heldout fresh --out results/A2048-fresh
+          cat results/A2048-fresh/SELECTION_A_2048_FRESH.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-A-2048-fresh-confirmation
+          path: results/A2048-fresh/
+          retention-days: 90
+          if-no-files-found: warn
