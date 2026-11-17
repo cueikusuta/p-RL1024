@@ -1,0 +1,11 @@
+{
+  "schema": "rnad-i5-selection-AB-preflight-v1",
+  "model_arms": [
+    "A-decomposed-score",
+    "B-detailed-attention"
+  ],
+  "original_train_matches": 256,
+  "reused_development_matches": 128,
+  "no_league": true,
+  "champion_promoted": false
+}
