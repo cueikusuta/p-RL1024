@@ -31,12 +31,21 @@ jobs:
           ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify exact frozen source and reserved experiment inputs
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify exact frozen source
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
           node scripts/verify-snapshot.mjs
-          # Source contract: the game and teacher remain unchanged from run 44032488678.
+      - name: Install pinned CPU dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
           python - <<'PY'
           import inspect
           from scripts.rnad.train_teacher import train, collect
@@ -44,16 +53,8 @@ jobs:
           assert "phase_profile=='battle-focus'" in source
           assert "utility_distillation" in inspect.signature(train).parameters
           assert "reuse_from" in inspect.signature(collect).parameters
-          print("Frozen source accepts utility-labelled traces with hard-label objective",flush=True)
+          print("Verified frozen source and accepted utility-labelled hard-label path",flush=True)
           PY
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with: {python-version: '3.11'}
-      - name: Install pinned CPU dependencies
-        run: |
-          set -euo pipefail
-          python -m pip install --disable-pip-version-check \
-            --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
-          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
       - name: Recover original data and SUCCESS artifacts without recomputing
         run: |
           set -euo pipefail
