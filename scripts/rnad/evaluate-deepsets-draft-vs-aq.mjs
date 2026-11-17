@@ -106,14 +106,21 @@ function wrapForReview(actor,seat,record,{fullUtility=false}={}){
   };
 }
 export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
-  expectedDraftSha,seed=2444001,pairs=4,mode='draft-deepsets-soft'}={}){
+  expectedDraftSha,seed=2444001,pairs=4,mode='draft-deepsets-soft',
+  explicitSeeds=null}={}){
   if(typeof v3Path!=='string'||!v3Path||
      typeof v4Path!=='string'||!v4Path||
      typeof draftPath!=='string'||!draftPath||
      !Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
-     !Number.isSafeInteger(pairs)||pairs<1||pairs>32||
+     !Number.isSafeInteger(pairs)||pairs<1||pairs>64||
      seed+pairs-1>0xffffffff||!MODE.includes(mode))
     throw new TypeError('Invalid bounded Deep Sets draft AQ screen');
+  const seedList=explicitSeeds===null?
+    Array.from({length:pairs},(_,i)=>seed+i):explicitSeeds;
+  if(!Array.isArray(seedList)||seedList.length!==pairs||
+     new Set(seedList).size!==pairs||
+     seedList.some(s=>!Number.isSafeInteger(s)||s<1||s>0xffffffff))
+    throw new TypeError('Invalid duplicate or unknown original AQ seed list');
   const freeze=new DeepSetsDraftPolicy(draftPath,{sha256:expectedDraftSha});
   const aq=createOpponent();
   if(aq.modelSha256!==AQ_SHA)
@@ -138,7 +145,7 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
     const session=wrapForReview(actor,seat,picked,{
       fullUtility:i===0&&seat===0});
     const result=runStrategyMatch({
-      seed:seed+i,
+      seed:seedList[i],
       policies:[0,1].map(s=>s===seat?'pure-rl-linear':'aq-base'),
       pureRlSessions:[0,1].map(s=>s===seat?session:null),
       pureRlAllPhases:true,strategyMode:'integrated',
@@ -152,9 +159,9 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
       throw new Error('Incomplete authority-accepted original AQ draft Match');
     const won=result.winner===seat;
     wins+=Number(won);
-    rows.push({seed:seed+i,seat,won,rounds:result.rounds,
+    rows.push({seed:seedList[i],seat,won,rounds:result.rounds,
       score:result.score,accepted_decisions:stats.accepted_decisions});
-    traces.push({seed:seed+i,seat,
+    traces.push({seed:seedList[i],seat,
       score:result.score,winner:result.winner,picks:picked});
   }
   return {schema:DRAFT_AQ_SCREEN_SCHEMA,
@@ -164,7 +171,9 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
     draft_model_sha256:freeze.modelSha256,
     draft_training_source_sha:freeze.trainingSourceSha,
     v4_model_sha256:sha(v4Path),v3_model_sha256:sha(v3Path),
-    mode,seed,pairs,matches:2*pairs,wins,win_rate:wins/(2*pairs),
+    mode,seed:explicitSeeds===null?seed:null,pairs,
+    ...(explicitSeeds===null?{}:{explicit_seeds:seedList}),
+    matches:2*pairs,wins,win_rate:wins/(2*pairs),
     rows,accepted_draft_examples:traces,
     paired_delta:null,significance_established:false,
     strength_established:false,champion_promoted:false};
