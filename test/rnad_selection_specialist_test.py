@@ -156,6 +156,68 @@ class SelectionSpecialistTests(unittest.TestCase):
         self.assertGreater(out["trio_groups_with_indistinguishable_leads"],0)
         self.assertFalse(out["input_sufficiency_proven"])
 
+    def test_full_actor_input_alias_detects_cross_match_disagreement(self):
+        base={"phase":"selection","state":[0.]*96,
+              "actions":[[float(i)]*48 for i in range(60)],
+              "candidate_utilities":[float(i) for i in range(60)],
+              "choice":59}
+        altered=copy.deepcopy(base)
+        altered["choice"]=58
+        altered["candidate_utilities"][58]=61.
+        # Duplicate full actor inputs (state plus ordered 60 candidates) with
+        # different teacher labels across distinct accepted Match seeds.
+        records=[{"seed":101,"examples":[base]},
+                 {"seed":102,"examples":[altered]}]
+        report=feature_sufficiency_audit(records)
+        self.assertEqual(report["full_input_reused_across_independent_matches"],1)
+        self.assertEqual(report["crossmatch_full_input_discordant_teacher_top1_groups"],1)
+        records[1]["examples"][0]["state"][0]=0.5
+        changed=feature_sufficiency_audit(records)
+        self.assertEqual(changed["full_input_reused_across_independent_matches"],0)
+        self.assertFalse(changed["input_sufficiency_proven"])
+
+    def test_width_ablation_preserves_60_choice_contract(self):
+        for width in (64,96,128):
+            net=SelectionSpecialist(structured=True,width=width)
+            self.assertEqual(tuple(net(torch.randn(2,96),torch.randn(2,60,48)).shape),
+                             (2,60))
+            if width != 96:
+                with tempfile.TemporaryDirectory() as folder:
+                    with self.assertRaisesRegex(ValueError,"96-wide"):
+                        save_model(net,Path(folder)/"experimental.json","structured-hard")
+        with self.assertRaisesRegex(ValueError,"Unregistered"):
+            SelectionSpecialist(structured=True,width=77)
+
+    def test_gap_bins_and_trio_lead_breakdown(self):
+        from scripts.rnad.selection_specialist_followup import (
+            gap_bucket, gap_diagnostics)
+        self.assertEqual(gap_bucket(.01),"gap<=1%")
+        self.assertEqual(gap_bucket(.05),"1%<gap<=5%")
+        self.assertEqual(gap_bucket(.10),"5%<gap<=10%")
+        self.assertEqual(gap_bucket(.50),"gap>10%")
+        class FixedNet:
+            def eval(self):return self
+            def __call__(self, state, actions):
+                return torch.tensor([[60.]+[0.]*59])
+        close=[0.]*60
+        close[0]=1.
+        close[1]=.995
+        wide=[0.]*60
+        wide[1]=1.
+        wide[0]=.3
+        event=lambda choice, utility: {
+            "phase":"selection","choice":choice,
+            "state":[0.]*96,"actions":[[0.]*48 for _ in range(60)],
+            "candidate_utilities":utility}
+        rows=gap_diagnostics(FixedNet(),[
+            {"seed":101,"examples":[event(0,close)]},
+            {"seed":102,"examples":[event(1,wide)]}])
+        self.assertEqual(rows["gap<=1%"]["decisions"],1)
+        self.assertEqual(rows["gap<=1%"]["top1"],1.)
+        self.assertEqual(rows["gap>10%"]["decisions"],1)
+        self.assertEqual(rows["gap>10%"]["top1"],0.)
+        self.assertEqual(rows["gap>10%"]["independent_match_seed_clusters"],1)
+
     def test_paired_seed_bootstrap_is_clustered_and_deterministic(self):
         ids=list(range(128))
         old={i:{"top1":.25} for i in ids}
