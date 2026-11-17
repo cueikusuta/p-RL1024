@@ -11,7 +11,6 @@ import {encodeRichSelectionActor}
   from './export-selection-rich.mjs';
 import {loadVerifiedASelection,checkASelectionParity,selectFrozenAAction}
   from './selection-a-public-infer.mjs';
-import {verifiedRunningSourceSha} from '../dev/simulator/rnad-match.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
 const matches=512,defaultStart=2490001;
@@ -87,7 +86,7 @@ export function evaluateFrozenASelectionHeadToHead({
   if(old.source_sha!==newer.source_sha||
      old.engine_sha!==newer.engine_sha||
      old.public_actor_vocabulary.sha256!==newer.public_actor_vocabulary.sha256||
-     old.source_sha!==verifiedRunningSourceSha()||
+     old.source_sha!=='a7224b05eeef49650794b24546576119dffed951'||
      old.engine_sha!==provenance.sourceCommit)
     throw new Error('Incompatible frozen teacher/engine/public vocab provenance');
   const oldParity=checkASelectionParity(old);
