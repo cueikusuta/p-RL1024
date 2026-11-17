@@ -50,7 +50,8 @@ def load_events(directory,seed,matches):
     for i in range(matches):
         trace=json.loads((Path(directory)/f"teacher-{seed+i}.json").read_text())
         if (trace.get("source_sha")!=source or trace.get("engine_sha")!=engine
-            or trace.get("feature_schema")!="rnad-three-phase-features-v4"
+            or trace.get("feature_schema") not in (
+                "rnad-three-phase-features-v4","rnad-three-phase-features-v5")
             or trace.get("teacher")!="rnad-aq-public-strategy-selection-v1"
             or trace.get("completed") is not True or
             trace["score"][trace["winner"]]!=4):
