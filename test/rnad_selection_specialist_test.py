@@ -218,6 +218,36 @@ class SelectionSpecialistTests(unittest.TestCase):
         self.assertEqual(rows["gap>10%"]["top1"],0.)
         self.assertEqual(rows["gap>10%"]["independent_match_seed_clusters"],1)
 
+    def test_fresh_validation_candidate_chosen_on_dev_only_and_seed_paired(self):
+        from scripts.rnad.selection_specialist_fresh_holdout import (
+            choose_from_development, paired_cluster_delta95)
+        rows={}
+        for n in (128,256):
+            for w in (64,96,128):
+                name=f"structured-hard-m{n}-w{w}"
+                rows[name]={"development_heldout":{
+                    "top1":.289 if (n,w)==(256,96) else .281,
+                    "regret":.149},"network_width":w}
+        report={"schema":"rnad-i5-selection-followup-exploratory-v1",
+                "heldout_reused_for_model_selection":True,
+                "confirmed_independent_generalization":False,
+                "teacher_match_source_run":44032488678,
+                "teacher_trace_source_sha":SOURCE_SHA,
+                "arms":rows}
+        self.assertEqual(choose_from_development(report)[0],
+                         "structured-hard-m256-w96")
+        wrong=copy.deepcopy(report)
+        wrong["confirmed_independent_generalization"]=True
+        with self.assertRaisesRegex(ValueError,"Untrusted"):
+            choose_from_development(wrong)
+        base={i:{"top1":.2} for i in range(256)}
+        new={i:{"top1":.3} for i in range(256)}
+        outcome=paired_cluster_delta95(base,new)
+        self.assertAlmostEqual(outcome["mean_paired_cluster_top1_delta"],.1)
+        self.assertTrue(outcome["significant_positive_at_approximate_95pct"])
+        with self.assertRaisesRegex(ValueError,"Incomplete"):
+            paired_cluster_delta95(base,{i:{"top1":.3} for i in range(255)})
+
     def test_paired_seed_bootstrap_is_clustered_and_deterministic(self):
         ids=list(range(128))
         old={i:{"top1":.25} for i in ids}
