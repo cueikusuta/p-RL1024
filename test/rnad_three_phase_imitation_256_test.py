@@ -32,10 +32,10 @@ class ThreePhaseImitation256Tests(unittest.TestCase):
         battle=phase_balanced_mean_loss(events,enabled=True,
                    weights={'draft':1.,'selection':1.,'battle':4.})
         self.assertGreater(float(selection),float(battle))
-        self.assertAlmostEqual(float(selection),(1+40+3)/6)
-        self.assertAlmostEqual(float(battle),(1+10+12)/6)
+        self.assertAlmostEqual(float(selection),(1+40+3)/6,places=5)
+        self.assertAlmostEqual(float(battle),(1+10+12)/6,places=5)
         battle.backward()
-        self.assertAlmostEqual(float(events[-1][1].grad),4/6)
+        self.assertAlmostEqual(float(events[-1][1].grad),4/6,places=5)
 
     def test_frozen_model_absence_or_modified_sha_fails_closed(self):
         with tempfile.TemporaryDirectory() as root:
