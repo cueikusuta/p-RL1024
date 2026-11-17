@@ -88,7 +88,16 @@ export function loadVerifiedASelection(raw,expectedSha){
   const digest=createHash('sha256').update(raw).digest();
   if(!timingSafeEqual(digest,Buffer.from(expectedSha,'hex')))
     throw new Error('A selection JSON SHA256 mismatch');
-  return verifyPayload(JSON.parse(raw.toString()));
+  const payload=verifyPayload(JSON.parse(raw.toString()));
+  // A verified artifact must be immutable for the lifetime of an evaluation.
+  const freezeDeep=x=>{
+    if(x&&typeof x==='object'&&!Object.isFrozen(x)){
+      for(const child of Object.values(x))freezeDeep(child);
+      Object.freeze(x);
+    }
+    return x;
+  };
+  return freezeDeep(payload);
 }
 const relu=x=>x.map(v=>Math.max(0,v));
 const add=(a,b)=>a.map((v,i)=>v+b[i]);
