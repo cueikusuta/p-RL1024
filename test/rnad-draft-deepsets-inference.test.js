@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {DeepSetsDraftPolicy,encodeOwnDraftPool,
+import {DeepSetsDraftPolicy,BlendedDeepSetsDraftPolicy,encodeOwnDraftPool,
   DRAFT_DEEPSETS_FEATURE_WIDTH}
   from '../scripts/rnad/draft-deepsets-infer.mjs';
 import {compareDeepSetsDraftAQ,compareDeepSetsDraftVersions,DRAFT_AQ_SCREEN_SCHEMA}
@@ -111,4 +111,23 @@ test('same-training-source draft 16/32 checkpoints require matched both-seat see
     {...full,draft_training_source_sha:'e'.repeat(40)}));
   assert.throws(()=>compareDeepSetsDraftVersions(medium,
     {...full,seed:2444002}));
+});
+
+test('bounded blended draft is finite, strictly legal and requires v3 context',()=>{
+  withZeroModel(path=>{
+    const deep=new DeepSetsDraftPolicy(path);
+    assert.throws(()=>new BlendedDeepSetsDraftPolicy(deep,{deepShare:0.6}));
+    const blend=new BlendedDeepSetsDraftPolicy(deep,{deepShare:.5});
+    const obs=observation();
+    const baseline=[-2,3];
+    const chosen=blend.choose(obs,legal,baseline);
+    assert.equal(chosen.index,1);
+    assert.ok(Number.isFinite(chosen.logProbability));
+    assert.equal(chosen.candidateCount,2);
+    assert.throws(()=>blend.choose(obs,legal,[1]),/reference logits/);
+    assert.throws(()=>blend.choose(obs,legal,[Number.NaN,3]));
+    assert.throws(()=>blend.choose(obs,[legal[0].slice(0,5)],baseline));
+    assert.deepEqual(blend.choose({...obs,opponent:{invisible:'secret'}},
+      legal,baseline),chosen);
+  });
 });
