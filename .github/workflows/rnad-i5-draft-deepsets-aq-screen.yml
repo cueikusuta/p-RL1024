@@ -71,11 +71,16 @@ jobs:
           name=Path('models/draft/deepsets-soft-full.json')
           sha=hashlib.sha256(name.read_bytes()).hexdigest()
           assert sha==study['arms']['deepsets-soft-full']['weights_sha256']
+          medium_sha=None
+          if m['study_run']==43986137367:
+              path=Path('models/draft/deepsets-soft-medium.json')
+              medium_sha=hashlib.sha256(path.read_bytes()).hexdigest()
+              assert medium_sha==study['arms']['deepsets-soft-medium']['weights_sha256']
           v4=hashlib.sha256(Path('models/v4/artifacts/v4-utility/trained-model.json').read_bytes()).hexdigest()
           assert v4=='3624014308a4667a15cf2a567dc7836cf6b8e60a6e754eac3b9d0dbfe4ad0c8c'
           v3=hashlib.sha256(Path('models/v3/selfplay/final-model.json').read_bytes()).hexdigest()
           assert v3=='c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'
-          Path('results/frozen-model-ids.json').write_text(json.dumps({'v3':v3,'v4':v4,'draft':sha},indent=2)+'\n')
+          Path('results/frozen-model-ids.json').write_text(json.dumps({'v3':v3,'v4':v4,'draft':sha,'medium':medium_sha},indent=2)+'\n')
           print({'v3':v3,'v4':v4,'draft':sha})
           PY
       - name: CPU PyTorch reference vs JavaScript inference on exact trained tensors
@@ -112,16 +117,32 @@ jobs:
               --seed "$(f seed)" --pairs "$(f pairs)" \
               --mode "$mode" --out "results/aq-$mode.json"
           done
+          if [ "$(f study_run)" = 43986137367 ]; then
+            medium_sha="$(node -p 'require("./results/frozen-model-ids.json").medium')"
+            node scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs \
+              --v3 models/v3/selfplay/final-model.json \
+              --v4 models/v4/artifacts/v4-utility/trained-model.json \
+              --draft models/draft/deepsets-soft-medium.json \
+              --draft-sha "$medium_sha" \
+              --seed "$(f seed)" --pairs "$(f pairs)" \
+              --mode draft-deepsets-soft --out results/aq-draft-deepsets-medium.json
+          fi
       - name: Strict paired delta and actually accepted draft examples
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
-          import {readFileSync,writeFileSync} from 'node:fs';
-          import {compareDeepSetsDraftAQ} from './scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
+          import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+          import {compareDeepSetsDraftAQ,compareDeepSetsDraftVersions} from './scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
           const get=m=>JSON.parse(readFileSync('results/aq-'+m+'.json'));
           const base=get('all-v3'),old=get('draft-v4'),deep=get('draft-deepsets-soft');
           const comparisons=[compareDeepSetsDraftAQ(base,deep),
             compareDeepSetsDraftAQ(old,deep)];
+          const medium=existsSync('results/aq-draft-deepsets-medium.json')?
+            get('draft-deepsets-medium'):null;
+          if(medium){
+            comparisons.push(compareDeepSetsDraftAQ(base,medium));
+            comparisons.push(compareDeepSetsDraftVersions(medium,deep));
+          }
           const report={schema:'rnad-i5-draft-closedloop-aq-compare-v1',
             source_sha:base.source_sha,engine_sha:base.engine_sha,
             aq_sha:base.aq_base_model_sha256,
@@ -129,7 +150,9 @@ jobs:
             seed:base.seed,pairs:base.pairs,
             arms:{'all-v3':{wins:base.wins,rate:base.win_rate},
               'draft-v4':{wins:old.wins,rate:old.win_rate},
-              'draft-deepsets-soft':{wins:deep.wins,rate:deep.win_rate}},
+              'draft-deepsets-soft':{wins:deep.wins,rate:deep.win_rate},
+              ...(medium?{'draft-deepsets-medium':{wins:medium.wins,
+                rate:medium.win_rate}}:{})},
             comparisons,strength_established:false,
             champion_promoted:false};
           writeFileSync('results/paired-draft-comparison.json',JSON.stringify(report,null,2)+'\n');
@@ -141,9 +164,11 @@ jobs:
           for(const [name,x] of Object.entries(report.arms))
             lines.push('|'+name+'|'+x.wins+'/'+(base.pairs*2)+'|'+(100*x.rate).toFixed(1)+'%|');
           lines.push('','|比較|対応ありΔ|95%保守的区間|','|---|---:|---|');
-          for(const c of comparisons)lines.push('|'+c.candidate_mode+' vs '+c.baseline_mode+'|'+
+          for(const c of comparisons)lines.push('|'+
+            (c.baseline_mode?(c.candidate_mode+' vs '+c.baseline_mode):'32 vs 16 teacher Matches')+'|'+
             c.paired_delta.toFixed(4)+'|['+c.conservative_95pct_delta_bounds.map(x=>x.toFixed(4)).join(', ')+']|');
-          for(const mode of ['all-v3','draft-v4','draft-deepsets-soft']){
+          for(const mode of ['all-v3','draft-v4','draft-deepsets-soft',
+            ...(medium?['draft-deepsets-medium']:[])]){
             const trace=get(mode).accepted_draft_examples[0];
             lines.push('','## '+mode+'：受理されたピック','',
               'seed '+trace.seed+'／席'+trace.seat+'／試合 '+trace.score.join('–'),'');
