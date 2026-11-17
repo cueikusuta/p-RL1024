@@ -14,6 +14,7 @@ import {projectRnadObservation,rnadLegalActions}
   from '../../src/ml/legal-action-adapter.js';
 import {scoreStrategyDraftRoster} from '../../src/ai/team-assessment.js';
 import {summarizeAcceptedDraftPick} from './draft-pick-review.mjs';
+import {analyzeSetCapabilities} from '../../src/ai/set-capabilities.js';
 import {verifiedRunningSourceSha} from '../dev/simulator/rnad-match.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 import data from '../../data/catalog/battle-data.json' with {type:'json'};
@@ -46,9 +47,21 @@ function wrapForReview(actor,seat,record,{fullUtility=false}={}){
       const pool=[...(obs.self.carry??[]),...(obs.self.fresh??[])];
       const byId=new Map(pool.map(p=>[p.instanceId,p]));
       const carried=new Set((obs.self.carry??[]).map(p=>p.instanceId));
+      const chosen=legal[index].map(id=>byId.get(id));
+      if(chosen.some(p=>!p))throw new Error('Unknown accepted draft instance');
+      const roleCounts={};
+      for(const p of chosen){
+        for(const tag of analyzeSetCapabilities(p,data).tags)
+          roleCounts[tag]=(roleCounts[tag]??0)+1;
+      }
+      const diagnostics={
+        retained_own_count:chosen.filter(p=>carried.has(p.instanceId)).length,
+        selected_mega_count:chosen.filter(p=>Boolean(p.mega)).length,
+        distinct_team_types:new Set(chosen.flatMap(p=>p.types??[])).size,
+        role_counts:roleCounts
+      };
       if(!fullUtility){
-        const chosen=legal[index].map(id=>byId.get(id));
-        if(chosen.some(x=>!x))throw new Error('Unknown accepted draft instance');
+
         const spent=chosen.reduce((n,p)=>n+(carried.has(p.instanceId)?0:p.cost),0);
         if(spent>obs.self.credits)throw new Error('Over-budget accepted draft');
         record.push({round:record.length+1,credits:obs.self.credits,
@@ -57,7 +70,7 @@ function wrapForReview(actor,seat,record,{fullUtility=false}={}){
           offered:[...(obs.self.fresh??[])].map(p=>({
             name:p.speciesName??p.speciesId,cost:p.cost})),
           accepted:chosen.map(p=>p.speciesName??p.speciesId),
-          accepted_spent:spent,aq_public_rank:null,
+          accepted_spent:spent,...diagnostics,aq_public_rank:null,
           aq_public_regret:null,aq_public_top5:[]});
         pending=null;return;
       }
@@ -73,7 +86,7 @@ function wrapForReview(actor,seat,record,{fullUtility=false}={}){
           .map(x=>({name:x.species,cost:x.credit_cost})),
         accepted:review.accepted_roster_codes
           .map(i=>review.roster[i].species),
-        accepted_spent:review.accepted_spent,
+        accepted_spent:review.accepted_spent,...diagnostics,
         aq_public_rank:review.teacher_rank,
         aq_public_regret:review.teacher_best_utility-review.accepted_utility,
         aq_public_top5:review.teacher_top10.slice(0,5).map(x=>({
