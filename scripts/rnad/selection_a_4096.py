@@ -1,8 +1,8 @@
 """I5 A-only 4096 accepted teacher Match supervised scale-up.
 
 Research only. New train data and heldout Match identities are fixed in the
-workflow launch manifest. Frozen A-1024 comparator is loaded by SHA before
-dev choice; this script never reads the new 1024-Match holdout labels.
+workflow launch manifest. Frozen A-2048 comparator is loaded by SHA before
+dev choice; this script never reads the new 2048-Match holdout labels.
 """
 from __future__ import annotations
 import argparse
