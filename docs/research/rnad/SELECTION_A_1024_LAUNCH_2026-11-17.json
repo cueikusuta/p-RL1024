@@ -39,5 +39,6 @@
   "teacher_source_commit": "a7224b05eeef49650794b24546576119dffed951",
   "all_holdout_seeds_unseen_at_model_selection": true,
   "league_training_started": false,
-  "champion_promoted": false
+  "champion_promoted": false,
+  "standalone_test_import_fix_revision": 1
 }
