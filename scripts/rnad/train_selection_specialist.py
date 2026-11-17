@@ -68,8 +68,13 @@ def load_traces(folder, start, count):
             not isinstance(t.get("examples"),list) or
             len(t["examples"])!=sum(t["action_counts"])+4*t["rounds"]):
             raise ValueError("Invalid or nonaccepted sealed teacher trace "+str(seed))
-        if not isinstance(t.get("engine_sha"),str) or len(t["engine_sha"])!=64:
-            raise ValueError("Missing sealed engine SHA")
+        # Exporter records provenance.sourceCommit (40-hex git source)
+        # whereas derived research engines can use a 64-hex digest.
+        # Match the sealed original exactly across every trace.
+        if (not isinstance(t.get("engine_sha"),str) or
+            len(t["engine_sha"]) not in (40,64) or
+            any(ch not in "0123456789abcdef" for ch in t["engine_sha"])):
+            raise ValueError("Missing or invalid sealed engine identifier")
         if engine is not None and t["engine_sha"]!=engine:
             raise ValueError("Mixed engine snapshots")
         engine=t["engine_sha"]
