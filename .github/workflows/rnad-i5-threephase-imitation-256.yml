@@ -187,8 +187,12 @@ jobs:
       - name: Train battle-focused v5 256Match hard-label teacher imitation
         run: |
           set -euo pipefail
+          # The archived teacher traces include versioned utility labels.
+          # With utility_mix=0 the battle objective stays pure hard-label CE,
+          # while the trace-schema validation correctly matches those labels.
           python -m scripts.rnad.train_teacher \
             --three-phase --features-v5 --teacher aq-public-strategy-selection \
+            --utility-distillation --utility-mix 0 \
             --phase-balanced --phase-profile battle-focus \
             --seed 2471001 --matches 256 --epochs 6 \
             --reuse-teacher-traces input/traces/train \
