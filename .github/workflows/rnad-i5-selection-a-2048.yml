@@ -151,7 +151,7 @@ jobs:
           for n in 1 2 3 4 5; do test "$(find "input/train-$n" -name 'selection-*.json' | wc -l)" -gt 200; done
           test -s prior/A1024/selection-A-1024-development.json
           test -s prior/A512/selection-AB-scaling-development.json
-      - name: Train only A: 2048 Matches, seeds 90251-90253, epochs 40 and 60
+      - name: 'Train only A: 2048 Matches, seeds 90251-90253, epochs 40 and 60'
         run: |
           set -euo pipefail
           python -m scripts.rnad.selection_a_2048 \
