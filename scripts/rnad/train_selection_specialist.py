@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import random
+import struct
 from collections import defaultdict
 from pathlib import Path
 import torch
@@ -110,10 +111,13 @@ class SelectionSpecialist(nn.Module):
     - lead x trio x candidate interaction.
     No arbitrary slot ID embedding, hidden opponent set, or privileged feature.
     """
-    def __init__(self, structured=True):
+    def __init__(self, structured=True, width=96):
         super().__init__()
+        if width not in (64,96,128):
+            raise ValueError("Unregistered selection research capacity")
         self.structured=structured
-        dim=96
+        self.width=width
+        dim=width
         self.state=nn.Linear(STATE_FEATURES_V5,dim)
         self.action=nn.Linear(ACTION_FEATURES_V5,dim)
         if structured:
@@ -183,14 +187,17 @@ def pack_batch(events):
     return states,actions,choices,utilities
 
 
-def train(events, name):
-    if name not in ARMS:raise ValueError("Unplanned training arm")
-    torch.manual_seed(57720)
-    net=SelectionSpecialist(structured=name.startswith("structured"))
+def train(events, name, *, width=96, epochs=EPOCHS, seed=57720):
+    if name not in ARMS or width not in (64,96,128) or epochs!=6:
+        raise ValueError("Unplanned selection research arm / capacity / epochs")
+    if not events:
+        raise ValueError("No accepted training decisions")
+    torch.manual_seed(seed)
+    net=SelectionSpecialist(structured=name.startswith("structured"),width=width)
     optim=torch.optim.AdamW(net.parameters(),lr=.001,weight_decay=.0001)
-    rng=random.Random(57720)
+    rng=random.Random(seed)
     losses=[]
-    for epoch in range(EPOCHS):
+    for epoch in range(epochs):
         ix=list(range(len(events)))
         rng.shuffle(ix)
         running=0.
@@ -296,7 +303,11 @@ def feature_sufficiency_audit(traces):
     unseparated_trio_leads=0
     assessed=0
     rank_gaps=[]
-    for _,event in selection_events(traces):
+    # End-to-end actor input identity, not action-only identity: different
+    # accepted teacher labels for identical observed full tensors would expose
+    # an unresolvable alias. Distinct Match seeds are the independence unit.
+    full_input_groups=defaultdict(lambda: {"seeds":set(),"choices":set()})
+    for seed,event in selection_events(traces):
         assessed+=1
         utilities=event["candidate_utilities"]
         by_features=defaultdict(list)
@@ -314,18 +325,34 @@ def feature_sufficiency_audit(traces):
         ranked=sorted(utilities,reverse=True)
         rank_gaps.append((ranked[0]-ranked[1])/
                          (max(utilities)-min(utilities)+1e-8))
+        if (len(event.get("state",[]))==STATE_FEATURES_V5 and
+            len(event.get("actions",[]))==60 and
+            all(len(a)==ACTION_FEATURES_V5 for a in event["actions"])):
+            coords=event["state"] + [v for a in event["actions"] for v in a]
+            fingerprint=hashlib.sha256(struct.pack(
+                "<"+str(len(coords))+"f",*coords)).hexdigest()
+            full_input_groups[fingerprint]["seeds"].add(seed)
+            full_input_groups[fingerprint]["choices"].add(event["choice"])
+    crossmatch=[v for v in full_input_groups.values() if len(v["seeds"])>1]
     return {
         "selection_teacher_decisions":assessed,
         "same_action_vector_different_utility_groups":conflicts,
         "decisions_with_action_feature_utility_collision":alias_decisions,
         "trio_groups_with_indistinguishable_leads":unseparated_trio_leads,
         "mean_relative_best_vs_runner_up_utility_gap":sum(rank_gaps)/len(rank_gaps),
+        "full_actor_inputs_checked":sum(len(v["seeds"])>0 for v in full_input_groups.values()),
+        "full_input_reused_across_independent_matches":len(crossmatch),
+        "crossmatch_full_input_discordant_teacher_top1_groups":
+            sum(len(v["choices"])>1 for v in crossmatch),
         "input_sufficiency_proven":False,
-        "scope":"action-level exact collisions only; global context ambiguity and absent features remain possible",
+        "scope":"exact float32 full-state-plus-ordered-candidates cross-Match aliases; "
+                "zero collisions cannot establish completeness of public features",
     }
 
 
 def save_model(net,path,name):
+    if net.width!=96:
+        raise ValueError("v1 research inference schema is restricted to original 96-wide actor")
     data={
         "schema":"rnad-selection-specialist-96x48-v1",
         "arm":name,"structured":net.structured,
