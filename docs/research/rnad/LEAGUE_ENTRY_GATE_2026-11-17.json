@@ -1,0 +1,33 @@
+{
+  "schema": "rnad-i5-league-entry-thresholds-v1",
+  "version": 1,
+  "confidence_level": 0.8,
+  "familywise_one_sided_alpha": 0.2,
+  "independent_unit": "heldout_teacher_complete_match_seed",
+  "min_independent_seed_clusters_per_phase": 128,
+  "min_accepted_teacher_decisions_per_phase": 256,
+  "phase_top1_targets": {
+    "draft": {
+      "threshold": 0.5,
+      "comparison": "strictly_greater"
+    },
+    "selection": {
+      "threshold": 0.8,
+      "comparison": "at_least"
+    },
+    "battle": {
+      "threshold": 0.8,
+      "comparison": "at_least"
+    }
+  },
+  "require_same_integrated_policy_id": true,
+  "require_distinct_training_and_holdout_seeds": true,
+  "require_complete_authority_accepted_heldout": true,
+  "phase_model_status": {
+    "draft": "unconfirmed",
+    "selection": "unconfirmed",
+    "battle": "unconfirmed"
+  },
+  "league_training_started": false,
+  "league_champion_promoted": false
+}
