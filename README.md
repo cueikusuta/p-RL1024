@@ -6,6 +6,8 @@ Pokémon Showdown 参照 commit のデータや、参照して実装したコー
 
 RL-Linear（I975、SARSA）と RL-Deep（I976、Battle Action のみの小型 MLP Actor-Critic）を収録しています。どちらも smoke 評価であり、モデルの強さを正式に評価するものではありません。画面、通信、サーバー、画像、音声は収録していません。
 
+**R-NaD Issue #5の今後の新規性能評価：familywise 80%信頼区間（α=0.20）**。必要試合数は新しい実験計画の前に再計算し、未使用seed・両席・多重比較補正・効果量・CI・独立レビューを維持します。過去の95%固定実験は変更しません。詳細は [今後の統計評価方針](docs/research/rnad/FUTURE_EVALUATION_CONFIDENCE_POLICY_2026-11-17.md) を参照してください。
+
 ## Actions で実行する
 
 **Actions → RL model smoke and training → Run workflow** を選びます。`model` と `opponent` の組合せは **RL-Linear / V2E**、**RL-Deep / RL-Deep**、または **RL-Linear / AQ-Base-001**、**RL-Deep / AQ-Base-001** を指定します。`matches` は 9〜256、`seed` は 1〜4294967295 です。AQ-Base-001 指定時は学習と評価の両方で同じ凍結 AQ-Base を相手とします。RL-Deep は公開観測と自軍情報から合法な Battle Action を選び、ドラフト・選出は Basic です。
