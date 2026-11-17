@@ -1,0 +1,143 @@
+name: RNAD I5 frozen draft confirmation 3072 paired seeds (manual)
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-fixed-n-confirmation-single-run
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {contents: read}
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      plan_sha: ${{ steps.plan.outputs.plan_sha }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify frozen engine and fixed-N protocol regression
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-draft-confirmation.test.js test/rnad-draft-deepsets-inference.test.js
+      - name: Seal plan bytes, head commit and fixed shard matrix before any game
+        id: plan
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --input-type=module <<'JS'
+          import {readConfirmationPlan,plannedSeeds} from './scripts/rnad/draft-confirmation-protocol.mjs';
+          import {appendFileSync} from 'node:fs';
+          const {plan,plan_sha256}=readConfirmationPlan('docs/research/rnad/DRAFT_CONFIRMATION_PLAN_2026-11-17.json');
+          const seeds=plannedSeeds(plan);
+          if(seeds.length!==3072||plan.shard_size!==64)
+            throw new Error('Non-preregistered statistical analysis scale');
+          const matrix={include:Array.from({length:plan.seed_count/plan.shard_size},
+            (_,index)=>({index}))};
+          const file=process.env.GITHUB_OUTPUT;
+          appendFileSync(file,'matrix='+JSON.stringify(matrix)+'\n');
+          appendFileSync(file,'plan_sha='+plan_sha256+'\n');
+          appendFileSync(file,'source_sha='+process.env.GITHUB_SHA+'\n');
+          console.log(JSON.stringify({source_sha:process.env.GITHUB_SHA,
+            plan_sha256,independent_seed_blocks:plan.seed_count,
+            per_shard:plan.shard_size,shards:matrix.include.length,
+            full_four_win_matches:4*plan.seed_count,stop_rule:plan.stop_rule}));
+          JS
+
+  shards:
+    needs: prepare
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Acquire exact immutable v3/v4 and DeepSets training artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p models/v3 models/v4 models/draft
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir models/v4
+          gh run download 43986137367 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-deepsets-study-43986137367 --dir models/draft
+          test -s models/v3/selfplay/final-model.json
+          test -s models/v4/artifacts/v4-utility/trained-model.json
+          test -s models/draft/deepsets-soft-medium.json
+      - name: Run complete original-AQ two-seat evaluation without interim statistics
+        run: |
+          set -euo pipefail
+          node scripts/rnad/draft-confirmation-shard.mjs \
+            --plan docs/research/rnad/DRAFT_CONFIRMATION_PLAN_2026-11-17.json \
+            --plan-sha "${{ needs.prepare.outputs.plan_sha }}" \
+            --source-sha "${{ needs.prepare.outputs.source_sha }}" \
+            --index "${{ matrix.index }}" \
+            --v3 models/v3/selfplay/final-model.json \
+            --v4 models/v4/artifacts/v4-utility/trained-model.json \
+            --draft models/draft/deepsets-soft-medium.json \
+            --out results
+          test -s results/shard.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i5-confirm-shard-${{ matrix.index }}
+          path: results/shard.json
+          retention-days: 90
+          if-no-files-found: error
+          overwrite: true
+
+  aggregate:
+    needs: [prepare, shards]
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Download only artifacts of this exact fixed-source workflow run
+        run: |
+          set -euo pipefail
+          mkdir -p frozen-shards
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --pattern 'i5-confirm-shard-*' --dir frozen-shards
+      - name: Fail closed for incomplete or mismatched seed/shard records
+        run: |
+          set -euo pipefail
+          node scripts/rnad/draft-confirmation-aggregate.mjs \
+            --plan docs/research/rnad/DRAFT_CONFIRMATION_PLAN_2026-11-17.json \
+            --plan-sha "${{ needs.prepare.outputs.plan_sha }}" \
+            --source-sha "${{ needs.prepare.outputs.source_sha }}" \
+            --artifacts frozen-shards \
+            --run-id "${{ github.run_id }}" --out audited-report
+          test -s audited-report/fixed-n-report.json
+          test -s audited-report/per-seed.csv
+          cat audited-report/CONFIRMATION_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i5-confirm-complete-report
+          path: audited-report/
+          retention-days: 90
+          if-no-files-found: error
+          overwrite: true
