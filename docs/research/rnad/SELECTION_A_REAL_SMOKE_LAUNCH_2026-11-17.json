@@ -1,0 +1,10 @@
+{
+  "schema": "rnad-i5-A1024-real-fourwin-contract-smoke-v1",
+  "frozen_parity_run": 44060832634,
+  "model_name": "selection-A-1024-e40-s90253.pt",
+  "seed": 2490001,
+  "required_complete_four_win_matches": 2,
+  "strength_judgment_allowed": false,
+  "league_started": false,
+  "champion_promoted": false
+}
