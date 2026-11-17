@@ -59,3 +59,30 @@ soft targetは教師utilityの局面内標準偏差に基づく温度で生成�
 - 勝率評価・リーグ開始・Champion昇格・PR Ready化・mainマージは別ゲートであり、この研究Workflowは一切行わない。
 
 **状態はRunから確認する。** 成功／模倣率改善／選出80%達成をRunの結果なしで宣言しない。
+
+## 完了した同一開発用holdout比較（Run #44039529263）
+
+[研究Run #44039529263](https://github.com/cueikusuta/p-RL1024/actions/runs/44039529263) は **preflight + compare ともsuccess**、[Artifact 14307824700](https://github.com/cueikusuta/p-RL1024/actions/runs/44039529263/artifacts/14307824700) の `selection-four-arm-report.json` を別途取り出して数値とSHAを確認。元の教師128完全Match＝**1,476選出判断**で、全モデルを同じ保存済み局面で評価した。モデル重みも4つすべてArchiveに保存済み。
+
+| モデル | Top1 | Top10 | normalized CE↓ | utility regret↓ |
+|---|---:|---:|---:|---:|
+| frozen-v5-selection-focus | 26.49% | 79.13% | 0.6574 | 0.1564 |
+| flat-hard | 26.42% | 80.62% | 0.6415 | 0.1567 |
+| **structured-hard** | **28.86%** | **82.93%** | **0.6133** | **0.1490** |
+| flat-mixed | 26.63% | 80.56% | 0.6472 | 0.1562 |
+| structured-mixed | 28.52% | 82.72% | 0.6217 | 0.1498 |
+
+`structured-hard` − `frozen-v5-selection-focus` の判断加重Top1は **+2.44pt**。Match（seed）ごとに平均してから対照との差を取ると **+2.585pt**、4 arm多重比較補正のseed cluster percentile bootstrap **近似80%CI [+0.723pt, +4.518pt]**。ただし同一128教師Matchは過去のv5研究で使用済み、今回の4arm選別にも用いたため、**厳密な新規独立確認やリーグ開始の統計証拠ではない**。この区間を有意な強度改善や一般化性能保証と呼ばない。
+
+4. 入力特徴衝突監査の実測：対象**1,476局面**、同一48D候補action特徴に教師utilityの異なる候補群 **0**、同じ3体で先発を変えたのに特徴が完全一致する群 **0**。教師1位と2位の平均相対utility差は **3.922%**で、上位候補の順位差は小さい。これらの監査で未表現の公開情報や教師と実対戦価値の乖離がないことまでは言えない。
+
+モデル識別:
+- 凍結v5：`6580738ace427364d89e83b94b465ea4f7febead1cb4e18f578d7fb8cb79f5f6`
+- flat-hard：`fd5ab33fcca188e199bb4a62514427dc4d6fdeffa7ecd3ce29bf26dc6e17cb96`
+- structured-hard：`1b5f39cee6f00d1fe5c095442996fb706086dd4456d84ce5974a861f9e4e81cd`
+- flat-mixed：`3a6534c12ac39f380cd5916f3c78ca2085dd6535db82546a1923c6abe9cb31dc`
+- structured-mixed：`1c5ccfb45fc19d758220325786adf6d0fee05aa11fa9646b8a696531859a1554`
+
+教師Trace生成元 `022aa9cd5b4ac37514df1d845ea00c11c3c13a5c`、研究スクリプトRun HEAD `b90157e44011d011064eff95ea7b0ff7f7d10313`、エンジン `ea81165993110ee9fb3a09dcb97c6708c0d7397b` を保持。新実装・研究PR HEADは別SHAで動作するため、追跡した重みファイルのsource/model SHAを消さない。
+
+**判断：** 1～4の実装・探索比較は完了。構造化とTop1直接教師学習が比較上有利。選出Top1 80%には未達。新しい完全未使用teacher Matchと同じ統合AIでの評価・別Chat独立レビューまでリーグは開始しない。実戦AQ強度・Champion昇格も未証明。
