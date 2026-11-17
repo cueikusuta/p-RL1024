@@ -84,10 +84,16 @@ jobs:
             if(sha256File(path)!==expected)throw new Error('Frozen model mismatch: '+path);
           }
           JS
+          # Only distribute three SHA-verified model JSON files, never the entire
+          # prior research artifacts (their extra files conflict on extraction).
+          mkdir -p frozen
+          cp models/v3/selfplay/final-model.json frozen/v3.json
+          cp models/v4/artifacts/v4-utility/trained-model.json frozen/v4.json
+          cp models/draft/deepsets-soft-medium.json frozen/draft.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: i5-confirm-frozen-models
-          path: models/
+          path: frozen/
           retention-days: 90
           if-no-files-found: error
           overwrite: true
@@ -115,12 +121,12 @@ jobs:
       - name: Retrieve one SHA-sealed frozen model bundle (same workflow run)
         run: |
           set -euo pipefail
-          mkdir -p models
+          mkdir -p frozen
           gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
-            --name i5-confirm-frozen-models --dir models
-          test -s models/v3/selfplay/final-model.json
-          test -s models/v4/artifacts/v4-utility/trained-model.json
-          test -s models/draft/deepsets-soft-medium.json
+            --name i5-confirm-frozen-models --dir frozen
+          test -s frozen/v3.json
+          test -s frozen/v4.json
+          test -s frozen/draft.json
       - name: Run complete original-AQ two-seat evaluation without interim statistics
         run: |
           set -euo pipefail
@@ -129,9 +135,9 @@ jobs:
             --plan-sha "${{ needs.prepare.outputs.plan_sha }}" \
             --source-sha "${{ needs.prepare.outputs.source_sha }}" \
             --index "${{ matrix.index }}" \
-            --v3 models/v3/selfplay/final-model.json \
-            --v4 models/v4/artifacts/v4-utility/trained-model.json \
-            --draft models/draft/deepsets-soft-medium.json \
+            --v3 frozen/v3.json \
+            --v4 frozen/v4.json \
+            --draft frozen/draft.json \
             --out results
           test -s results/shard.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
