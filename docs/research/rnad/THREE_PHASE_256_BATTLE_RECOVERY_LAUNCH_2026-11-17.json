@@ -1,0 +1,19 @@
+{
+  "schema": "rnad-i5-3phase-256-battle-only-recovery-v1",
+  "original_run": 44032488678,
+  "original_source_sha": "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c",
+  "inputs": {
+    "accepted_teacher_artifact_id": 14306792175,
+    "completed_draft_artifact_id": 14306997767,
+    "completed_selection_artifact_id": 14307660041
+  },
+  "fault": "archived utility-labelled teacher traces were passed to battle hard CE without --utility-distillation",
+  "fix": "--utility-distillation --utility-mix 0 preserves hard CE while matching pinned trace schema",
+  "retrain_only": "battle",
+  "reuse_successful_phases": [
+    "draft",
+    "selection"
+  ],
+  "champion_promoted": false,
+  "league_training_started": false
+}
