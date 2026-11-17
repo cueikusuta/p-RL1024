@@ -3,5 +3,6 @@
   "seeds": [
     2452001,
     2452002
-  ]
+  ],
+  "strict_real_authority_validator": true
 }
