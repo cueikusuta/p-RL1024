@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {playableSets} from '../src/production-runtime.js';
+import {createTeacherMatch} from '../scripts/rnad/export-teacher.mjs';
 import {projectRnadObservation,rnadLegalActions}
   from '../src/ml/legal-action-adapter.js';
 import {encodeRichSelectionActor,createSelectionRichMatch,selectionRichVocab}
@@ -57,6 +58,18 @@ test('a real complete accepted teacher Match gives separate core/lead training t
   assert.equal(match.completed,true);
   assert.equal(match.examples.length,2*match.rounds);
   assert.match(match.teacher_model_sha256,/^[a-f0-9]{64}$/);
+  const archivedFormat=createTeacherMatch(2474001,{
+    threePhase:true,teacher:'aq-public-strategy-selection',
+    featuresV5:true,utilityLabels:true,draftReview:true});
+  const original=archivedFormat.examples.filter(x=>x.phase==='selection');
+  assert.equal(original.length,match.examples.length);
+  for(let i=0;i<original.length;i++){
+    assert.equal(original[i].choice,match.examples[i].choice);
+    assert.deepEqual(original[i].candidate_utilities,
+                     match.examples[i].targets.utilities);
+    assert.deepEqual(original[i].state,match.examples[i].state);
+    assert.deepEqual(original[i].actions,match.examples[i].actions);
+  }
   for(const e of match.examples){
     assert.equal(e.actor.legal.length,60);
     assert.equal(e.targets.core.length,20);
