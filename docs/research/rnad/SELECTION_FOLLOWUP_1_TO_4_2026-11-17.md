@@ -52,3 +52,28 @@ node scripts/rnad/selection-specialist-infer.mjs --model structured-hard.json --
 比較相手は前回の構造化モデル**自身ではなく**、凍結v5選出重点の**実重み** `6580738ace427364d89e83b94b465ea4f7febead1cb4e18f578d7fb8cb79f5f6`。元v5のドラフト・選出・戦闘間のrecurrent memoryを完全Matchで継続し、同一新seedの選出に対して対応ありTop1差とseedクラスタの**近似95%両側bootstrap CI**を出す。80%のリーグ開始ゲートとは別の独立検証であり、区間に0が含まれる場合は性能優位を宣言しない。
 
 `.github/workflows/rnad-i5-selection-fresh-256.yml`は `preflight → gather → evaluate` の順。先行6arm成功artifactに依存するが、初回研究を再学習しない。新MatchはGitHub-hosted Ubuntuで一度だけ生成し、十分な証拠が得られなければ追加試行を勝手に「合格」に換算しない。
+
+
+## 独立256教師Matchの検証結果（Run #44042810450 success）
+
+[Run #44042810450](https://github.com/cueikusuta/p-RL1024/actions/runs/44042810450) は **preflight / gather / evaluate すべてsuccess**。未使用seed `2473001..2473256` の256受理済み完全4勝教師Matchを元`022aa9cd5b4ac37514df1d845ea00c11c3c13a5c`で生成し、全トレースのaccepted/completed/seed/engine/sourceおよびSHA一覧を検証済み（engine `ea81165993110ee9fb3a09dcb97c6708c0d7397b`）。
+
+教師Matchデータ：[Artifact 14309894143](https://github.com/cueikusuta/p-RL1024/actions/runs/44042810450/artifacts/14309894143)。
+研究比較結果：[Artifact 14310228945](https://github.com/cueikusuta/p-RL1024/actions/runs/44042810450/artifacts/14310228945)。
+
+| 未使用教師256完全Match・同一局面 | Top1 |
+|---|---:|
+| 凍結v5選出重点（完全Matchを通じたrecurrent memory） | **25.12%** |
+| 既用開発データから事前固定した`structured-hard-m256-w96` | **27.43%** |
+
+- 独立Match seedクラスタ平均の**対応あり差 +2.36ポイント**
+- 5000回seed-cluster bootstrapの近似**95%両側区間 [+0.96, +3.77]ポイント**
+- 区間下限が0を超え、凍結v5に対する教師Top1一致の**独立データ上の改善を支持**。ただしBootstrap区間は有限標本で厳密な区間ではない。
+- 既存のstructured-hardの新seed参考Top1も27.43%。初期開発用holdout（28.86%）の値をそのまま一般化精度として引用しない。
+- これは**選出単独教師模倣の確認**。教師局面外での自己対戦強度や、同じ統合policyでのDraft>50%/Selection≥80%/Battle≥80%を通していない。リーグ・Champion・PR統合は依然禁止。
+
+## 自軍の仮想変更に対するv5特徴量の感度（Run #44043961072 success）
+
+[公開／自軍情報の診断Run #44043961072](https://github.com/cueikusuta/p-RL1024/actions/runs/44043961072) は成功。ある固定した6体で80通りの`abilityId`代替では**75通り**が同じ入力、80通りの`itemId`代替では**77通り**が同じ入力、`moveId`代替では1通りが同じ入力だった。技では79通り、特性では5通り、持ち物では3通りが特徴量を変えた。公開相手6種族と自軍素早さの変更は反映され、敵非公開セット変更には非干渉だった。
+
+仮想代替は合法なポケモン型と限らず、この不感度は本物の教師utility矛盾を証明しない。しかしv5で特性・持ち物の意味的な影響が十分区別されない可能性があるため、次の独立した特徴量研究での改善仮説とする。既存スキーマv5と凍結重みは変更していない。
