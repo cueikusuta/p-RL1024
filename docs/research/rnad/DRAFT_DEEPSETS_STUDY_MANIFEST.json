@@ -1,0 +1,8 @@
+{
+  "schema": "rnad-i5-draft-deepsets-study-v1",
+  "train_seed": 2442001,
+  "train_matches": 16,
+  "heldout_seed": 2443001,
+  "heldout_matches": 4,
+  "epochs": 2
+}
