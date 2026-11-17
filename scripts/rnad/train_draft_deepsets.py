@@ -258,6 +258,9 @@ def main():
             e for e in train if e["seed"]<args.train_seed+4])),
         "deepsets-soft-full":("deepsets-soft",len(train)),
     }
+    if args.train_matches>16:
+        arms["deepsets-soft-medium"]=("deepsets-soft",len([
+            e for e in train if e["seed"]<args.train_seed+16]))
     results={}
     outdir=Path(args.out)
     outdir.mkdir(parents=True,exist_ok=False)
