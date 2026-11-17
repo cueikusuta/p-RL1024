@@ -66,6 +66,13 @@ jobs:
           PY
       - name: Public feature privacy and legal action contracts
         run: node --test test/rnad-selection-rich.test.js
+      - name: Pinned CPU PyTorch and independent A4096 threshold tests before expensive training
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_selection_a_4096_test.py' -v
+          python -m unittest discover -s test -p 'rnad_league_entry_gate_test.py' -v
 
   gather_train_new:
     needs: preflight
