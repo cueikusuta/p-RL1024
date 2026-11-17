@@ -79,7 +79,7 @@ function same(a,b){return JSON.stringify(a)===JSON.stringify(b)}
 function hex(x,n){return typeof x==='string'&&
   (n===64?HEX64:HEX40).test(x)}
 
-function validateAuthorityMatches(report,mode,seeds,plan,sourceSha,expectedDraftSha){
+export function validateAuthorityMatches(report,mode,seeds,plan,sourceSha,expectedDraftSha){
   if(!report||report.schema!=='rnad-i5-deepsets-draft-original-aq-paired-screen-v1'||
      report.benchmark!==plan.benchmark||report.mode!==mode||
      report.seed!==null||!same(report.explicit_seeds,seeds)||
