@@ -1,0 +1,7 @@
+{
+  "schema": "rnad-i5-authority-infra-smoke-v1",
+  "seeds": [
+    2452001,
+    2452002
+  ]
+}
