@@ -1,6 +1,7 @@
 """Contracts for selection-only 60-action structured teacher imitation."""
 from __future__ import annotations
 import copy
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -95,20 +96,41 @@ class SelectionSpecialistTests(unittest.TestCase):
                     expected=net(state[None,:],actions[None,:,:])[0].tolist()
                 model=root/(arm+'.json')
                 save_model(net,model,arm)
+                sha=hashlib.sha256(model.read_bytes()).hexdigest()
                 child=subprocess.run(['node','scripts/rnad/selection-specialist-infer.mjs',
-                                      '--model',str(model),'--input',str(inputfile)],
+                                      '--model',str(model),'--sha256',sha,
+                                      '--input',str(inputfile)],
                     capture_output=True,text=True,check=True,timeout=30)
                 got=json.loads(child.stdout)['logits']
                 self.assertEqual(len(got),60)
                 self.assertLess(max(abs(a-b) for a,b in zip(expected,got)),2e-4)
                 broken=json.loads(model.read_text())
-                broken['weights']['trio_ids']['values'][0]=5
+                # A shape-valid finite weight corruption must be rejected using the
+                # separately pinned SHA, not just schema / tensor checks.
+                broken['weights']['state.bias']['values'][0]+=0.125
                 model.write_text(json.dumps(broken))
                 bad=subprocess.run(['node','scripts/rnad/selection-specialist-infer.mjs',
-                                    '--model',str(model),'--input',str(inputfile)],
+                                    '--model',str(model),'--sha256',sha,
+                                    '--input',str(inputfile)],
+                    capture_output=True,text=True,timeout=30)
+                self.assertNotEqual(bad.returncode,0)
+                self.assertIn('SHA-256 mismatch',bad.stderr)
+                # Even if caller explicitly pins a new, structurally invalid
+                # model, the canonical action-order fail-closed check still runs.
+                broken['weights']['trio_ids']['values'][0]=5
+                model.write_text(json.dumps(broken))
+                broken_sha=hashlib.sha256(model.read_bytes()).hexdigest()
+                bad=subprocess.run(['node','scripts/rnad/selection-specialist-infer.mjs',
+                                    '--model',str(model),'--sha256',broken_sha,
+                                    '--input',str(inputfile)],
                     capture_output=True,text=True,timeout=30)
                 self.assertNotEqual(bad.returncode,0)
                 self.assertIn('buffer mismatch',bad.stderr)
+                # No pinned digest is never an implicit trust mode.
+                missing=subprocess.run(['node','scripts/rnad/selection-specialist-infer.mjs',
+                    '--model',str(model),'--input',str(inputfile)],
+                    capture_output=True,text=True,timeout=30)
+                self.assertNotEqual(missing.returncode,0)
 
     def test_hard_only_and_hardsoft_targets_are_different(self):
         v=torch.tensor([[0.,0.,0.,0.]],requires_grad=True)
