@@ -1,0 +1,64 @@
+name: RNAD I5 selection exploratory diagnostics extract
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_DIAGNOSTIC_REPORT_LAUNCH_2026-11-17.json]
+permissions: {}
+jobs:
+  report:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {contents: read, actions: read}
+    env: {GH_TOKEN: '${{ github.token }}'}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Download already completed six-arm report, no retraining
+        run: |
+          set -euo pipefail
+          mkdir -p study
+          gh run download 44042088126 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-followup-sixarms --dir study
+          test -s study/selection-followup-report.json
+      - name: Extract observed input collisions, teacher gap and trio/lead accuracy
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('study/selection-followup-report.json').read_text())
+          assert data['schema']=='rnad-i5-selection-followup-exploratory-v1'
+          assert data['heldout_reused_for_model_selection'] is True
+          assert data['league_training_allowed'] is False
+          best=data['arms']['structured-hard-m256-w96']
+          gap=best['teacher_gap_breakdown']
+          audit=data['full_input_alias_audit']
+          table=['# I5 選出・既使用128Match探索診断','',
+                 '既使用評価データのみ。seed独立クラスタ数を併記し小標本で判断しない。',
+                 '','| 教師Top1-2位相対utility差 | 選出判断 | 独立Match seed | Top1 | 3体一致 | 3体正解時先発一致 |',
+                 '|---|---:|---:|---:|---:|---:|']
+          for name,row in gap.items():
+              f=lambda x:'N/A' if x is None else f'{x:.2%}'
+              table.append('| '+name+' | '+str(row['decisions'])+
+                           ' | '+str(row['independent_match_seed_clusters'])+
+                           ' | '+f(row['top1'])+' | '+f(row['unordered_trio_accuracy'])+
+                           ' | '+f(row['lead_accuracy_conditional_on_correct_trio'])+' |')
+          table.extend(['',
+             f"全入力の異なるMatch間完全一致グループ: {audit['full_input_reused_across_independent_matches']}",
+             f"そのうち教師Top1不一致グループ: {audit['crossmatch_full_input_discordant_teacher_top1_groups']}",
+             f"同局面での候補特徴utility衝突グループ: {audit['same_action_vector_different_utility_groups']}",
+             '完全一致0でも未表現の公開情報がないとは言えない。',
+             '選出3フェーズ同一方策／AQ勝率／Champion評価とは別。',
+          ])
+          summary='\n'.join(table)+'\n'
+          print(summary)
+          Path('SELECTION_DIAGNOSTIC_SUMMARY.md').write_text(summary)
+          PY
+          cat SELECTION_DIAGNOSTIC_SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-diagnostics-summary
+          path: SELECTION_DIAGNOSTIC_SUMMARY.md
+          retention-days: 90
+          if-no-files-found: error
