@@ -60,7 +60,9 @@ def evaluate(model_dir,model_report,reference,fresh_dir,out):
     torch.set_num_threads(1)
     chosen,selected,sha,study=load_preselected(model_dir,model_report)
     # Fresh data is loaded ONLY after candidate and SHA are locked.
-    events,vocab,engine=read_events(fresh_dir,FRESH_START,FRESH_MATCHES)
+    events,vocab,engine=read_events(
+        fresh_dir,FRESH_START,FRESH_MATCHES,
+        expected_sha=study["teacher_source_sha"])
     if vocab!=study["vocab"] or engine!=study["engine_sha"]:
         raise ValueError("Fresh accepted teacher engine/encoder differs")
     frozen=from_archive(reference,REFERENCE_SHA)
