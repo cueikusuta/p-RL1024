@@ -115,7 +115,12 @@ class DeepSetsDraft(nn.Module):
         self.rho=nn.Sequential(nn.Linear(width*3+4,64),nn.ReLU(),
                                nn.Linear(64,32),nn.ReLU(),nn.Linear(32,1))
     def forward(self,pool,codes,extra):
-        m=self.phi(pool[codes])
+        # A roster mon can occur in thousands of legal six-mon teams.
+        # Compute its embedding ONCE, then gather.  The same embedding
+        # receives summed gradients from all teams containing the mon.
+        # This is algebraically identical to phi(pool[codes]) with shared
+        # parameters, and scales far better for large accepted teacher data.
+        m=self.phi(pool)[codes]
         avg=m.mean(1)
         second=(m*m).mean(1)
         highest=m.amax(1)
