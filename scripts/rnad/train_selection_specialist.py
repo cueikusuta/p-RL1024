@@ -86,7 +86,13 @@ def load_traces(folder, start, count):
                 not 0<=e["choice"]<60 or
                 max(e["candidate_utilities"])-e["candidate_utilities"][e["choice"]]>1e-5):
                 raise ValueError("Invalid legal/finite 60 candidate selection teacher signal")
-        traces.append(t)
+        # Keep only ~11 selection events per Match. Draft candidate arrays
+        # can exceed thousands per decision, so retaining full 384 Match
+        # archives in RAM would exhaust the hosted runner.
+        traces.append({"seed":seed,
+                       "examples":[e for e in t["examples"]
+                                   if e["phase"]=="selection"]})
+        del t
     return traces,engine
 
 
@@ -214,24 +220,7 @@ def assess(logits, event):
                 "regret":regret}
 
 
-def evaluate(net,traces,*,is_rnad=False):
-    results=defaultdict(list)
-    with torch.no_grad():
-        for record in traces:
-            if is_rnad:memory=[net.initial_memory() for _ in range(2)]
-            for e in record["examples"]:
-                if is_rnad:
-                    state=torch.tensor([e["state"]],dtype=torch.float32)
-                    actions=torch.tensor([e["actions"]],dtype=torch.float32)
-                    scores,_,memory_next=net(state,actions,memory[e["actor"]])
-                    memory[e["actor"]]=memory_next.detach()
-                    if e["phase"]!="selection":continue
-                else:
-                    if e["phase"]!="selection":continue
-                    state=torch.tensor([e["state"]],dtype=torch.float32)
-                    actions=torch.tensor([e["actions"]],dtype=torch.float32)
-                    scores=net(state,actions)
-                results[record["seed"]].append(assess(scores[0],e))
+def summarize_results(results):
     if len(results)!=MATCHES_HOLDOUT:
         raise ValueError("Incomplete heldout seed clusters")
     keys=("top1","top10","normalized_ce","regret")
@@ -241,6 +230,40 @@ def evaluate(net,traces,*,is_rnad=False):
     by_seed={seed:{k:sum(row[k] for row in rows)/len(rows)
                    for k in keys} for seed,rows in results.items()}
     return overall,by_seed
+
+
+def evaluate(net,traces):
+    results=defaultdict(list)
+    with torch.no_grad():
+        for record in traces:
+            for e in record["examples"]:
+                state=torch.tensor([e["state"]],dtype=torch.float32)
+                actions=torch.tensor([e["actions"]],dtype=torch.float32)
+                scores=net(state,actions)
+                results[record["seed"]].append(assess(scores[0],e))
+    return summarize_results(results)
+
+
+def evaluate_recurrent_baseline(net, raw_folder):
+    # The archived v5 RNAD model has recurrent history spanning *all*
+    # three phases. Stream one complete heldout Match at a time to preserve
+    # the original memory and exactly reproduce the 26.49% baseline.
+    results=defaultdict(list)
+    with torch.no_grad():
+        for seed in range(SEED_HOLDOUT,SEED_HOLDOUT+MATCHES_HOLDOUT):
+            t=json.loads((Path(raw_folder)/f"teacher-{seed}.json").read_bytes())
+            if t.get("seed")!=seed or t.get("source_sha")!=SOURCE_SHA:
+                raise ValueError("Untrusted baseline original trace")
+            memory=[net.initial_memory() for _ in range(2)]
+            for e in t["examples"]:
+                state=torch.tensor([e["state"]],dtype=torch.float32)
+                actions=torch.tensor([e["actions"]],dtype=torch.float32)
+                scores,_,next_memory=net(state,actions,memory[e["actor"]])
+                memory[e["actor"]]=next_memory.detach()
+                if e["phase"]=="selection":
+                    results[seed].append(assess(scores[0],e))
+            del t
+    return summarize_results(results)
 
 
 def paired_bootstrap80(base,can,seed_ids):
@@ -334,7 +357,8 @@ def main(argv=None):
                            expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA_V5)
     if sha!=baseline_report["student_model_sha256"]:
         raise ValueError("Frozen selection model not the original heldout evaluator")
-    baseline,base_clusters=evaluate(old.eval(),held,is_rnad=True)
+    baseline,base_clusters=evaluate_recurrent_baseline(
+        old.eval(),args.heldout_dir)
     if abs(baseline["top1"]-baseline_ref)>1e-10:
         raise ValueError("Failed to reproduce baseline on original sealed teacher trace")
     out=Path(args.out);out.mkdir(parents=True,exist_ok=False)
