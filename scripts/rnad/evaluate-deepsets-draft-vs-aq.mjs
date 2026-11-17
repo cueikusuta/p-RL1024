@@ -183,6 +183,29 @@ export function compareDeepSetsDraftAQ(baseline,candidate){
     confidence_method:'Hoeffding-on-paired-independent-seeds',
     strength_established:false,champion_promoted:false};
 }
+export function compareDeepSetsDraftVersions(small,large){
+  const a=validate(small),b=validate(large);
+  if(small.mode!=='draft-deepsets-soft'||
+     large.mode!=='draft-deepsets-soft'||
+     small.draft_model_sha256===large.draft_model_sha256||
+     ['source_sha','engine_sha','aq_base_model_sha256',
+      'draft_training_source_sha','v3_model_sha256','v4_model_sha256',
+      'seed','pairs'].some(k=>small[k]!==large[k])||
+     a.size!==b.size||[...a.keys()].some(k=>!b.has(k)))
+    throw new Error('Unmatched 16-vs-32 Deep Sets same-trace model comparison');
+  const n=small.pairs;
+  const delta=[...a].reduce((s,[key,value])=>s+b.get(key)-value,0)/(2*n);
+  const half=Math.sqrt(2*Math.log(40)/n);
+  return {schema:'rnad-i5-deepsets-data-scale-paired-delta-v1',
+    small_sha256:small.draft_model_sha256,
+    large_sha256:large.draft_model_sha256,
+    independent_seeds:n,matches_per_arm:2*n,
+    small_wins:small.wins,large_wins:large.wins,
+    paired_delta:delta,
+    conservative_95pct_delta_bounds:[Math.max(-1,delta-half),
+      Math.min(1,delta+half)],
+    strength_established:false,champion_promoted:false};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const a=process.argv.slice(2),o=new Map(),
     keys=new Set(['--v3','--v4','--draft','--draft-sha','--seed','--pairs','--mode','--out']);
