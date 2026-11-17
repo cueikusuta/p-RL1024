@@ -256,13 +256,14 @@ def evaluate(net,traces,*,expected_matches=MATCHES_HOLDOUT):
     return summarize_results(results,expected_matches)
 
 
-def evaluate_recurrent_baseline(net, raw_folder):
+def evaluate_recurrent_baseline(net, raw_folder, *, seed_start=SEED_HOLDOUT,
+                                expected_matches=MATCHES_HOLDOUT):
     # The archived v5 RNAD model has recurrent history spanning *all*
     # three phases. Stream one complete heldout Match at a time to preserve
     # the original memory and exactly reproduce the 26.49% baseline.
     results=defaultdict(list)
     with torch.no_grad():
-        for seed in range(SEED_HOLDOUT,SEED_HOLDOUT+MATCHES_HOLDOUT):
+        for seed in range(seed_start,seed_start+expected_matches):
             t=json.loads((Path(raw_folder)/f"teacher-{seed}.json").read_bytes())
             if t.get("seed")!=seed or t.get("source_sha")!=SOURCE_SHA:
                 raise ValueError("Untrusted baseline original trace")
@@ -275,7 +276,7 @@ def evaluate_recurrent_baseline(net, raw_folder):
                 if e["phase"]=="selection":
                     results[seed].append(assess(scores[0],e))
             del t
-    return summarize_results(results)
+    return summarize_results(results,expected_matches)
 
 
 def paired_bootstrap80(base,can,seed_ids):
