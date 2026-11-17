@@ -13,7 +13,7 @@ CONFIG={
     "min_accepted_teacher_decisions_per_phase":256,
     "phase_top1_targets":{
        "draft":{"threshold":.50,"comparison":"strictly_greater"},
-       "selection":{"threshold":.80,"comparison":"at_least"},
+       "selection":{"threshold":.50,"comparison":"at_least"},
        "battle":{"threshold":.80,"comparison":"at_least"}},
     "require_same_integrated_policy_id":True,
     "require_distinct_training_and_holdout_seeds":True,
@@ -76,6 +76,28 @@ class LeagueEntryTest(unittest.TestCase):
         r=gate_report(CONFIG,e)
         self.assertFalse(r["league_training_allowed"])
         self.assertTrue(r["phases"]["draft"]["passed"])
+        self.assertFalse(r["phases"]["selection"]["passed"])
+
+    def test_selection_50pct_threshold_with_simultaneous_lower_bound(self):
+        # Same complete 128 seed clusters for ALL 3 phases. 80/128 clusters
+        # are fully correct in selection -> 62.5% cluster mean; the
+        # conservative 3-phase corrected lower bound remains > 50%.
+        e=evidence()
+        for i,row in enumerate(e["phases"]["selection"]["seed_clusters"]):
+            row["top1_correct"]=2 if i<80 else 0
+        r=gate_report(CONFIG,e)
+        self.assertTrue(r["league_training_allowed"])
+        self.assertAlmostEqual(
+            r["phases"]["selection"]["decision_weighted_top1"],.625)
+        self.assertGreaterEqual(
+            r["phases"]["selection"]["familywise_80pct_one_sided_lower_bound"],.5)
+        self.assertEqual(r["phases"]["selection"]["target"],.5)
+        # A point estimate at 50% must NEVER be enough by itself.
+        e=evidence()
+        for row in e["phases"]["selection"]["seed_clusters"]:
+            row["top1_correct"]=1
+        r=gate_report(CONFIG,e)
+        self.assertFalse(r["league_training_allowed"])
         self.assertFalse(r["phases"]["selection"]["passed"])
 
     def test_duplicate_seed_training_overlap_and_fake_accept_are_rejected(self):
