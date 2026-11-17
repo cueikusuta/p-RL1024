@@ -1,0 +1,20 @@
+{
+  "schema": "rnad-i5-selection-AB-study-v1",
+  "train_seed_start": 2471001,
+  "train_complete_matches": 256,
+  "dev_seed_start": 2472001,
+  "dev_complete_matches": 128,
+  "fresh_seed_start": 2477001,
+  "fresh_complete_matches": 256,
+  "epochs": 10,
+  "arms": [
+    "A-decomposed-score",
+    "B-detailed-attention"
+  ],
+  "selection_only": true,
+  "teacher_components_training_only": true,
+  "development_block_previously_used": true,
+  "fresh_only_for_promising_candidate": true,
+  "league_training_started": false,
+  "champion_promoted": false
+}
