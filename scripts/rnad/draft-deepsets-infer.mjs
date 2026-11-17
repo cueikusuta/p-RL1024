@@ -148,7 +148,7 @@ export class DeepSetsDraftPolicy{
     const hidden=features.map(f=>{
       if(f.length!==FEATURES||f.some(x=>!Number.isFinite(x)))
         throw new TypeError('Malformed encoded own-set features');
-      return mlp(f,this.layers,'phi',[48,48]);
+      return relu(mlp(f,this.layers,'phi',[48,48]));
     });
     const result=[];
     for(const code of codes){
