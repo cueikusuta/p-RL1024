@@ -1,0 +1,139 @@
+name: RNAD I5 blended DeepSets draft and public-AQ teacher probe
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/DRAFT_BLEND_AQ_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  # Do not run alongside the 16/32 DeepSets full AQ comparisons.
+  group: rnad-i5-deepsets-draft-aq-one-writer
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Validate original snapshot, blend and public-AQ paired contracts
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-draft-deepsets-inference.test.js
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          const m=JSON.parse(readFileSync('docs/research/rnad/DRAFT_BLEND_AQ_MANIFEST.json'));
+          if(m.schema!=='rnad-i5-draft-blend-aq-v1'||
+             Object.keys(m).length!==3||
+             !Number.isSafeInteger(m.seed)||!Number.isSafeInteger(m.pairs)||
+             m.pairs<1||m.pairs>16||m.seed<1||m.seed+m.pairs>0xffffffff||
+             m.seed>=2445001&&m.seed<2446010)
+            throw new Error('Untrusted or non-independent blend seed block');
+          JS
+      - name: Retrieve exact frozen v3 and v4 and 16-Match DeepSets models
+        run: |
+          set -euo pipefail
+          mkdir -p models/v3 models/v4 models/deep results
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir models/v4
+          gh run download 43986137367 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-deepsets-study-43986137367 --dir models/deep
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          def digest(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          v3=digest('models/v3/selfplay/final-model.json')
+          v4=digest('models/v4/artifacts/v4-utility/trained-model.json')
+          draft=digest('models/deep/deepsets-soft-medium.json')
+          study=json.loads(Path('models/deep/draft-study.json').read_text())
+          assert v3=='c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'
+          assert v4=='3624014308a4667a15cf2a567dc7836cf6b8e60a6e754eac3b9d0dbfe4ad0c8c'
+          assert study['source_sha']=='6b8c92bbb39e2e1fa2a2d21264eadd24a37defad'
+          assert draft==study['arms']['deepsets-soft-medium']['weights_sha256']
+          Path('results/model-sha.json').write_text(json.dumps({'v3':v3,'v4':v4,'draft':draft})+'\n')
+          PY
+      - name: Paired original AQ full 4-win Matches for baseline, pure, blends and public teacher
+        run: |
+          set -euo pipefail
+          f() { node -e 'const m=require("./docs/research/rnad/DRAFT_BLEND_AQ_MANIFEST.json");console.log(m[process.argv[1]])' "$1"; }
+          digest="$(node -p 'require("./results/model-sha.json").draft')"
+          for mode in all-v3 draft-deepsets-soft draft-deepsets-quarter draft-deepsets-half; do
+            node scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs \
+              --v3 models/v3/selfplay/final-model.json \
+              --v4 models/v4/artifacts/v4-utility/trained-model.json \
+              --draft models/deep/deepsets-soft-medium.json \
+              --draft-sha "$digest" \
+              --seed "$(f seed)" --pairs "$(f pairs)" \
+              --mode "$mode" --out "results/aq-$mode.json"
+          done
+          node scripts/rnad/evaluate-vs-aq-full.mjs \
+            --model models/v3/selfplay/final-model.json \
+            --seed "$(f seed)" --pairs "$(f pairs)" \
+            --phase-mode aq-public-draft-neural-rest \
+            --switch-guard anti-loop-v1 \
+            --out results/aq-public-teacher.json
+      - name: Audit same-seed paired deltas, multiplicity and actual draft picks
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {compareDeepSetsDraftAQ} from './scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
+          import {comparePublicDraftAgainstV3} from './scripts/rnad/compare-public-draft-aq.mjs';
+          const get=x=>JSON.parse(readFileSync('results/aq-'+x+'.json'));
+          const base=get('all-v3'),teacher=get('public-teacher');
+          const names=['draft-deepsets-soft','draft-deepsets-quarter','draft-deepsets-half'];
+          const diffs=names.map(n=>compareDeepSetsDraftAQ(base,get(n),{familySize:4}));
+          const teacherDelta=comparePublicDraftAgainstV3(base,teacher,{familySize:4});
+          const all={all_v3:{wins:base.wins,matches:base.matches}};
+          for(const n of names)all[n]={wins:get(n).wins,matches:get(n).matches};
+          all.public_teacher={wins:teacher.wins,matches:teacher.matches};
+          const report={schema:'rnad-i5-draft-blend-aq-paired-screen-v1',
+            source_sha:base.source_sha,engine_sha:base.engine_sha,
+            draft_model_sha256:base.draft_model_sha256,
+            seed:base.seed,independent_seeds:base.pairs,
+            arms:all,comparisons:[...diffs,teacherDelta],
+            strength_established:false,champion_promoted:false};
+          writeFileSync('results/paired-blend-screen.json',JSON.stringify(report,null,2)+'\n');
+          const lines=['# 凍結v3・Deep Sets混合・公開AQ教師のドラフト実戦比較',
+            '',
+            '同一seed・両席入替・完全4勝Match／凍結v3選出・戦闘。',
+            '事前探索スクリーニングのみ。Champion条件・独立レビュー未完了。','',
+            '|ドラフト|勝利|勝率|','|---|---:|---:|'];
+          for(const [name,a] of Object.entries(all))
+            lines.push('|'+name+'|'+a.wins+'/'+a.matches+'|'+(100*a.wins/a.matches).toFixed(2)+'%|');
+          lines.push('','|対v3比較|Δ|familywise95%区間|','|---|---:|---|');
+          for(const c of report.comparisons)
+            lines.push('|'+(c.candidate_mode??c.public_teacher)+'|'+c.paired_delta.toFixed(4)+'|['+
+              (c.conservative_95pct_delta_bounds??c.conservative_familywise_95pct_delta_bounds)
+                .map(x=>x.toFixed(3)).join(', ')+']|');
+          for(const mode of names){
+            const match=get(mode).accepted_draft_examples[0];
+            lines.push('','## '+mode+' 実際の受理済みドラフト','',
+              'Seed '+match.seed+' 席'+match.seat+' Match '+match.score.join(':'));
+            for(const p of match.picks)lines.push('','Round '+p.round+': '+
+              p.accepted.join(' / ')+'（クレジット '+p.accepted_spent+'/'+p.credits+'）');
+          }
+          writeFileSync('results/DRAFT_BLEND_REPORT.md',lines.join('\n')+'\n');
+          console.log(JSON.stringify(report,null,2));
+          JS
+          cat results/DRAFT_BLEND_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-blend-aq-${{ github.run_id }}
+          path: results/
+          retention-days: 30
+          if-no-files-found: warn
