@@ -8,7 +8,29 @@ from scripts.rnad.selection_a_1024_confirm import (
     HOLDOUT_START, HOLDOUT_MATCHES, cluster_delta,
 )
 from scripts.rnad.selection_ab import DecomposedTeacher, objective
-from test.rnad_selection_ab_test import fixture
+from scripts.rnad.train_selection_specialist import TRIPLES, TRIO_IDS, LEAD_IDS
+from scripts.rnad.selection_ab import KEYS_VOCAB
+
+def fixture():
+    vocab={"schema":"rnad-i5-selection-rich-vocabulary-v1","sha256":"a"*64,
+           "sizes":{k:32 for k in KEYS_VOCAB}}
+    core=[i*.01 for i in range(20)]
+    lead=[i*.01 for i in range(6)]
+    utilities=[core[t]+lead[l] for t,l in zip(TRIO_IDS,LEAD_IDS)]
+    choice=max(range(60),key=lambda i:utilities[i])
+    event={
+        "actor":{"own_cats":[[1,2,3,4,5,6,7,8,9] for _ in range(6)],
+                 "foe_cats":[[1,8,9] for _ in range(6)],
+                 "own_numeric":[[.5]*16 for _ in range(6)],
+                 "foe_numeric":[[.5]*6 for _ in range(6)],
+                 "legal":[list(t) for t in TRIPLES],
+                 "schema":"rnad-i5-selection-public-actor-tensors-v1",
+                 "vocab_sha256":vocab["sha256"]},
+        "choice":choice,
+        "targets":{"core":core,"lead":lead,"utilities":utilities},
+        "state":[0.]*96,"actions":[[0.]*48 for _ in range(60)],
+    }
+    return event,vocab
 
 
 class A1024Contracts(unittest.TestCase):
