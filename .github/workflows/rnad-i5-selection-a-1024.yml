@@ -1,0 +1,215 @@
+name: RNAD I5 selection A-only 1024 Match supervised research
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/SELECTION_A_1024_LAUNCH_2026-11-17.json
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-A-1024-one-research-run
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read}
+    env: {PYTHONHASHSEED: '0', OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1'}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify exact precommitted A-only learning and fresh holdout blocks
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('docs/research/rnad/SELECTION_A_1024_LAUNCH_2026-11-17.json').read_text())
+          assert x=={
+            'schema':'rnad-i5-selection-A-1024-launch-v1',
+            'previous_A_B_512_run':44050779939,
+            'previous_256_trace_run':44047154334,
+            'train_complete_matches':1024,
+            'train_blocks':[[2471001,256],[2477001,256],[2479001,512]],
+            'old_reused_development':[2472001,128],
+            'fresh_complete_match_holdout':[2481001,512],
+            'only_model':'A-decomposed-core20-lead6',
+            'initialization_seeds':[90251,90252,90253],
+            'checkpoint_epochs':[20,40],
+            'frozen_comparator':'A-512-e20-s90251',
+            'teacher_source_commit':'a7224b05eeef49650794b24546576119dffed951',
+            'all_holdout_seeds_unseen_at_model_selection':True,
+            'league_training_started':False,
+            'champion_promoted':False,
+          }
+          blocks=[set(range(a,a+n)) for a,n in
+              (x['train_blocks']+[x['old_reused_development'],x['fresh_complete_match_holdout']])]
+          assert all(not(blocks[i]&blocks[j]) for i in range(5) for j in range(i+1,5))
+          PY
+      - name: Original public actor and teacher decomposition parity
+        run: node --test test/rnad-selection-rich.test.js
+      - name: A-1024 training/gradient/independent cluster bootstrap contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_selection_a_1024_test.py' -v
+          python -m unittest discover -s test -p 'rnad_selection_ab_test.py' -v
+  train_A:
+    needs: preflight
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU PyTorch, no hosted GPU or self-hosted runner
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Download three historical accepted complete Match train blocks, reused 128-Match development and frozen A-512 models
+        run: |
+          set -euo pipefail
+          mkdir -p input/train-a input/train-b input/train-c input/dev prior/ab512
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-AB-256-train-rich --dir input/train-a
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-AB-fresh-256-rich --dir input/train-b
+          gh run download 44050779939 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-AB-scaling-fresh-512 --dir input/train-c
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-AB-128-old-dev-rich --dir input/dev
+          gh run download 44050779939 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-AB-512-3seed-checkpoints --dir prior/ab512
+          test "$(find input/train-a -name 'selection-*.json' | wc -l)" -eq 256
+          test "$(find input/train-b -name 'selection-*.json' | wc -l)" -eq 256
+          test "$(find input/train-c -name 'selection-*.json' | wc -l)" -eq 512
+          test "$(find input/dev -name 'selection-*.json' | wc -l)" -eq 128
+      - name: Train only A core+lead from scratch, all 3 seeds at 20 and 40 epochs
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_a_1024 \
+            --train-a input/train-a --train-b input/train-b \
+            --train-c input/train-c --dev-dir input/dev \
+            --old-models prior/ab512 \
+            --old-report prior/ab512/selection-AB-scaling-development.json \
+            --out results/A-1024
+          cat results/A-1024/SELECTION_A_1024_DEV.md >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('results/A-1024/selection-A-1024-development.json').read_text())
+          assert len(x['trials'])==6
+          assert x['new_holdout_result'] is None
+          assert x['league_started'] is False
+          assert x['selected_checkpoint_before_new_holdout'] in x['trials']
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-A-1024-six-models
+          path: results/A-1024/
+          if-no-files-found: warn
+          retention-days: 90
+  gather_fresh:
+    needs: train_A
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Freeze original previously validated teacher exporter BEFORE emitting new labels
+        run: |
+          set -euo pipefail
+          git switch --detach a7224b05eeef49650794b24546576119dffed951
+          test "$(git rev-parse HEAD)" = a7224b05eeef49650794b24546576119dffed951
+          node scripts/verify-snapshot.mjs
+      - name: Generate 512 fresh authoritative complete 4-win Match teacher traces
+        run: |
+          set -euo pipefail
+          mkdir -p traces/fresh
+          python - <<'PY'
+          import subprocess
+          for j in range(512):
+              seed=2481001+j
+              subprocess.run(['node','scripts/rnad/export-selection-rich.mjs',
+                  '--seed',str(seed),'--out',f'traces/fresh/selection-{seed}.json'],
+                  stdout=subprocess.DEVNULL,check=True,timeout=480)
+              if (j+1)%64==0:
+                  print('A-only genuinely fresh complete Matches',j+1,'/512',flush=True)
+          PY
+          test "$(find traces/fresh -name 'selection-*.json' | wc -l)" -eq 512
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-A-1024-fresh-512
+          path: traces/fresh/
+          if-no-files-found: error
+          retention-days: 90
+  confirm:
+    needs: [train_A, gather_fresh]
+    if: github.repository == 'cueikusuta/p-RL1024' && needs.gather_fresh.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU torch
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Get SHA-pinned old/new A model weights before accessing unseen Match labels
+        run: |
+          set -euo pipefail
+          mkdir -p new fresh prior
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-A-1024-six-models --dir new
+          gh run download 44050779939 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-AB-512-3seed-checkpoints --dir prior
+          test -s new/selection-A-1024-development.json
+          test -s prior/selection-AB-scaling-development.json
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-A-1024-fresh-512 --dir fresh
+      - name: One locked A-1024 model vs frozen A-512, 512 paired independent Matches 95 percent CI
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_a_1024_confirm \
+            --study-json new/selection-A-1024-development.json \
+            --new-models new \
+            --old-report prior/selection-AB-scaling-development.json \
+            --old-models prior --fresh-dir fresh \
+            --out results/A-1024-fresh
+          cat results/A-1024-fresh/SELECTION_A_1024_FRESH.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-A-1024-independent-confirmation
+          path: results/A-1024-fresh/
+          if-no-files-found: warn
+          retention-days: 90
