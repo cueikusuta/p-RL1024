@@ -206,11 +206,12 @@ export function aggregateConfirmationShards(shards,plan,planHash,sourceSha){
       paired_delta:candidateWinRate-controlWinRate,
       aq_win_rate:candidateWinRate};
   });
-  // Two simultaneous confidence statements, Bonferroni familywise >=95%.
+  // Simultaneous two-sided >=95% over both hypotheses: four tails
+  // (paired upper/lower and absolute upper/lower), Bonferroni alpha/4.
   const paired=empiricalBernsteinFixed95(
-    bySeed.map(x=>x.paired_delta),-1,1,plan.alpha/2);
+    bySeed.map(x=>x.paired_delta),-1,1,plan.alpha/4);
   const absolute=empiricalBernsteinFixed95(
-    bySeed.map(x=>x.aq_win_rate),0,1,plan.alpha/2);
+    bySeed.map(x=>x.aq_win_rate),0,1,plan.alpha/4);
   const eligible=paired.lower>0&&paired.mean>=plan.min_delta&&
     absolute.lower>.5;
   return {schema:CONFIRM_AGGREGATE_SCHEMA,plan_sha256:planHash,
