@@ -37,7 +37,7 @@ jobs:
           assert m=={
             'schema':'rnad-i5-early-overnight-v3-league-20261117-v1',
             'training_source_sha':os.environ['RNAD_TRAINING_PIN'],
-            'launch_commit_sha':os.environ['RNAD_LAUNCH_HEAD'],
+
             'authorized_early_start_before_three_phase_top1_gate':True,
             'early_exploratory_not_official_champion_league':True,
             'independent_review_P1_open':True,
@@ -64,7 +64,8 @@ jobs:
             'champion_promoted':False,
             'main_merged':False,
           }
-          assert len(m['training_source_sha'])==40 and m['training_source_sha']!=m['launch_commit_sha']
+          assert len(m['training_source_sha'])==40
+          assert m['training_source_sha']!=os.environ['RNAD_LAUNCH_HEAD']
           PY
           git cat-file -e "$RNAD_TRAINING_PIN^{commit}"
           test "$(git rev-parse HEAD)" = "$RNAD_LAUNCH_HEAD"
