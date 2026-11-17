@@ -1,0 +1,6 @@
+{
+  "schema": "rnad-i5-selection-public-counterfactual-v1",
+  "uses_accepted_teacher_match": false,
+  "mutates_champion": false,
+  "league_training_started": false
+}
