@@ -127,6 +127,43 @@ function mlp(x,layers,name,widths){
   }
   return values;
 }
+// Score-rank blend preserves the legal support and tempers a noisy
+// supervised actor using the frozen v3 policy. Never a policy gradient update.
+function centeredUnitVariance(scores){
+  if(!Array.isArray(scores)||scores.length===0||
+     scores.some(x=>!Number.isFinite(x)))
+    throw new TypeError('Missing finite draft model scores');
+  const mean=scores.reduce((a,b)=>a+b,0)/scores.length;
+  const sd=Math.sqrt(scores.reduce((a,x)=>a+(x-mean)**2,0)/scores.length);
+  if(!Number.isFinite(sd))throw new TypeError('Invalid draft score variance');
+  return scores.map(x=>(x-mean)/Math.max(sd,1e-6));
+}
+export class BlendedDeepSetsDraftPolicy {
+  constructor(deep,{deepShare=.5}={}){
+    if(!(deep instanceof DeepSetsDraftPolicy)||
+       ![.25,.5,.75].includes(deepShare))
+      throw new TypeError('Invalid bounded frozen Deep Sets/v3 blend');
+    this.deep=deep;this.deepShare=deepShare;
+    this.modelSha256=deep.modelSha256;
+    this.trainingSourceSha=deep.trainingSourceSha;
+    this.schema=DRAFT_DEEPSETS_ACTOR_SCHEMA;
+  }
+  choose(observation,legalActions,baselineLogits){
+    const x=this.deep.scoreEncoded(
+      encodeOwnDraftPool(observation,legalActions));
+    if(!Array.isArray(baselineLogits)||baselineLogits.length!==x.length)
+      throw new TypeError('Missing frozen seat-v3 reference logits');
+    const p=centeredUnitVariance(x),b=centeredUnitVariance(baselineLogits);
+    const blended=p.map((s,i)=>this.deepShare*s+(1-this.deepShare)*b[i]);
+    let index=0;
+    for(let i=1;i<blended.length;i++)
+      if(blended[i]>blended[index])index=i;
+    const max=blended[index];
+    const denom=blended.reduce((sum,v)=>sum+Math.exp(v-max),0);
+    return {index,logProbability:blended[index]-max-Math.log(denom),
+      score:blended[index],candidateCount:blended.length};
+  }
+}
 export class DeepSetsDraftPolicy{
   constructor(path,{sha256}={}){
     const m=parseModel(path,sha256);
