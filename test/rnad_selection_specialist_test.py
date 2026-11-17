@@ -1,12 +1,16 @@
 """Contracts for selection-only 60-action structured teacher imitation."""
 from __future__ import annotations
 import copy
+import json
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 import torch
 
 from scripts.rnad.train_selection_specialist import (
     TRIPLES,TRIO_ROWS,LEAD_ROWS,SelectionSpecialist,teacher_loss,
-    feature_sufficiency_audit,paired_bootstrap80,
+    feature_sufficiency_audit,paired_bootstrap80,save_model,
 )
 
 class SelectionSpecialistTests(unittest.TestCase):
@@ -45,6 +49,37 @@ class SelectionSpecialistTests(unittest.TestCase):
                             model(tensor,a)
                         else:
                             model(s,tensor)
+
+    def test_python_js_inference_parity_and_tamper_rejection(self):
+        torch.manual_seed(454)
+        state=torch.randn(96)
+        actions=torch.randn(60,48)
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            inputfile=root/'inputs.json'
+            inputfile.write_text(json.dumps({
+                'state':state.tolist(),'actions':actions.tolist()}))
+            for structured in (False,True):
+                arm='structured-hard' if structured else 'flat-hard'
+                net=SelectionSpecialist(structured=structured).eval()
+                with torch.no_grad():
+                    expected=net(state[None,:],actions[None,:,:])[0].tolist()
+                model=root/(arm+'.json')
+                save_model(net,model,arm)
+                child=subprocess.run(['node','scripts/rnad/selection-specialist-infer.mjs',
+                                      '--model',str(model),'--input',str(inputfile)],
+                    capture_output=True,text=True,check=True,timeout=30)
+                got=json.loads(child.stdout)['logits']
+                self.assertEqual(len(got),60)
+                self.assertLess(max(abs(a-b) for a,b in zip(expected,got)),2e-4)
+                broken=json.loads(model.read_text())
+                broken['weights']['trio_ids']['values'][0]=5
+                model.write_text(json.dumps(broken))
+                bad=subprocess.run(['node','scripts/rnad/selection-specialist-infer.mjs',
+                                    '--model',str(model),'--input',str(inputfile)],
+                    capture_output=True,text=True,timeout=30)
+                self.assertNotEqual(bad.returncode,0)
+                self.assertIn('buffer mismatch',bad.stderr)
 
     def test_hard_only_and_hardsoft_targets_are_different(self):
         v=torch.tensor([[0.,0.,0.,0.]],requires_grad=True)
