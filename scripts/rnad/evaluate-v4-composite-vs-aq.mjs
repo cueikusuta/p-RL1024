@@ -37,7 +37,7 @@ export function createV4CompositeAQSession({v4Path,v3Path,seat,mode,
      ![0,1].includes(seat)||!Object.hasOwn(COMPOSITE_MODES,mode)||
      (draftPolicy!==null&&(mode!=='all-v3'||
        draftPolicy?.schema!=='rnad-draft-deepsets-inference-v1'||
-       typeof draftPolicy.choose!=='function'))
+       typeof draftPolicy.choose!=='function')))
     throw new TypeError('Invalid two-model AQ comparison actor');
   const v4=new PersistentRNADInference(v4Path);
   const v3=new PersistentRNADInference(v3Path);
