@@ -48,5 +48,6 @@
   "draft_target_top1_strictly_greater": 0.5,
   "battle_target_top1": 0.8,
   "league_training_started": false,
-  "champion_promoted": false
+  "champion_promoted": false,
+  "workflow_yaml_colon_fix": true
 }
