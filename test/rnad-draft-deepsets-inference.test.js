@@ -8,6 +8,8 @@ import {DeepSetsDraftPolicy,BlendedDeepSetsDraftPolicy,encodeOwnDraftPool,
   from '../scripts/rnad/draft-deepsets-infer.mjs';
 import {compareDeepSetsDraftAQ,compareDeepSetsDraftVersions,DRAFT_AQ_SCREEN_SCHEMA}
   from '../scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
+import {comparePublicDraftAgainstV3}
+  from '../scripts/rnad/compare-public-draft-aq.mjs';
 
 const dims={
   'phi.0.weight':[48,44],'phi.0.bias':[48],
@@ -130,4 +132,23 @@ test('bounded blended draft is finite, strictly legal and requires v3 context',(
     assert.deepEqual(blend.choose({...obs,opponent:{invisible:'secret'}},
       legal,baseline),chosen);
   });
+});
+
+test('same-seed public AQ draft probe is exploratory and strictly paired',()=>{
+  const base=report('all-v3',3);
+  const raw=report('all-v3',5);
+  const teacher={...raw,
+    schema:'rnad-vs-original-aq-base-full-match-paired-v1',
+    phase_mode:'aq-public-draft-neural-rest',
+    model_sha256:base.v3_model_sha256,
+    switch_guard:'anti-loop-v1',evaluation_policy:'greedy-no-training',
+    rows:raw.rows.map(({seat,...rest})=>({...rest,candidateSeat:seat}))
+  };
+  const result=comparePublicDraftAgainstV3(base,teacher);
+  assert.equal(result.paired_delta,.25);
+  assert.equal(result.strength_established,false);
+  assert.throws(()=>comparePublicDraftAgainstV3(base,{
+    ...teacher,seed:2444002}));
+  assert.throws(()=>comparePublicDraftAgainstV3(base,{
+    ...teacher,rows:teacher.rows.slice(1)}));
 });
