@@ -126,7 +126,7 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
           new DeepSetsDraftPolicy(draftPath,{sha256:freeze.modelSha256}):
           new BlendedDeepSetsDraftPolicy(
             new DeepSetsDraftPolicy(draftPath,{sha256:freeze.modelSha256}),
-            {deepShare:mode==='draft-deepsets-quarter'?.25:.5})}:{})
+            {deepShare:mode==='draft-deepsets-quarter'?0.25:0.5})}:{})
     });
     const picked=[];
     const session=wrapForReview(actor,seat,picked,{
