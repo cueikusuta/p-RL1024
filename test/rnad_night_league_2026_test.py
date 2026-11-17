@@ -15,8 +15,10 @@ class NightLeaguePlanTests(unittest.TestCase):
         lanes = verify_budget_and_seeds()
         self.assertEqual(len(lanes), 20)
         self.assertEqual({x["shard"] for x in lanes}, set(range(20)))
-        self.assertEqual({x["origin"] for x in lanes},
+        self.assertEqual({x["origin"] for x in lanes if x["mode"] == "league"},
                          {"base128", "base256", "c005"})
+        self.assertEqual({x["origin"] for x in lanes if x["mode"] == "selfplay"},
+                         {"battle-focus256-v5"})
         self.assertEqual({x["updates_per_match"] for x in lanes}, {1, 4})
         self.assertEqual({x["mode"] for x in lanes}, {"league", "selfplay"})
         self.assertEqual(len([x for x in lanes if x["mode"] == "league"]), 15)
