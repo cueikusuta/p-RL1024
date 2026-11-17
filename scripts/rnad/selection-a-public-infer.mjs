@@ -6,6 +6,7 @@ import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
 export const A_PUBLIC_JS_SCHEMA='rnad-i5-A-public-actor-js-weights-v1';
+const verifiedModels=new WeakSet();
 const vocabNames=['species','names','abilities','items','moves','types'];
 const triplets=[];
 for(let i=0;i<6;i++)for(let j=0;j<6;j++)for(let k=j+1;k<6;k++)
@@ -97,7 +98,9 @@ export function loadVerifiedASelection(raw,expectedSha){
     }
     return x;
   };
-  return freezeDeep(payload);
+  const frozen=freezeDeep(payload);
+  verifiedModels.add(frozen);
+  return frozen;
 }
 const relu=x=>x.map(v=>Math.max(0,v));
 const add=(a,b)=>a.map((v,i)=>v+b[i]);
@@ -165,6 +168,8 @@ function assembleFoe(p,cats,nums){
   ]));
 }
 export function scoreFrozenASelection(p,actor){
+  if(!verifiedModels.has(p))
+    throw new TypeError('A actor requires externally SHA-verified immutable model');
   validateActor(p,actor);
   const own=actor.own_cats.map((cats,i)=>
     assembleOwn(p,cats,actor.own_numeric[i]));
