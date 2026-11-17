@@ -2,6 +2,10 @@
 // scores, with the 20 unordered trios x 3 legal leads explicitly separated.
 // No teacher utilities, opponent hidden information, or champion switch.
 import {readFileSync} from 'node:fs';
+import {createHash, timingSafeEqual} from 'node:crypto';
+
+// Only models verified against a trusted external pinned SHA may be scored.
+const verifiedModels=new WeakSet();
 
 const triplets=[];
 for(let i=0;i<6;i++)for(let j=0;j<6;j++)for(let k=j+1;k<6;k++)
@@ -68,6 +72,21 @@ export function validateSelectionSpecialist(payload){
   }
   return payload;
 }
+// Expected digest is supplied out-of-band by the trusted model registry/manifest;
+// a digest embedded in the untrusted JSON is not an integrity guarantee.
+export function loadVerifiedSelectionSpecialist(raw,expectedSha256){
+  if(!(typeof raw==='string'||Buffer.isBuffer(raw))||
+     typeof expectedSha256!=='string'||
+     !/^[0-9a-f]{64}$/.test(expectedSha256))
+    throw new TypeError('Expected model bytes and separately pinned SHA-256');
+  const expected=Buffer.from(expectedSha256,'hex');
+  const actual=createHash('sha256').update(raw).digest();
+  if(!timingSafeEqual(actual,expected))
+    throw new Error('Selection specialist SHA-256 mismatch');
+  const model=validateSelectionSpecialist(JSON.parse(raw.toString()));
+  verifiedModels.add(model);
+  return model;
+}
 function linear(vec,p,w,b){
   const weight=p.weights[w],bias=p.weights[b],rows=weight.shape[0],cols=weight.shape[1];
   if(vec.length!==cols)throw new TypeError('Bad linear input length');
@@ -93,6 +112,8 @@ function oneScore(p,state,act){
   return linear(hidden,p,'interaction.2.weight','interaction.2.bias')[0];
 }
 export function scoreSelectionSpecialist(model, state, candidates){
+  if(!verifiedModels.has(model))
+    throw new TypeError('Selection specialist model must pass pinned SHA-256 verification');
   const p=validateSelectionSpecialist(model);
   if(!Array.isArray(state)||state.length!==96||
      !Array.isArray(candidates)||candidates.length!==60||
@@ -127,11 +148,12 @@ export function chooseSelectionSpecialist(model,state,legalFeatureVectors){
   return {index:best,logits};
 }
 if(process.argv[1]?.endsWith('/selection-specialist-infer.mjs')){
-  if(process.argv.length!==6||
-     process.argv[2]!=='--model'||process.argv[4]!=='--input')
-    throw new Error('Usage: node selection-specialist-infer.mjs --model model.json --input state-actions.json');
-  const model=JSON.parse(readFileSync(process.argv[3],'utf8'));
-  const inputs=JSON.parse(readFileSync(process.argv[5],'utf8'));
+  if(process.argv.length!==8||
+     process.argv[2]!=='--model'||process.argv[4]!=='--sha256'||
+     process.argv[6]!=='--input')
+    throw new Error('Usage: node selection-specialist-infer.mjs --model model.json --sha256 PINNED_SHA256 --input state-actions.json');
+  const model=loadVerifiedSelectionSpecialist(readFileSync(process.argv[3]),process.argv[5]);
+  const inputs=JSON.parse(readFileSync(process.argv[7],'utf8'));
   const logits=scoreSelectionSpecialist(model,inputs.state,inputs.actions);
   process.stdout.write(JSON.stringify({logits})+'\n');
 }
