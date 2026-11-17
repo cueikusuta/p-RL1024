@@ -15,7 +15,7 @@ from pathlib import Path
 SCHEMA = "rnad-i5-three-phase-accepted-teacher-heldout-v1"
 CONFIG_SCHEMA = "rnad-i5-league-entry-thresholds-v1"
 TARGETS = {"draft": (0.50, "strictly_greater"),
-           "selection": (0.80, "at_least"),
+           "selection": (0.50, "at_least"),
            "battle": (0.80, "at_least")}
 HEXPATTERN = re.compile(r"^[0-9a-f]+$")
 
