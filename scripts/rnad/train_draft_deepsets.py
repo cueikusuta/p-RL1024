@@ -198,7 +198,8 @@ def eval_model(model,events,examples=10):
             "heldout_decisions":len(events),"examples":rows}
 
 def save_report(report,path):
-    path.mkdir(parents=True,exist_ok=False)
+    if not path.is_dir():
+        raise ValueError("Missing isolated study output directory")
     (path/"draft-study.json").write_text(json.dumps(
         report,indent=2,ensure_ascii=False,allow_nan=False)+"\n")
     lines=["# R-NaD ドラフト専用Deep Sets・順位蒸留 実験",
@@ -206,7 +207,7 @@ def save_report(report,path):
            "教師が訪れた公開・自席局面での模倣指標です。"
            "実戦Match勝率・Champion強度を証明しません。",
            "",
-           f"- Source: \`{report['source_sha']}\`",
+           f"- Source: `{report['source_sha']}`",
            f"- Train / holdout: {report['train_matches']} / {report['heldout_matches']} 完全Match",
            f"- Dataset seed: {report['train_seed']} / {report['heldout_seed']}",
            "",
@@ -258,9 +259,20 @@ def main():
         "deepsets-soft-full":("deepsets-soft",len(train)),
     }
     results={}
+    outdir=Path(args.out)
+    outdir.mkdir(parents=True,exist_ok=False)
     for name,(kind,count) in arms.items():
         model,losses=train_model(kind,train[:count],args.epochs,seed=23873)
+        export={"schema":"rnad-draft-deepsets-weights-v1",
+                "architecture":kind,"feature_width":FEATURE_WIDTH,
+                "source_sha":current_git_sha(),
+                "weights":{k:{"shape":list(v.shape),
+                              "values":v.detach().flatten().tolist()}
+                           for k,v in model.state_dict().items()}}
+        raw=json.dumps(export,separators=(",",":"),allow_nan=False).encode()
+        (outdir/(name+".json")).write_bytes(raw)
         results[name]={"train_decisions":count,"losses":losses,
+                       "weights_sha256":hashlib.sha256(raw).hexdigest(),
                        "holdout":eval_model(model,holdout)}
         print(json.dumps({"arm":name,"training":count,
              "holdout":{k:v for k,v in results[name]["holdout"].items() if k!="examples"}},
@@ -273,6 +285,6 @@ def main():
             "epochs":args.epochs,"is_champion":False,
             "strength_established":False,"student_picks_are_counterfactual":True,
             "arms":results}
-    save_report(report,Path(args.out))
+    save_report(report,outdir)
 if __name__=="__main__":
     main()
