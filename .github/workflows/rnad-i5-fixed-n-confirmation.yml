@@ -10,7 +10,9 @@ jobs:
     if: github.repository == 'cueikusuta/p-RL1024'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions: {contents: read}
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       plan_sha: ${{ steps.plan.outputs.plan_sha }}
@@ -48,6 +50,35 @@ jobs:
             per_shard:plan.shard_size,shards:matrix.include.length,
             full_four_win_matches:4*plan.seed_count,stop_rule:plan.stop_rule}));
           JS
+      - name: Freeze source model artifacts once for all shards
+        run: |
+          set -euo pipefail
+          mkdir -p models/v3 models/v4 models/draft
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir models/v4
+          gh run download 43986137367 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-deepsets-study-43986137367 --dir models/draft
+          node --input-type=module <<'JS'
+          import {readConfirmationPlan,sha256File} from './scripts/rnad/draft-confirmation-protocol.mjs';
+          const {plan}=readConfirmationPlan('docs/research/rnad/DRAFT_CONFIRMATION_PLAN_2026-11-17.json');
+          const files=[
+            ['models/v3/selfplay/final-model.json',plan.v3_sha256],
+            ['models/v4/artifacts/v4-utility/trained-model.json',plan.v4_sha256],
+            ['models/draft/deepsets-soft-medium.json',plan.candidate_sha256]
+          ];
+          for(const [path,expected] of files){
+            if(sha256File(path)!==expected)throw new Error('Frozen model mismatch: '+path);
+          }
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: i5-confirm-frozen-models
+          path: models/
+          retention-days: 90
+          if-no-files-found: error
+          overwrite: true
 
   shards:
     needs: prepare
@@ -69,16 +100,12 @@ jobs:
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: {node-version: '22.14.0'}
-      - name: Acquire exact immutable v3/v4 and DeepSets training artifacts
+      - name: Retrieve one SHA-sealed frozen model bundle (same workflow run)
         run: |
           set -euo pipefail
-          mkdir -p models/v3 models/v4 models/draft
-          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
-            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
-          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
-            --name rnad-i5-v4-utility-iteration-43957735875 --dir models/v4
-          gh run download 43986137367 --repo cueikusuta/p-RL1024 \
-            --name rnad-i5-draft-deepsets-study-43986137367 --dir models/draft
+          mkdir -p models
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name i5-confirm-frozen-models --dir models
           test -s models/v3/selfplay/final-model.json
           test -s models/v4/artifacts/v4-utility/trained-model.json
           test -s models/draft/deepsets-soft-medium.json
