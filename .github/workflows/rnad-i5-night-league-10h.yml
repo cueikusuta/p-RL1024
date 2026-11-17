@@ -1,0 +1,348 @@
+name: RNAD I5 early exploratory 10h frozen-v3 league and selfplay 20 lanes
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/OVERNIGHT_LEAGUE_LAUNCH_2026-11-17.json
+permissions: {}
+concurrency:
+  group: rnad-i5-20261117-overnight-one-launch
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RNAD_TRAINING_PIN: ${{ github.event.before }}
+      RNAD_LAUNCH_HEAD: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Lock immutable source before launch and exact bounded 20-lane study
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/OVERNIGHT_LEAGUE_LAUNCH_2026-11-17.json').read_text())
+          assert m=={
+            'schema':'rnad-i5-early-overnight-v3-league-20261117-v1',
+            'training_source_sha':os.environ['RNAD_TRAINING_PIN'],
+            'launch_commit_sha':os.environ['RNAD_LAUNCH_HEAD'],
+            'authorized_early_start_before_three_phase_top1_gate':True,
+            'early_exploratory_not_official_champion_league':True,
+            'independent_review_P1_open':True,
+            'runner':'ubuntu-latest',
+            'maximum_parallel_jobs':20,
+            'independent_series':20,
+            'league_series':15,
+            'selfplay_series':5,
+            'wave_count':2,
+            'max_training_seconds_per_wave':17280,
+            'expected_wall_clock_hours_approx':10,
+            'source_frozen_no_revision_between_waves':True,
+            'opponents':['base128','base256','c005'],
+            'features':'rnad-three-phase-features-v3',
+            'switch_guard':'anti-loop-v1',
+            'neuRD_vtrace_training':True,
+            'match_winner_four_wins_authoritative':True,
+            'algorithm':'perolat-neurd-vtrace-eta-0.2-magnet-4',
+            'league_training_started':True,
+            'league_entry_statistical_gate_passed':False,
+            'champion_promoted':False,
+            'main_merged':False,
+          }
+          assert len(m['training_source_sha'])==40 and m['training_source_sha']!=m['launch_commit_sha']
+          PY
+          git cat-file -e "$RNAD_TRAINING_PIN^{commit}"
+          test "$(git rev-parse HEAD)" = "$RNAD_LAUNCH_HEAD"
+          python -m py_compile scripts/rnad/night_league_2026.py
+          git show "$RNAD_TRAINING_PIN:scripts/rnad/night_league_2026.py" > /tmp/pin-script.py
+          cmp scripts/rnad/night_league_2026.py /tmp/pin-script.py
+      - name: Run strict PyTorch fixed-model, checkpoint and acceptance contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_night_league_2026_test.py' -v
+          python -m unittest discover -s test -p 'rnad_v3_test.py' -v
+          python -m scripts.rnad.night_league_2026 --validate-plan > /tmp/early-league-plan.json
+      - name: Audit frozen inherited 128, 256 and c005 R-NaD models before expensive jobs
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          m=json.loads(Path('models/manifest.json').read_text())
+          assert m['schema']=='rnad-i5-queued-evaluation-models-v1'
+          assert m['source_sha']=='f08a9587d6a7033546eab00ffa6479399ca71c2f'
+          assert m['models'].keys()>={'base128','base256','c005'}
+          for name in ('base128','base256','c005'):
+            p=Path('models')/(name+'.json')
+            assert p.is_file()
+            assert m['models'][name]==hashlib.sha256(p.read_bytes()).hexdigest()
+          PY
+      - name: Record immutable pre-gate research protocol
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Early user-authorized research league only
+          * Formal teacher Top1 3-phase league-entry gate is **NOT** passed.
+          * Independent review P1 on JSON self-asserted gate is still **OPEN**.
+          * This workflow NEVER calls the vulnerable gate, promotes Champion, or merges PR.
+          * 20 isolated series, each with its own exact optimizer, target, magnet and RNG checkpoint.
+          * Up to 20 GitHub-hosted runners per wave. Two 4h48 training windows plus setup (~10h).
+          * All opponents are frozen real previous R-NaD v3-compatible models, or same-series self-play.
+          EOF
+
+  wave1:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Checkout immutable complete-Match R-NaD source for both waves
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.before }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned GitHub-hosted CPU trainer and restore audited frozen league
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          mkdir -p model-input artifacts
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir model-input
+          python -m scripts.rnad.night_league_2026 --validate-plan > /dev/null
+      - name: 'Wave 1: 4h48 real 4-win Match NeuRD/V-trace research by isolated seeded series'
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.night_league_2026 \
+            --shard ${{ matrix.shard }} --wave 1 \
+            --models model-input --out artifacts/series --seconds 17280
+          test -s artifacts/series/checkpoints/latest.json
+          test -s artifacts/series/final-model.json
+          test -s artifacts/series/wave-summary.json
+      - name: Preserve complete full-state Match boundary and research journal even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-overnight-v3-wave1-${{ matrix.shard }}
+          path: |
+            artifacts/series/checkpoints/latest.json
+            artifacts/series/checkpoints/checkpoint-u*.pt
+            artifacts/series/final-model.json
+            artifacts/series/league-pool.json
+            artifacts/series/frozen/*.json
+            artifacts/series/series-identity.json
+            artifacts/series/training-journal.ndjson
+            artifacts/series/wave-summary.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  wave2:
+    needs: [preflight, wave1]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Resume same exact frozen R-NaD source; never silently revise weights/code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.before }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288ca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Recover exact first-wave checkpoint and immutable opponents
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          mkdir -p model-input artifacts/series
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir model-input
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-overnight-v3-wave1-${{ matrix.shard }} --dir artifacts/series
+          test -s artifacts/series/checkpoints/latest.json
+          test -s artifacts/series/series-identity.json
+          test -s artifacts/series/final-model.json
+      - name: 'Wave 2: exact full optimizer/magnet/RNG resume for another 4h48'
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.night_league_2026 \
+            --shard ${{ matrix.shard }} --wave 2 \
+            --models model-input --out artifacts/series --seconds 17280
+          test -s artifacts/series/checkpoints/latest.json
+          test -s artifacts/series/wave-summary.json
+      - name: Preserve final full-state Match-boundary research series, even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-overnight-v3-wave2-${{ matrix.shard }}
+          path: |
+            artifacts/series/checkpoints/latest.json
+            artifacts/series/checkpoints/checkpoint-u*.pt
+            artifacts/series/final-model.json
+            artifacts/series/league-pool.json
+            artifacts/series/frozen/*.json
+            artifacts/series/series-identity.json
+            artifacts/series/training-journal.ndjson
+            artifacts/series/wave-summary.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  summarize:
+    needs: [preflight, wave1, wave2]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.before }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Collect all independent completed real Match training series, never promote
+        run: |
+          set -euo pipefail
+          mkdir -p overnight-results
+          python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          summary=[]
+          for shard in range(20):
+              p=Path('overnight-results')/str(shard)
+              p.mkdir(parents=True,exist_ok=True)
+              succeeded=False
+              from_wave=None
+              for wave in (2,1):
+                  v=subprocess.run(['gh','run','download',os.environ['GITHUB_RUN_ID'],
+                        '--repo','cueikusuta/p-RL1024','--name',
+                        f'rnad-i5-overnight-v3-wave{wave}-{shard}','--dir',str(p)],
+                        stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                  if v.returncode==0 and (p/'wave-summary.json').is_file():
+                      from_wave=wave
+                      succeeded=True
+                      break
+              if not succeeded:
+                  summary.append({'shard':shard,'status':'missing_or_failed'})
+                  continue
+              try:
+                  r=json.loads((p/'wave-summary.json').read_text())
+                  m=json.loads((p/'series-identity.json').read_text())
+                  idx=json.loads((p/'checkpoints/latest.json').read_text())
+                  pt=p/'checkpoints'/idx['checkpoint_file']
+                  assert r['schema']==m['schema']=='rnad-i5-early-night-league-exploratory-v1'
+                  assert m['shard']==shard and r['shard']==shard
+                  assert m['league_eligibility_gate_passed'] is False
+                  assert r['champion_promoted'] is False
+                  assert m['series_source_sha']==os.environ['GITHUB_SHA'] or len(m['series_source_sha'])==40
+                  assert idx['checkpoint_sha256']==sha(pt)
+                  assert idx['metadata']['completed_matches']==r['cumulative_completed_matches']
+                  assert idx['metadata']['updates']==r['optimizer_updates']
+                  assert idx['metadata']['initial_seed']==2600001+50000*shard
+                  assert idx['metadata']['source_sha']==m['series_source_sha']
+                  assert len(set(idx['metadata']['completed_match_ids']))==r['cumulative_completed_matches']
+                  summary.append({'shard':shard,'status':'verified_completed',
+                       'wave':from_wave,'mode':r['mode'],'origin':r['origin'],
+                       'matches':r['cumulative_completed_matches'],
+                       'updates':r['optimizer_updates'],
+                       'accepted_decisions':r['training_decisions'],
+                       'checkpoint_sha256':idx['checkpoint_sha256'],
+                       'policy_model_sha256':r['last_model_sha256']})
+              except Exception as e:
+                  summary.append({'shard':shard,'status':'verification_failed','error':str(e)})
+          confirmed=[x for x in summary if x['status']=='verified_completed']
+          report={
+              'schema':'rnad-i5-early-overnight-league-aggregate-v1',
+              'source_sha':os.popen('git rev-parse HEAD').read().strip(),
+              'training_series_expected':20,
+              'training_series_verified':len(confirmed),
+              'total_accepted_complete_four_win_training_matches':sum(x['matches'] for x in confirmed),
+              'total_optimizer_updates':sum(x['updates'] for x in confirmed),
+              'experimental_early_league_authorized':True,
+              'three_phase_teacher_top1_gate_passed':False,
+              'review_P1_resolved':False,
+              'champion_promoted':False,
+              'main_merged':False,
+              'statistical_strength_claim':False,
+              'independent_series':summary,
+          }
+          Path('overnight-results/REPORT.json').write_text(json.dumps(report,indent=2)+'\n')
+          lines=['# 10-hour exploratory R-NaD league series',
+             '',f"Verified series: {len(confirmed)}/20",
+             f"Complete authoritative training Matches: {report['total_accepted_complete_four_win_training_matches']}",
+             f"Optimizer updates: {report['total_optimizer_updates']}",
+             '',
+             'No heldout paired superiority, no true 3-phase Top1 gate, no Champion promotion.',
+             'Independent ChatGPT review P1 remains open.',
+             '',
+             '| Shard | Mode | Origin | Complete Matches | Updates | Status |',
+             '|---:|---|---|---:|---:|---|']
+          for x in summary:
+             lines.append(f"| {x['shard']} | {x.get('mode','—')} | {x.get('origin','—')} | "
+                          f"{x.get('matches','—')} | {x.get('updates','—')} | {x['status']} |")
+          Path('overnight-results/REPORT.md').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+          cat overnight-results/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-overnight-10h-complete-series-verification
+          path: |
+            overnight-results/REPORT.json
+            overnight-results/REPORT.md
+          retention-days: 90
+          if-no-files-found: warn
