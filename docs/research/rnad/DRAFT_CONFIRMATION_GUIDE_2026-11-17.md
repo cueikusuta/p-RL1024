@@ -34,7 +34,7 @@
 
 ## 実行入口と記録
 
-- 手動Workflow：[rnad-i5-fixed-n-confirmation.yml](../../.github/workflows/rnad-i5-fixed-n-confirmation.yml)（GitHub Actionsタブから `Run workflow`）。`workflow_dispatch`だけで、通常のpushで**重い12,288Matchは自動起動しない**。
+- 手動Workflow：[rnad-i5-fixed-n-confirmation.yml](../../../.github/workflows/rnad-i5-fixed-n-confirmation.yml)（GitHub Actionsタブから `Run workflow`）。`workflow_dispatch`だけで、通常のpushで**重い12,288Matchは自動起動しない**。
 - プロトコル：`scripts/rnad/draft-confirmation-protocol.mjs`、ジョブ：`scripts/rnad/draft-confirmation-shard.mjs`、集約：`scripts/rnad/draft-confirmation-aggregate.mjs`。
 - 必須契約テスト：`test/rnad-draft-confirmation.test.js`（Stage 0 CIへ統合）。
 - `i5-confirm-frozen-models`：実験Run内で再配布する検証済み重み。
