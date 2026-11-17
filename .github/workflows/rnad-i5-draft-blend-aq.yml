@@ -34,7 +34,8 @@ jobs:
           import {readFileSync} from 'node:fs';
           const m=JSON.parse(readFileSync('docs/research/rnad/DRAFT_BLEND_AQ_MANIFEST.json'));
           if(m.schema!=='rnad-i5-draft-blend-aq-v1'||
-             Object.keys(m).length!==3||
+             Object.keys(m).length!==4||
+             !['blend','credit'].includes(m.study_kind)||
              !Number.isSafeInteger(m.seed)||!Number.isSafeInteger(m.pairs)||
              m.pairs<1||m.pairs>16||m.seed<1||m.seed+m.pairs>0xffffffff||
              m.seed>=2445001&&m.seed<2446010)
@@ -70,7 +71,12 @@ jobs:
           set -euo pipefail
           f() { node -e 'const m=require("./docs/research/rnad/DRAFT_BLEND_AQ_MANIFEST.json");console.log(m[process.argv[1]])' "$1"; }
           digest="$(node -p 'require("./results/model-sha.json").draft')"
-          for mode in all-v3 draft-deepsets-soft draft-deepsets-quarter draft-deepsets-half; do
+          if [ "$(f study_kind)" = credit ]; then
+            modes=(all-v3 draft-deepsets-soft draft-deepsets-credit-quarter draft-deepsets-credit-half)
+          else
+            modes=(all-v3 draft-deepsets-soft draft-deepsets-quarter draft-deepsets-half)
+          fi
+          for mode in "${modes[@]}"; do
             node scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs \
               --v3 models/v3/selfplay/final-model.json \
               --v4 models/v4/artifacts/v4-utility/trained-model.json \
@@ -79,37 +85,44 @@ jobs:
               --seed "$(f seed)" --pairs "$(f pairs)" \
               --mode "$mode" --out "results/aq-$mode.json"
           done
-          node scripts/rnad/evaluate-vs-aq-full.mjs \
-            --model models/v3/selfplay/final-model.json \
-            --seed "$(f seed)" --pairs "$(f pairs)" \
-            --phase-mode aq-public-draft-neural-rest \
-            --switch-guard anti-loop-v1 \
-            --out results/aq-public-teacher.json
+          if [ "$(f study_kind)" = blend ]; then
+            node scripts/rnad/evaluate-vs-aq-full.mjs \
+              --model models/v3/selfplay/final-model.json \
+              --seed "$(f seed)" --pairs "$(f pairs)" \
+              --phase-mode aq-public-draft-neural-rest \
+              --switch-guard anti-loop-v1 \
+              --out results/aq-public-teacher.json
+          fi
       - name: Audit same-seed paired deltas, multiplicity and actual draft picks
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
-          import {readFileSync,writeFileSync} from 'node:fs';
+          import {readFileSync,writeFileSync,existsSync} from 'node:fs';
           import {compareDeepSetsDraftAQ} from './scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
           import {comparePublicDraftAgainstV3} from './scripts/rnad/compare-public-draft-aq.mjs';
           const get=x=>JSON.parse(readFileSync('results/aq-'+x+'.json'));
-          const base=get('all-v3'),teacher=get('public-teacher');
-          const names=['draft-deepsets-soft','draft-deepsets-quarter','draft-deepsets-half'];
+          const base=get('all-v3');
+          const isCredit=existsSync('results/aq-draft-deepsets-credit-quarter.json');
+          const names=['draft-deepsets-soft',
+            ...(isCredit?['draft-deepsets-credit-quarter','draft-deepsets-credit-half']:
+              ['draft-deepsets-quarter','draft-deepsets-half'])];
           const diffs=names.map(n=>compareDeepSetsDraftAQ(base,get(n),{familySize:4}));
-          const teacherDelta=comparePublicDraftAgainstV3(base,teacher,{familySize:4});
+          const teacher=existsSync('results/aq-public-teacher.json')?get('public-teacher'):null;
+          const teacherDelta=teacher?comparePublicDraftAgainstV3(base,teacher,{familySize:4}):null;
           const all={all_v3:{wins:base.wins,matches:base.matches}};
           for(const n of names)all[n]={wins:get(n).wins,matches:get(n).matches};
-          all.public_teacher={wins:teacher.wins,matches:teacher.matches};
+          if(teacher)all.public_teacher={wins:teacher.wins,matches:teacher.matches};
           const report={schema:'rnad-i5-draft-blend-aq-paired-screen-v1',
             source_sha:base.source_sha,engine_sha:base.engine_sha,
             draft_model_sha256:base.draft_model_sha256,
             seed:base.seed,independent_seeds:base.pairs,
-            arms:all,comparisons:[...diffs,teacherDelta],
+            arms:all,comparisons:[...diffs,...(teacherDelta?[teacherDelta]:[])],
             strength_established:false,champion_promoted:false};
           writeFileSync('results/paired-blend-screen.json',JSON.stringify(report,null,2)+'\n');
           const lines=['# 凍結v3・Deep Sets混合・公開AQ教師のドラフト実戦比較',
             '',
-            '同一seed・両席入替・完全4勝Match／凍結v3選出・戦闘。',
+            '同一seed・両席入替・完全4勝Match／凍結v3選出・戦闘。研究条件は'+
+            (isCredit?'予算補正':'モデル混合＋公開AQ教師')+'。',
             '事前探索スクリーニングのみ。Champion条件・独立レビュー未完了。','',
             '|ドラフト|勝利|勝率|','|---|---:|---:|'];
           for(const [name,a] of Object.entries(all))
