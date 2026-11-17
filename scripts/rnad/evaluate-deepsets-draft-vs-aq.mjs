@@ -113,7 +113,7 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
      typeof draftPath!=='string'||!draftPath||
      !Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
      !Number.isSafeInteger(pairs)||pairs<1||pairs>64||
-     seed+pairs-1>0xffffffff||!MODE.includes(mode))
+     (explicitSeeds===null&&seed+pairs-1>0xffffffff)||!MODE.includes(mode))
     throw new TypeError('Invalid bounded Deep Sets draft AQ screen');
   const seedList=explicitSeeds===null?
     Array.from({length:pairs},(_,i)=>seed+i):explicitSeeds;
