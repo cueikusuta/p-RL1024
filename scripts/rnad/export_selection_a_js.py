@@ -31,8 +31,14 @@ def export(study_file,model_dir,dev_dir,family,out):
         chosen=study["preselected_model"]
         row=study["models"][chosen]
         source=study["teacher_source_sha"]
+    elif family=="A4096":
+        if study.get("schema")!="rnad-i5-selection-A-4096-supervised-study-v1":
+            raise ValueError("Invalid new A4096 study")
+        chosen=study["preselected_model"]
+        row=study["models"][chosen]
+        source=study["teacher_source_sha"]
     else:
-        raise ValueError("Only frozen A1024 and A2048 can be exported")
+        raise ValueError("Only frozen A1024, A2048 and A4096 can be exported")
     league_key="league_started" if family=="A1024" else "league_training_started"
     if (row["filename"]!=chosen or
         row["seed"] not in (90251,90252,90253) or
