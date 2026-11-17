@@ -75,6 +75,25 @@ function bootstrap(rows){
     statistically_supported_headtohead_superiority:boot[250]>.5};
 }
 
+// Smoke is a legality/completion contract test only. Two Matches cannot
+// support any comparison of gameplay strength or numerical win-rate claim.
+export function smokeFrozenASelectionHeadToHead({
+  modelPath,expectedSha,seed=2490001}={}){
+  if(typeof modelPath!=='string'||typeof expectedSha!=='string'||
+     !Number.isSafeInteger(seed)||seed<1)
+    throw new TypeError('Invalid fixed A Match smoke arguments');
+  const p=loadVerifiedASelection(readFileSync(modelPath),expectedSha);
+  const parityError=checkASelectionParity(p);
+  const games=evaluateSeed(p,p,seed);
+  if(games.length!==2||games.some(g=>g.seed!==seed||
+     !Number.isInteger(g.rounds)||g.rounds<4||g.rounds>64))
+    throw new Error('A real authority Match smoke did not complete');
+  return {schema:'rnad-i5-frozen-A-selection-real-match-contract-smoke-v1',
+    seed,complete_four_win_matches:2,parityError,
+    source_model_sha256:p.source_model_sha256,
+    strength_established:false,league_started:false,champion_promoted:false};
+}
+
 export function evaluateFrozenASelectionHeadToHead({
   oldModel,oldSha,newModel,newSha,seed=defaultStart}={}){
   if(typeof oldModel!=='string'||typeof newModel!=='string'||
@@ -125,6 +144,14 @@ export function evaluateFrozenASelectionHeadToHead({
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+  if(process.argv[2]==='--smoke'){
+    if(process.argv.length!==8||process.argv[4]!=='--sha256'||process.argv[6]!=='--seed')
+      throw new Error('Smoke usage --smoke MODEL --sha256 PINNED --seed SEED');
+    console.log(JSON.stringify(smokeFrozenASelectionHeadToHead({
+      modelPath:process.argv[3],expectedSha:process.argv[5],
+      seed:Number(process.argv[7])})));
+    process.exit(0);
+  }
   const args=process.argv.slice(2),o=new Map();
   if(args.length!==12)throw new Error('Expected --old --old-sha --new --new-sha --seed --out');
   for(let i=0;i<args.length;i+=2){
