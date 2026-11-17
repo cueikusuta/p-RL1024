@@ -93,7 +93,7 @@ test('opponent private baggage cannot affect A public actor logits',()=>{
 test('tampered, missing SHA, vocabulary mismatch and illegal action rejected',()=>{
   const obj=model(),raw=JSON.stringify(obj),sha=
     createHash('sha256').update(raw).digest('hex');
-  assert.throws(()=>loadVerifiedASelection(raw,sha.replace(/./,'0')),
+  assert.throws(()=>loadVerifiedASelection(raw,'0'.repeat(64)),
     /SHA256 mismatch/);
   assert.throws(()=>loadVerifiedASelection(raw),'TypeError');
   assert.throws(()=>scoreFrozenASelection(verify(obj),
