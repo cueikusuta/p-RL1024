@@ -244,6 +244,7 @@ jobs:
     permissions: {contents: read, actions: read}
     env:
       GH_TOKEN: ${{ github.token }}
+      RNAD_TRAINING_PIN: ${{ github.event.before }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -287,8 +288,9 @@ jobs:
                   assert m['shard']==shard and r['shard']==shard
                   assert m['league_eligibility_gate_passed'] is False
                   assert r['champion_promoted'] is False
-                  assert m['series_source_sha']==os.environ['GITHUB_SHA'] or len(m['series_source_sha'])==40
+                  assert m['series_source_sha']==os.environ['RNAD_TRAINING_PIN']
                   assert idx['checkpoint_sha256']==sha(pt)
+                  assert sha(p/'final-model.json')==r['last_model_sha256']
                   assert idx['metadata']['completed_matches']==r['cumulative_completed_matches']
                   assert idx['metadata']['updates']==r['optimizer_updates']
                   assert idx['metadata']['initial_seed']==2600001+50000*shard
