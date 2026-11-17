@@ -1,0 +1,91 @@
+name: RNAD I5 fixed-N confirmation authority-only infrastructure smoke
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/DRAFT_CONFIRMATION_SMOKE_TRIGGER_2026-11-17.json']
+permissions: {}
+concurrency:
+  group: rnad-i5-fixed-n-infra-smoke
+  cancel-in-progress: false
+jobs:
+  smoke:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Validate original authority, protocol tests and no final holdout reuse
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-draft-confirmation.test.js
+      - name: Get frozen models for an actual complete 4-win Match wiring test
+        run: |
+          set -euo pipefail
+          mkdir -p models/v3 models/v4 models/draft results
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir models/v4
+          gh run download 43986137367 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-deepsets-study-43986137367 --dir models/draft
+      - name: Check true accepted action and both seats on reserved smoke seeds
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {readConfirmationPlan,plannedSeeds,sha256File}
+            from './scripts/rnad/draft-confirmation-protocol.mjs';
+          import {evaluateDraftDeepSetsVsAQ}
+            from './scripts/rnad/evaluate-deepsets-draft-vs-aq.mjs';
+          const planPath='docs/research/rnad/DRAFT_CONFIRMATION_PLAN_2026-11-17.json';
+          const plan=readConfirmationPlan(planPath).plan;
+          const smoke=JSON.parse(readFileSync('docs/research/rnad/DRAFT_CONFIRMATION_SMOKE_TRIGGER_2026-11-17.json'));
+          if(smoke.schema!=='rnad-i5-authority-infra-smoke-v1'||
+             JSON.stringify(smoke.seeds)!=='[2452001,2452002]'||
+             plannedSeeds(plan).some(x=>smoke.seeds.includes(x)))
+            throw new Error('Smoke seed overlaps final blind holdout');
+          const v3Path='models/v3/selfplay/final-model.json';
+          const v4Path='models/v4/artifacts/v4-utility/trained-model.json';
+          const draftPath='models/draft/deepsets-soft-medium.json';
+          for(const [file,sha] of [[v3Path,plan.v3_sha256],
+            [v4Path,plan.v4_sha256],[draftPath,plan.candidate_sha256]])
+            if(sha256File(file)!==sha)throw new Error('Frozen model SHA mismatch');
+          const checks=[];
+          for(const mode of [plan.baseline_mode,plan.candidate_mode]){
+            const r=evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
+              expectedDraftSha:plan.candidate_sha256,
+              seed:smoke.seeds[0],pairs:smoke.seeds.length,
+              explicitSeeds:smoke.seeds,mode});
+            if(r.matches!==4||r.rows.length!==4||
+               r.accepted_draft_examples.length!==4||
+               r.rows.some(x=>!smoke.seeds.includes(x.seed)||
+                 ![0,1].includes(x.seat)||x.score[x.won?x.seat:1-x.seat]!==4))
+              throw new Error('Not a complete accepted original-AQ four-win smoke');
+            checks.push({mode,complete_match_count:r.matches,
+              real_accepted_pick_traces:r.accepted_draft_examples.length,
+              model_sha256:r.draft_model_sha256,source_sha:r.source_sha});
+          }
+          writeFileSync('results/infra-smoke.json',JSON.stringify({
+            schema:'rnad-i5-confirmation-infrastructure-smoke-v1',
+            NOT_A_STRENGTH_EXPERIMENT:true,
+            reserved_smoke_seeds:smoke.seeds,checks,
+            statistical_verdict:'not-evaluated',
+            final_holdout_seed_blocks_evaluated:0
+          },null,2)+'\n');
+          console.log('Authority and both seats confirmed. No strength verdict computed.');
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-confirmation-infra-smoke-${{ github.run_id }}
+          path: results/infra-smoke.json
+          retention-days: 30
+          if-no-files-found: error
