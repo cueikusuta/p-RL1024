@@ -1,0 +1,9 @@
+{
+  "schema": "rnad-i5-A1024-public-js-parity-test-v1",
+  "frozen_model_run": 44054675522,
+  "frozen_model_name": "selection-A-1024-e40-s90253.pt",
+  "teacher_source_commit": "a7224b05eeef49650794b24546576119dffed951",
+  "game_win_rate_claim": false,
+  "league_started": false,
+  "champion_promoted": false
+}
