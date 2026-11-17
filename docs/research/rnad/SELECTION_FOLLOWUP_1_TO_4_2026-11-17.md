@@ -41,3 +41,14 @@ node scripts/rnad/selection-specialist-infer.mjs --model structured-hard.json --
 専用workflow `.github/workflows/rnad-i5-selection-followup.yml` の`preflight`成功後のみ`compare`を実行する。GitHub-hosted `ubuntu-latest`を使い、1つの保全済み教師Datasetを再利用して重複収集しない。結果は`selection-followup-report.json`、`FOLLOWUP_REPORT.md`およびモデル重みArtifactに格納する。
 
 現行リーグゲート：**統一した同一policyの新規未使用MatchでドラフトTop1 >50%、選出Top1 ≥80%、戦闘Top1 ≥80%、3相Bonferroni補正80%片側下限**。この6 armは選出単独研究であって、ゲート適格でない。未通過の間はリーグ開始・Champion昇格・mainマージなし。既存PRはDraft維持。別Chatでの独立レビューが必要。
+
+
+## 追加：新規未使用256教師Matchでの1候補独立検証
+
+研究用6armの既使用128Match開発データから、**新データを見る前に**Top1最大→regret最小→width最小→名前順という固定規則で**1モデルだけ**選ぶ。研究Run [#44042088126](https://github.com/cueikusuta/p-RL1024/actions/runs/44042088126) はpreflight/compareとも成功。参考Top1は幅64/96/128で、教師128Match=27.85/28.12/28.39%、教師256Match=28.05/28.86/28.79%。最大は`structured-hard-m256-w96`、従来のstructured-hardと重み完全一致。これは**以前から再利用している開発用holdoutの数値**である。
+
+独立確認には元教師source commit `022aa9cd5b4ac37514df1d845ea00c11c3c13a5c`をcheckoutして、新たなseed `2473001..2473256` の**256完全4勝受理済みMatch**を生成する。以前の学習`2471001..2471256`と開発`2472001..2472128`のseedとは重複しない。ゲームエンジン・教師モデルID・feature schemaを一致させ、生成ファイルのSHA-256一覧をartifactに保全する。
+
+比較相手は前回の構造化モデル**自身ではなく**、凍結v5選出重点の**実重み** `6580738ace427364d89e83b94b465ea4f7febead1cb4e18f578d7fb8cb79f5f6`。元v5のドラフト・選出・戦闘間のrecurrent memoryを完全Matchで継続し、同一新seedの選出に対して対応ありTop1差とseedクラスタの**近似95%両側bootstrap CI**を出す。80%のリーグ開始ゲートとは別の独立検証であり、区間に0が含まれる場合は性能優位を宣言しない。
+
+`.github/workflows/rnad-i5-selection-fresh-256.yml`は `preflight → gather → evaluate` の順。先行6arm成功artifactに依存するが、初回研究を再学習しない。新MatchはGitHub-hosted Ubuntuで一度だけ生成し、十分な証拠が得られなければ追加試行を勝手に「合格」に換算しない。
