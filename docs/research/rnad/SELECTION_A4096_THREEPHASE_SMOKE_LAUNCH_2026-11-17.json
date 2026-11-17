@@ -1,0 +1,15 @@
+{
+  "schema": "rnad-i5-a4096-threephase-hybrid-acceptance-smoke-launch-v1",
+  "draft_frozen_run": 44032488678,
+  "draft_model": "soft256-e6.json",
+  "draft_teacher_source": "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c",
+  "selection_export_run": 44085352444,
+  "selection_model": "selection-A-4096-e60-s90252.pt",
+  "selection_teacher_source": "a7224b05eeef49650794b24546576119dffed951",
+  "battle_fixed": "basic",
+  "seed_start": 2501001,
+  "complete_match_smoke_count": 2,
+  "different_teacher_sources_not_same_integrated_training": true,
+  "league_started": false,
+  "champion_promoted": false
+}
