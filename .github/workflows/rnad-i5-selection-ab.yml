@@ -1,0 +1,243 @@
+name: RNAD I5 A/B decomposed teacher vs detailed Attention study
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_AB_LAUNCH_2026-11-17.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-AB-one-registered-study
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Freeze exact sample counts, seeds and no training league
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/SELECTION_AB_LAUNCH_2026-11-17.json').read_text())
+          assert m=={
+            'schema':'rnad-i5-selection-AB-study-v1',
+            'train_seed_start':2471001,
+            'train_complete_matches':256,
+            'dev_seed_start':2472001,
+            'dev_complete_matches':128,
+            'fresh_seed_start':2477001,
+            'fresh_complete_matches':256,
+            'epochs':10,
+            'arms':['A-decomposed-score','B-detailed-attention'],
+            'selection_only':True,
+            'teacher_components_training_only':True,
+            'development_block_previously_used':True,
+            'fresh_only_for_promising_candidate':True,
+            'league_training_started':False,
+            'champion_promoted':False,
+          }
+          t=set(range(2471001,2471257));d=set(range(2472001,2472129))
+          h=set(range(2477001,2477257))
+          assert not (t&d or t&h or d&h)
+          PY
+      - name: Public/own actor, exact teacher utility decomposition and old trace parity
+        run: node --test test/rnad-selection-rich.test.js
+  gather_train:
+    needs: preflight
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Export 256 complete, authority-accepted public/own teacher Matches
+        run: |
+          set -euo pipefail
+          mkdir -p traces/train
+          python - <<'PY'
+          import subprocess
+          for j in range(256):
+              seed=2471001+j
+              subprocess.run(['node','scripts/rnad/export-selection-rich.mjs',
+                  '--seed',str(seed),'--out',f'traces/train/selection-{seed}.json'],
+                  check=True,stdout=subprocess.DEVNULL,timeout=480)
+              if (j+1)%32==0:print('A/B train accepted',j+1,'/256',flush=True)
+          PY
+          test "$(find traces/train -type f -name 'selection-*.json' | wc -l)" -eq 256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-AB-256-train-rich
+          path: traces/train/
+          if-no-files-found: error
+          retention-days: 90
+  gather_dev:
+    needs: preflight
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Re-export 128 already reused development Matches, never label as fresh
+        run: |
+          set -euo pipefail
+          mkdir -p traces/dev
+          python - <<'PY'
+          import subprocess
+          for j in range(128):
+              seed=2472001+j
+              subprocess.run(['node','scripts/rnad/export-selection-rich.mjs',
+                  '--seed',str(seed),'--out',f'traces/dev/selection-{seed}.json'],
+                  check=True,stdout=subprocess.DEVNULL,timeout=480)
+              if (j+1)%32==0:print('A/B old dev accepted',j+1,'/128',flush=True)
+          PY
+          test "$(find traces/dev -type f -name 'selection-*.json' | wc -l)" -eq 128
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-AB-128-old-dev-rich
+          path: traces/dev/
+          if-no-files-found: error
+          retention-days: 90
+  compare:
+    needs: [gather_train, gather_dev]
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    outputs:
+      promising: ${{ steps.train.outputs.promising }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU torch, then actor privacy and gradient tests
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_selection_ab_test.py' -v
+      - name: Recover only the accepted A/B train+old dev and frozen structured comparator
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/train inputs/dev reference
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-256-train-rich --dir inputs/train
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-128-old-dev-rich --dir inputs/dev
+          gh run download 44039529263 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-specialist-fourarms --dir reference
+          echo '1b5f39cee6f00d1fe5c095442996fb706086dd4456d84ce5974a861f9e4e81cd  reference/structured-hard.json' | sha256sum -c -
+      - name: Train both A and B, then preselect one arm before viewing new Match labels
+        id: train
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_ab --train-dir inputs/train --dev-dir inputs/dev --reference reference/structured-hard.json --out results/selection-ab
+          cat results/selection-ab/SELECTION_AB_DEVELOPMENT.md >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path('results/selection-ab/selection-AB-development.json').read_text())
+          assert r['schema']=='rnad-i5-selection-AB-exploratory-v1'
+          assert r['league_training_allowed'] is False
+          a=max(r['models'][name]['dev']['top1'] for name in ('A','B'))
+          b=r['models']['structured-hard-frozen']['dev']['top1']
+          promising=a>b+.001
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f'promising={str(promising).lower()}\n')
+          print('Single A/B fresh confirmation eligible:',promising,flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-AB-models-and-dev-study
+          path: results/selection-ab/
+          if-no-files-found: warn
+          retention-days: 90
+  gather_fresh:
+    needs: compare
+    if: github.repository == 'cueikusuta/p-RL1024' && needs.compare.outputs.promising == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Generate 256 NEW complete accepted public teacher Matches without refitting selected model
+        run: |
+          set -euo pipefail
+          mkdir -p traces/fresh
+          python - <<'PY'
+          import subprocess
+          for j in range(256):
+              seed=2477001+j
+              subprocess.run(['node','scripts/rnad/export-selection-rich.mjs',
+                  '--seed',str(seed),'--out',f'traces/fresh/selection-{seed}.json'],
+                  check=True,stdout=subprocess.DEVNULL,timeout=480)
+              if (j+1)%32==0:print('A/B NEW accepted',j+1,'/256',flush=True)
+          PY
+          test "$(find traces/fresh -type f -name 'selection-*.json' | wc -l)" -eq 256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-AB-fresh-256-rich
+          path: traces/fresh/
+          if-no-files-found: error
+          retention-days: 90
+  confirm:
+    needs: [compare, gather_fresh]
+    if: github.repository == 'cueikusuta/p-RL1024' && needs.gather_fresh.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU torch
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Reuse exactly one preregistered candidate and one frozen old comparator
+        run: |
+          set -euo pipefail
+          mkdir -p models fresh reference
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-models-and-dev-study --dir models
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-fresh-256-rich --dir fresh
+          gh run download 44039529263 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-specialist-fourarms --dir reference
+          echo '1b5f39cee6f00d1fe5c095442996fb706086dd4456d84ce5974a861f9e4e81cd  reference/structured-hard.json' | sha256sum -c -
+      - name: Exact new independent complete Match evaluation with paired seed-cluster 95% bootstrap CI
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_ab_confirm --model-dir models --model-report models/selection-AB-development.json --reference reference/structured-hard.json --fresh-dir fresh --out results/selection-ab-fresh
+          cat results/selection-ab-fresh/SELECTION_AB_FRESH.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-AB-fresh-confirmation
+          path: results/selection-ab-fresh/
+          if-no-files-found: warn
+          retention-days: 90
