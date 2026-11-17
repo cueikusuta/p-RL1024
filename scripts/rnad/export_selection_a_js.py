@@ -33,10 +33,11 @@ def export(study_file,model_dir,dev_dir,family,out):
         source=study["teacher_source_sha"]
     else:
         raise ValueError("Only frozen A1024 and A2048 can be exported")
+    league_key="league_started" if family=="A1024" else "league_training_started"
     if (row["filename"]!=chosen or
         row["seed"] not in (90251,90252,90253) or
         not chosen.endswith(".pt") or
-        study.get("league_training_started") is not False or
+        study.get(league_key) is not False or
         study.get("champion_promoted") is not False):
         raise ValueError("Unexpected frozen model identity / policy")
     path=Path(model_dir)/chosen
