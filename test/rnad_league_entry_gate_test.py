@@ -25,11 +25,16 @@ CONFIG={
 def evidence(correct=2, n=128):
     return {"schema":"rnad-i5-three-phase-accepted-teacher-heldout-v1",
         "integrated_policy_id":"frozen-3phase-test-model",
+        "integrated_policy_manifest_sha256":"d"*64,
+        "evaluation_run_id":123456,
         "source_sha":"a"*40,"engine_sha":"b"*64,
         "run_conclusion":"success",
         "authority_match_legality_verified":True,
         "actor_private_info_noninterference_verified":True,
         "phases":{phase:{
+            "integrated_policy_id":"frozen-3phase-test-model",
+            "integrated_policy_manifest_sha256":"d"*64,
+            "evaluation_run_id":123456,
             "model_sha256":str(k)*64,
             "heldout_trace_sha256":"c"*64,
             "teacher_id":"aq-public-accepted-"+phase,
@@ -116,6 +121,35 @@ class LeagueEntryTest(unittest.TestCase):
         e=evidence()
         e["actor_private_info_noninterference_verified"]=False
         with self.assertRaisesRegex(ValueError,"Unverified"):
+            gate_report(CONFIG,e)
+
+    def test_reject_mixed_separate_phase_policies_or_run_provenance(self):
+        for field, fake in (
+            ("integrated_policy_id", "independent-battle-model"),
+            ("integrated_policy_manifest_sha256", "f"*64),
+            ("evaluation_run_id", 123457),
+        ):
+            e=evidence()
+            e["phases"]["battle"][field]=fake
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ValueError, "Missing trustworthy phase/model evidence"
+            ):
+                gate_report(CONFIG,e)
+
+    def test_reject_mixed_phase_heldout_seed_sets(self):
+        e=evidence()
+        e["phases"]["battle"]["seed_clusters"][0]["seed"]=999999
+        with self.assertRaisesRegex(ValueError, "Mixed heldout Match seeds"):
+            gate_report(CONFIG,e)
+
+    def test_reject_missing_integrated_provenance(self):
+        e=evidence()
+        del e["integrated_policy_manifest_sha256"]
+        with self.assertRaisesRegex(ValueError, "Unverified"):
+            gate_report(CONFIG,e)
+        e=evidence()
+        del e["phases"]["draft"]["evaluation_run_id"]
+        with self.assertRaisesRegex(ValueError, "Missing trustworthy"):
             gate_report(CONFIG,e)
 
     def test_no_qualifying_sample_means_hold(self):
