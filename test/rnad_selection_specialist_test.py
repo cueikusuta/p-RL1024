@@ -104,6 +104,27 @@ class SelectionSpecialistTests(unittest.TestCase):
                 got=json.loads(child.stdout)['logits']
                 self.assertEqual(len(got),60)
                 self.assertLess(max(abs(a-b) for a,b in zip(expected,got)),2e-4)
+                # A trusted model may not be altered in memory after verification,
+                # and a structurally valid unverified copy cannot bypass the gate.
+                inline_js="""import {readFileSync} from 'node:fs';
+import {loadVerifiedSelectionSpecialist,scoreSelectionSpecialist} from './scripts/rnad/selection-specialist-infer.mjs';
+const [path,sha,inputsFile]=process.argv.slice(1);
+const raw=readFileSync(path);
+const trusted=loadVerifiedSelectionSpecialist(raw,sha);
+const original=trusted.weights['state.bias'].values[0];
+let rejected=false;
+try {trusted.weights['state.bias'].values[0]=original+1;}catch {rejected=true;}
+if(!rejected||trusted.weights['state.bias'].values[0]!==original)process.exit(12);
+const input=JSON.parse(readFileSync(inputsFile,'utf8'));
+let unverifiedRejected=false;
+try {scoreSelectionSpecialist(JSON.parse(raw.toString()),input.state,input.actions);}
+catch (e) {unverifiedRejected=String(e).includes('pinned SHA-256');}
+if(!unverifiedRejected)process.exit(13);
+"""
+                immutable=subprocess.run(['node','--input-type=module','-e',
+                    inline_js,str(model),sha,str(inputfile)],
+                    capture_output=True,text=True,timeout=30)
+                self.assertEqual(immutable.returncode,0,immutable.stderr)
                 broken=json.loads(model.read_text())
                 # A shape-valid finite weight corruption must be rejected using the
                 # separately pinned SHA, not just schema / tensor checks.
