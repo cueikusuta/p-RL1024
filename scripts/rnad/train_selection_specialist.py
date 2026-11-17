@@ -232,8 +232,8 @@ def assess(logits, event):
                 "regret":regret}
 
 
-def summarize_results(results):
-    if len(results)!=MATCHES_HOLDOUT:
+def summarize_results(results, expected_matches=MATCHES_HOLDOUT):
+    if len(results)!=expected_matches:
         raise ValueError("Incomplete heldout seed clusters")
     keys=("top1","top10","normalized_ce","regret")
     overall={k:sum(row[k] for rows in results.values() for row in rows)
@@ -244,7 +244,7 @@ def summarize_results(results):
     return overall,by_seed
 
 
-def evaluate(net,traces):
+def evaluate(net,traces,*,expected_matches=MATCHES_HOLDOUT):
     results=defaultdict(list)
     with torch.no_grad():
         for record in traces:
@@ -253,7 +253,7 @@ def evaluate(net,traces):
                 actions=torch.tensor([e["actions"]],dtype=torch.float32)
                 scores=net(state,actions)
                 results[record["seed"]].append(assess(scores[0],e))
-    return summarize_results(results)
+    return summarize_results(results,expected_matches)
 
 
 def evaluate_recurrent_baseline(net, raw_folder):
