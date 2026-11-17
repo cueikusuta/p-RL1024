@@ -102,5 +102,8 @@ test('full 48-shard fixed-N confidence review is possible; champion is never pro
   const negative=Array.from({length:48},(_,i)=>shard(i,false,true));
   const failed=aggregateConfirmationShards(negative,plan,PLAN_SHA,SOURCE);
   assert.equal(failed.eligible_for_independent_review,false);
+  assert.equal(failed.paired_direction,'worse');
+  assert.equal(failed.aq_absolute_direction,'below-50-percent');
+  assert.equal(failed.verdict,'statistically-below-required-target');
   assert.equal(failed.champion_promoted,false);
 });
