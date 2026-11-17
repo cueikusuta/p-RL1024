@@ -14,14 +14,19 @@ from pathlib import Path
 import torch
 from scripts.rnad.train import current_git_sha
 from scripts.rnad.train_selection_specialist import (
-    SelectionSpecialist, load_traces, evaluate, feature_sufficiency_audit,
-    SOURCE_SHA, TEACHER,
+    SelectionSpecialist, load_traces, evaluate, evaluate_recurrent_baseline,
+    feature_sufficiency_audit, SOURCE_SHA, TEACHER,
+)
+from scripts.rnad.neural import (
+    RNADNetwork, load_exported_json, THREE_PHASE_FEATURE_SCHEMA_V5,
+    STATE_FEATURES_V5, ACTION_FEATURES_V5,
 )
 from scripts.rnad.selection_specialist_followup import gap_diagnostics
 
 FRESH_START = 2473001
 FRESH_MATCHES = 256
 REFERENCE_SHA = "1b5f39cee6f00d1fe5c095442996fb706086dd4456d84ce5974a861f9e4e81cd"
+FROZEN_V5_SHA = "6580738ace427364d89e83b94b465ea4f7febead1cb4e18f578d7fb8cb79f5f6"
 FOLLOWUP_RUN = 44042088126
 
 
@@ -86,7 +91,7 @@ def paired_cluster_delta95(base,new):
     }
 
 
-def run(followup_report,followup_models,reference_model,fresh_dir,out):
+def run(followup_report,followup_models,reference_model,v5_baseline_model,fresh_dir,out):
     torch.set_num_threads(1)
     source=json.loads(Path(followup_report).read_bytes())
     selected,row=choose_from_development(source)
@@ -101,11 +106,20 @@ def run(followup_report,followup_models,reference_model,fresh_dir,out):
                                      weights_only=True),strict=True)
     model.eval()
     frozen=from_archive(reference_model,REFERENCE_SHA)
+    v5=RNADNetwork(state_features=STATE_FEATURES_V5,
+                   action_features=ACTION_FEATURES_V5)
+    v5sha=load_exported_json(v5,v5_baseline_model,
+                             expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA_V5)
+    if v5sha!=FROZEN_V5_SHA:
+        raise ValueError("Frozen v5 selection-focus model is not the recorded baseline")
+    v5.eval()
     # Candidate selection has happened; only now read independent fresh seeds.
     fresh,engine=load_traces(fresh_dir,FRESH_START,FRESH_MATCHES)
     if engine!=source["engine_sha"] or source["teacher"]!=TEACHER:
         raise ValueError("Fresh teacher engine or provenance differs")
-    baseline,base_clusters=evaluate(frozen,fresh,expected_matches=FRESH_MATCHES)
+    baseline,base_clusters=evaluate_recurrent_baseline(
+        v5,fresh_dir,seed_start=FRESH_START,expected_matches=FRESH_MATCHES)
+    prior_structured,_=evaluate(frozen,fresh,expected_matches=FRESH_MATCHES)
     candidate,cand_clusters=evaluate(model,fresh,expected_matches=FRESH_MATCHES)
     delta=paired_cluster_delta95(base_clusters,cand_clusters)
     result={
@@ -118,8 +132,10 @@ def run(followup_report,followup_models,reference_model,fresh_dir,out):
         "selected_on_reused_development_holdout_only":selected,
         "fresh_independent_start_seed":FRESH_START,
         "fresh_independent_matches":FRESH_MATCHES,
-        "baseline_sha256":REFERENCE_SHA,
+        "archived_structured_reference_sha256":REFERENCE_SHA,
+        "frozen_v5_baseline_sha256":FROZEN_V5_SHA,
         "candidate_sha256":row["weight_sha256"],
+        "prior_structured_top1":prior_structured["top1"],
         "base_top1":baseline["top1"],
         "candidate_top1":candidate["top1"],
         "base_top10":baseline["top10"],
@@ -141,7 +157,8 @@ def run(followup_report,followup_models,reference_model,fresh_dir,out):
         json.dumps(result,indent=2,ensure_ascii=False,allow_nan=False)+"\n")
     text=f"""# I5 選出・未使用256教師Matchによる独立比較
 
-- 比較元: archived structured-hard 256Match×96幅
+- 比較元: 凍結v5選出重点モデル（同じ未使用Match、全フェーズのrecurrent memoryを保持）
+- 参考値: archived structured-hard 256Match×96幅の新規データTop1 {prior_structured["top1"]:.2%}
 - 事前固定候補: {selected}（既使用開発データから選択）
 - 新規未使用教師Match: {FRESH_MATCHES}独立seed、旧学習・開発seedと非重複
 - Top1: 対照 {baseline["top1"]:.2%} / 候補 {candidate["top1"]:.2%}
@@ -161,11 +178,12 @@ def main():
     p.add_argument("--followup-report",required=True)
     p.add_argument("--followup-models",required=True)
     p.add_argument("--reference-model",required=True)
+    p.add_argument("--v5-baseline-model",required=True)
     p.add_argument("--fresh-dir",required=True)
     p.add_argument("--out",required=True)
     args=p.parse_args()
     run(args.followup_report,args.followup_models,args.reference_model,
-        args.fresh_dir,args.out)
+        args.v5_baseline_model,args.fresh_dir,args.out)
 
 
 if __name__=="__main__":
