@@ -9,7 +9,8 @@ import {createOpponent,weightsSha256 as AQ_SHA}
   from '../../models/aq-base.mjs';
 import {createV4CompositeAQSession}
   from './evaluate-v4-composite-vs-aq.mjs';
-import {DeepSetsDraftPolicy,BlendedDeepSetsDraftPolicy} from './draft-deepsets-infer.mjs';
+import {DeepSetsDraftPolicy,BlendedDeepSetsDraftPolicy,
+  CreditAwareDeepSetsDraftPolicy} from './draft-deepsets-infer.mjs';
 import {projectRnadObservation,rnadLegalActions}
   from '../../src/ml/legal-action-adapter.js';
 import {scoreStrategyDraftRoster} from '../../src/ai/team-assessment.js';
@@ -21,7 +22,8 @@ import data from '../../data/catalog/battle-data.json' with {type:'json'};
 
 export const DRAFT_AQ_SCREEN_SCHEMA='rnad-i5-deepsets-draft-original-aq-paired-screen-v1';
 const MODE=['all-v3','draft-v4','draft-deepsets-soft',
-  'draft-deepsets-quarter','draft-deepsets-half'];
+  'draft-deepsets-quarter','draft-deepsets-half',
+  'draft-deepsets-credit-quarter','draft-deepsets-credit-half'];
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
 const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 function wrapForReview(actor,seat,record,{fullUtility=false}={}){
@@ -124,6 +126,10 @@ export function evaluateDraftDeepSetsVsAQ({v3Path,v4Path,draftPath,
       ...(mode.startsWith('draft-deepsets-')?{
         draftPolicy:mode==='draft-deepsets-soft'?
           new DeepSetsDraftPolicy(draftPath,{sha256:freeze.modelSha256}):
+          mode.startsWith('draft-deepsets-credit-')?
+          new CreditAwareDeepSetsDraftPolicy(
+            new DeepSetsDraftPolicy(draftPath,{sha256:freeze.modelSha256}),
+            {costWeight:mode==='draft-deepsets-credit-quarter'?0.25:0.5}):
           new BlendedDeepSetsDraftPolicy(
             new DeepSetsDraftPolicy(draftPath,{sha256:freeze.modelSha256}),
             {deepShare:mode==='draft-deepsets-quarter'?0.25:0.5})}:{})
@@ -197,7 +203,8 @@ export function compareDeepSetsDraftAQ(baseline,candidate,{familySize=1}={}){
   if(baseline.mode!=='all-v3'&&baseline.mode!=='draft-v4')
     throw new Error('Baseline requires frozen v3 or v4 draft');
   if(!['draft-deepsets-soft','draft-deepsets-quarter',
-       'draft-deepsets-half'].includes(candidate.mode)||
+       'draft-deepsets-half','draft-deepsets-credit-quarter',
+       'draft-deepsets-credit-half'].includes(candidate.mode)||
      baseline.mode===candidate.mode||
      ['source_sha','engine_sha','aq_base_model_sha256',
       'v3_model_sha256','v4_model_sha256','seed','pairs']
