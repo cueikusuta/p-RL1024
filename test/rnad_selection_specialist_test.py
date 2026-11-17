@@ -7,13 +7,42 @@ import tempfile
 import unittest
 from pathlib import Path
 import torch
+from scripts.rnad.train_teacher import AQ_WEIGHTS_SHA256
 
 from scripts.rnad.train_selection_specialist import (
     TRIPLES,TRIO_ROWS,LEAD_ROWS,SelectionSpecialist,teacher_loss,
-    feature_sufficiency_audit,paired_bootstrap80,save_model,
+    feature_sufficiency_audit,paired_bootstrap80,save_model,load_traces,
+    TEACHER_SCHEMA,TEACHER,SOURCE_SHA,
 )
 
 class SelectionSpecialistTests(unittest.TestCase):
+    def test_frozen_authority_engine_commit_hex_40_and_64_are_supported(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            e={"phase":"selection","state":[0.]*96,
+               "actions":[[0.]*48 for _ in range(60)],
+               "candidate_utilities":[float(i) for i in range(60)],
+               "choice":59}
+            t={"schema":TEACHER_SCHEMA,
+               "source_sha":SOURCE_SHA,"feature_schema":"rnad-three-phase-features-v5",
+               "teacher":TEACHER,"teacher_model_sha256":AQ_WEIGHTS_SHA256,
+               "utility_labels":"aq-public-phase-rank-v1",
+               "completed":True,"winner":0,"score":[4,0],
+               "seed":2471001,"action_counts":[0,0],"rounds":1,
+               "examples":[e,e,e,e],"engine_sha":"e"*40}
+            f=root/'teacher-2471001.json'
+            f.write_text(json.dumps(t))
+            extracted,engine=load_traces(root,2471001,1)
+            self.assertEqual(engine,"e"*40)
+            self.assertEqual(len(extracted[0]["examples"]),4)
+            t['engine_sha']="e"*64
+            f.write_text(json.dumps(t))
+            self.assertEqual(load_traces(root,2471001,1)[1],"e"*64)
+            t['engine_sha']="not-a-digest"
+            f.write_text(json.dumps(t))
+            with self.assertRaisesRegex(ValueError,"engine"):
+                load_traces(root,2471001,1)
+
     def test_60_actions_have_20_unordered_trios_three_leads_each(self):
         self.assertEqual(len(TRIPLES),60)
         self.assertEqual(len(TRIO_ROWS),20)
