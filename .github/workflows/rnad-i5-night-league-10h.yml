@@ -3,7 +3,7 @@ on:
   push:
     branches: [feat/5-rnad-stage0-contracts]
     paths:
-      - docs/research/rnad/OVERNIGHT_LEAGUE_LAUNCH_2026-11-17.json
+      - docs/research/rnad/OVERNIGHT_LEAGUE_RECOVERY_LAUNCH_2026-11-18.json
 permissions: {}
 concurrency:
   group: rnad-i5-20261117-overnight-one-launch
@@ -33,7 +33,7 @@ jobs:
           python - <<'PY'
           import json,os
           from pathlib import Path
-          m=json.loads(Path('docs/research/rnad/OVERNIGHT_LEAGUE_LAUNCH_2026-11-17.json').read_text())
+          m=json.loads(Path('docs/research/rnad/OVERNIGHT_LEAGUE_RECOVERY_LAUNCH_2026-11-18.json').read_text())
           assert m=={
             'schema':'rnad-i5-early-overnight-v3-league-20261117-v1',
             'training_source_sha':os.environ['RNAD_TRAINING_PIN'],
