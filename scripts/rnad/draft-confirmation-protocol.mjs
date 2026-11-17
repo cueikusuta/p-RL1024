@@ -214,6 +214,10 @@ export function aggregateConfirmationShards(shards,plan,planHash,sourceSha){
     bySeed.map(x=>x.aq_win_rate),0,1,plan.alpha/4);
   const eligible=paired.lower>0&&paired.mean>=plan.min_delta&&
     absolute.lower>.5;
+  const pairedDirection=paired.lower>0?'improved':
+    paired.upper<0?'worse':'not-established';
+  const aqDirection=absolute.lower>.5?'above-50-percent':
+    absolute.upper<.5?'below-50-percent':'not-established';
   return {schema:CONFIRM_AGGREGATE_SCHEMA,plan_sha256:planHash,
     source_sha:sourceSha,plan_id:plan.id,
     independent_seed_blocks:seeds.length,
@@ -224,9 +228,12 @@ export function aggregateConfirmationShards(shards,plan,planHash,sourceSha){
     candidate_wins:bySeed.reduce((s,x)=>s+x.candidate_seat0+x.candidate_seat1,0),
     paired,aq_absolute:absolute,
     min_practical_delta:plan.min_delta,
+    paired_direction:pairedDirection,aq_absolute_direction:aqDirection,
     pass_statistical_review_gate:eligible,
     eligible_for_independent_review:eligible,
     champion_promoted:false,
-    verdict:eligible?'evidence-passes-review-required':'not-proven-at-fixed-n',
+    verdict:eligible?'evidence-passes-review-required':
+      (pairedDirection==='worse'||aqDirection==='below-50-percent'?
+        'statistically-below-required-target':'not-proven-at-fixed-n'),
     by_seed:bySeed};
 }
