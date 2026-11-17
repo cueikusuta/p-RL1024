@@ -1,0 +1,11 @@
+{
+  "schema": "rnad-i5-imitation-128-once-v1",
+  "train_seed": 2461001,
+  "train_matches": 128,
+  "holdout_seed": 2462001,
+  "holdout_matches": 64,
+  "epochs": 4,
+  "baseline_run": 43986137367,
+  "baseline_sha256": "da186af7581485382b4f558f356ac285bbf071817239cba7271cb05615e3b037",
+  "purpose": "teacher-imitation-only-not-game-strength"
+}
