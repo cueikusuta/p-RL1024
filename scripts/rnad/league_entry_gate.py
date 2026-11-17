@@ -61,16 +61,22 @@ def gate_report(config, evidence):
         evidence.get("authority_match_legality_verified") is not True or
         evidence.get("actor_private_info_noninterference_verified") is not True or
         not isinstance(evidence.get("phases"), dict) or
-        set(evidence["phases"]) != set(TARGETS)):
+        set(evidence["phases"]) != set(TARGETS) or
+        type(evidence.get("evaluation_run_id")) is not int or
+        evidence["evaluation_run_id"] < 1 or
+        not sha(evidence.get("integrated_policy_manifest_sha256"), 64)):
         raise ValueError("Unverified or incomplete integrated phase evaluation")
     out = {"schema": "rnad-i5-league-entry-gate-result-v1",
            "integrated_policy_id": evidence["integrated_policy_id"],
+           "integrated_policy_manifest_sha256": evidence["integrated_policy_manifest_sha256"],
+           "evaluation_run_id": evidence["evaluation_run_id"],
            "league_training_allowed": False, "phases": {},
            "ci_method": "one-sided independent seed-cluster Hoeffding",
            "confidence": "familywise at least 80%, Bonferroni across three phases",
            "strength_established": False, "champion_promoted": False}
     alpha = config["familywise_one_sided_alpha"]
     complete = True
+    shared_heldout_seeds = None
     for phase, (threshold, comparison) in TARGETS.items():
         report = evidence["phases"][phase]
         if (not isinstance(report, dict) or
@@ -79,7 +85,11 @@ def gate_report(config, evidence):
             not isinstance(report.get("teacher_id"), str) or
             not report["teacher_id"].strip() or
             not isinstance(report.get("training_seeds"), list) or
-            not isinstance(report.get("seed_clusters"), list)):
+            not isinstance(report.get("seed_clusters"), list) or
+            report.get("integrated_policy_id") != evidence["integrated_policy_id"] or
+            report.get("evaluation_run_id") != evidence["evaluation_run_id"] or
+            report.get("integrated_policy_manifest_sha256") !=
+            evidence["integrated_policy_manifest_sha256"]):
             raise ValueError("Missing trustworthy phase/model evidence: " + phase)
         training = report["training_seeds"]
         seeds = report["seed_clusters"]
@@ -114,6 +124,13 @@ def gate_report(config, evidence):
             means.append(row["top1_correct"]/row["accepted_decisions"])
         if found.intersection(training):
             raise ValueError("Training/heldout seed reuse: "+phase)
+        # Same integrated policy MUST be observed on the same complete Match
+        # seed-clusters for all three phases. Independent phase studies must
+        # never be combined into a synthetic league-pass report.
+        if shared_heldout_seeds is None:
+            shared_heldout_seeds = found
+        elif found != shared_heldout_seeds:
+            raise ValueError("Mixed heldout Match seeds across integrated phases")
         if teacher_decisions < 256:
             out["phases"][phase] = {"passed": False, "reason": "too_few_accepted_teacher_decisions",
                                     "independent_seed_clusters": len(seeds),
