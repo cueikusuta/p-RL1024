@@ -1,0 +1,74 @@
+name: RNAD I5 frozen A1024 Python JS numeric parity preflight
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_A_JS_PREFLIGHT_LAUNCH_2026-11-17.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-frozen-selection-A1024-js-preflight-once
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Confirm real-match model boundary and fixed original source
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-selection-a-public-infer.test.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('docs/research/rnad/SELECTION_A_JS_PREFLIGHT_LAUNCH_2026-11-17.json').read_text())
+          assert x=={
+            'schema':'rnad-i5-A1024-public-js-parity-test-v1',
+            'frozen_model_run':44054675522,
+            'frozen_model_name':'selection-A-1024-e40-s90253.pt',
+            'teacher_source_commit':'a7224b05eeef49650794b24546576119dffed951',
+            'game_win_rate_claim':False,
+            'league_started':False,
+            'champion_promoted':False,
+          }
+          PY
+      - name: Install pinned CPU torch for independent PyTorch reference
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Restore SHA registered frozen old A and reused public development example
+        run: |
+          set -euo pipefail
+          mkdir -p frozen dev results/js
+          gh run download 44054675522 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-A-1024-six-models --dir frozen
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-AB-128-old-dev-rich --dir dev
+          test -s frozen/selection-A-1024-development.json
+          test -s dev/selection-2472001.json
+      - name: Export frozen A1024 and compare all 60 JS logits against torch
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.export_selection_a_js \
+            --study frozen/selection-A-1024-development.json \
+            --model-dir frozen --dev-dir dev --family A1024 \
+            --out results/js/A1024.json > results/js/metadata.json
+          SHA="$(python -c "import json;print(json.load(open('results/js/metadata.json'))['json_sha256'])")"
+          node scripts/rnad/selection-a-public-infer.mjs --model results/js/A1024.json --sha256 "$SHA"
+          node --test test/rnad-selection-a-public-infer.test.js
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-A1024-public-js-parity
+          path: results/js/
+          retention-days: 90
+          if-no-files-found: error
