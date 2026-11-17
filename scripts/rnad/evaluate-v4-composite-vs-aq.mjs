@@ -31,10 +31,13 @@ export const COMPOSITE_MODES=Object.freeze({
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 export function createV4CompositeAQSession({v4Path,v3Path,seat,mode,
-  expectedPhaseSchema='rnad-three-phase-features-v4'}={}){
+  expectedPhaseSchema='rnad-three-phase-features-v4',draftPolicy=null}={}){
   if(typeof v4Path!=='string'||!v4Path||
      typeof v3Path!=='string'||!v3Path||
-     ![0,1].includes(seat)||!Object.hasOwn(COMPOSITE_MODES,mode))
+     ![0,1].includes(seat)||!Object.hasOwn(COMPOSITE_MODES,mode)||
+     (draftPolicy!==null&&(mode!=='all-v3'||
+       draftPolicy?.schema!=='rnad-draft-deepsets-inference-v1'||
+       typeof draftPolicy.choose!=='function'))
     throw new TypeError('Invalid two-model AQ comparison actor');
   const v4=new PersistentRNADInference(v4Path);
   const v3=new PersistentRNADInference(v3Path);
@@ -58,6 +61,20 @@ export function createV4CompositeAQSession({v4Path,v3Path,seat,mode,
       if(!Number.isFinite(alpha)||pa.length!==pb.length||
          pa.length!==legalActions.length)
         throw new Error('Inconsistent source-bounded composite policy support');
+      // Optional research-only draft replacement: both ordinary GRU memories
+      // still receive the same authority-accepted seat-local decisions.
+      // All other phases remain frozen v3 and the switch guard is unchanged.
+      if(draftPolicy!==null&&observation.phase==='draft'){
+        const proposal=draftPolicy.choose(observation,legalActions);
+        if(!Number.isSafeInteger(proposal?.index)||
+           proposal.index<0||proposal.index>=legalActions.length||
+           !Number.isFinite(proposal.logProbability))
+          throw new Error('Invalid Deep Sets draft support/index');
+        return {action:legalActions[proposal.index],
+          behaviorLogProbability:0,
+          referenceLogProbability:proposal.logProbability,
+          predictedValue:b.value};
+      }
       const scores=pa.map((x,i)=>(1-alpha)*x+alpha*pb[i]);
       let best=0;
       for(let i=1;i<scores.length;i++)
@@ -117,7 +134,9 @@ export function createV4CompositeAQSession({v4Path,v3Path,seat,mode,
   function stats(){
     return {schema:'rnad-v4-v3-composite-authority-session-v1',
       accepted_decisions:accepted,accepted_by_phase:{...counts},
-      pending:pending!==null,updates:0,train:false,mode};
+      pending:pending!==null,updates:0,train:false,mode,
+      ...(draftPolicy?{draft_model_schema:draftPolicy.schema,
+        draft_model_sha256:draftPolicy.modelSha256}: {})};
   }
   function finish(reward){
     if(pending||![-1,1].includes(reward)||
