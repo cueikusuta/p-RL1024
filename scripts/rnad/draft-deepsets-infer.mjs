@@ -164,6 +164,35 @@ export class BlendedDeepSetsDraftPolicy {
       score:blended[index],candidateCount:blended.length};
   }
 }
+// Experimental credit-utilization prior motivated by closed-loop logs.
+// Uses ONLY self-visible candidate prices; keeps exactly the authority-legal
+// support. Credit bias is a hypothesis, not a proven winning policy.
+export class CreditAwareDeepSetsDraftPolicy {
+  constructor(deep,{costWeight=.25}={}){
+    if(!(deep instanceof DeepSetsDraftPolicy)||
+       ![.25,.5].includes(costWeight))
+      throw new TypeError('Invalid bounded draft credit calibration');
+    this.deep=deep;this.costWeight=costWeight;
+    this.modelSha256=deep.modelSha256;
+    this.trainingSourceSha=deep.trainingSourceSha;
+    this.schema=DRAFT_DEEPSETS_ACTOR_SCHEMA;
+  }
+  choose(observation,legalActions){
+    const encoding=encodeOwnDraftPool(observation,legalActions);
+    const deepScores=centeredUnitVariance(this.deep.scoreEncoded(encoding));
+    const costs=encoding.codes.map(a=>
+      a.reduce((s,i)=>s+encoding.prices[i],0));
+    const relativeCosts=centeredUnitVariance(costs);
+    const scores=deepScores.map((d,i)=>d+this.costWeight*relativeCosts[i]);
+    let index=0;
+    for(let i=1;i<scores.length;i++)
+      if(scores[i]>scores[index])index=i;
+    const max=scores[index];
+    const sum=scores.reduce((s,x)=>s+Math.exp(x-max),0);
+    return {index,logProbability:scores[index]-max-Math.log(sum),
+      score:scores[index],candidateCount:scores.length};
+  }
+}
 export class DeepSetsDraftPolicy{
   constructor(path,{sha256}={}){
     const m=parseModel(path,sha256);
