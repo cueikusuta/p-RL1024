@@ -1,5 +1,8 @@
-name: RNAD I5 frozen draft confirmation 3072 paired seeds (manual)
+name: RNAD I5 frozen draft confirmation 3072 paired seeds
 on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/DRAFT_CONFIRMATION_LAUNCH_2026-11-17.json']
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -36,6 +39,15 @@ jobs:
           import {readConfirmationPlan,plannedSeeds} from './scripts/rnad/draft-confirmation-protocol.mjs';
           import {appendFileSync} from 'node:fs';
           const {plan,plan_sha256}=readConfirmationPlan('docs/research/rnad/DRAFT_CONFIRMATION_PLAN_2026-11-17.json');
+          if(process.env.GITHUB_EVENT_NAME==='push'){
+            const {readFileSync}=await import('node:fs');
+            const launch=JSON.parse(readFileSync('docs/research/rnad/DRAFT_CONFIRMATION_LAUNCH_2026-11-17.json','utf8'));
+            if(launch.schema!=='rnad-i5-fixed-n-one-shot-launch-v1'||
+               launch.plan_id!==plan.id||launch.seed_count!==3072||
+               launch.complete_match_count!==12288||
+               launch.run!=='execute-full-fixed-n-confirmation')
+              throw new Error('Unapproved push launch manifest');
+          }
           const seeds=plannedSeeds(plan);
           if(seeds.length!==3072||plan.shard_size!==64)
             throw new Error('Non-preregistered statistical analysis scale');
