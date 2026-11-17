@@ -1,0 +1,18 @@
+{
+  "schema": "rnad-i5-selection-specialist-fourarms-v1",
+  "source_teacher_run": 44032488678,
+  "source_sha": "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c",
+  "train_seed": 2471001,
+  "train_matches": 256,
+  "heldout_seed": 2472001,
+  "heldout_matches": 128,
+  "arms": [
+    "flat-hard",
+    "structured-hard",
+    "flat-mixed",
+    "structured-mixed"
+  ],
+  "epochs": 6,
+  "research_only": true,
+  "league_training_started": false
+}
