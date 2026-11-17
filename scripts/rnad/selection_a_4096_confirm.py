@@ -118,7 +118,7 @@ def assess(study_json,new_models,prior_study,prior_models,
         "counts_toward_integrated_league_gate":False
     }
     report={
-        "schema":"rnad-i5-selection-A-4096-fresh1024-v1",
+        "schema":"rnad-i5-selection-A-4096-fresh2048-v1",
         "training_matches":TRAIN_MATCHES,
         "holdout_seed_start":HOLDOUT_START,
         "holdout_complete_teacher_matches":HOLDOUT_MATCHES,
