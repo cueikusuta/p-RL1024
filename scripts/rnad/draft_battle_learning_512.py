@@ -278,12 +278,6 @@ def evaluate(draft_old, draft_old_report, draft_new, draft_new_report,
             rows_draft.extend(draft_counts[k] for k in sorted(expected))
             rows_battle.extend(battle_counts[k] for k in sorted(expected))
             print(json.dumps({"fresh_heldout_matches_evaluated": len(rows_draft)}), flush=True)
-    if ({r["seed"] for r in rows_draft} !=
-        {r["seed"] for r in rows_battle} !=
-        set(range(HOLDOUT_START, HOLDOUT_START + HOLDOUT_COUNT))):
-        # The equality above is intentionally not used for trusting the data:
-        # require each of the two sets to equal the exact expected range below.
-        pass
     expected = set(range(HOLDOUT_START, HOLDOUT_START + HOLDOUT_COUNT))
     if ({r["seed"] for r in rows_draft} != expected or
         {r["seed"] for r in rows_battle} != expected):
