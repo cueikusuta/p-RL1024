@@ -31,7 +31,12 @@ export function analyzeControlled(reports){
       typeof r.training_source_sha==='string'&&/^[0-9a-f]{40}$/.test(r.training_source_sha)&&
       ['initial_model_sha256','initial_v2_origin_sha256',
        'frozen_opponent_pool_sha256','final_checkpoint_sha256',
-       'model_sha256'].every(k=>/^[0-9a-f]{64}$/.test(r[k])),
+       'model_sha256'].every(k=>/^[0-9a-f]{64}$/.test(r[k]))&&
+      r.frozen_opponent_model_sha256&&
+      Object.keys(r.frozen_opponent_model_sha256).sort().join(',')===
+        'base128,base256,c005'&&
+      Object.values(r.frozen_opponent_model_sha256)
+        .every(s=>typeof s==='string'&&/^[0-9a-f]{64}$/.test(s)),
       'wrong pre-registered training arm, frozen source or Match count');
     const index=r.updates_per_match+':'+r.part;
     requireOk(!arms.has(index),'duplicate arm/part');
@@ -64,22 +69,24 @@ export function analyzeControlled(reports){
     for(const x of parts.slice(1))
       for(const key of ['origin','training_seed','training_source_sha','training_matches',
         'initial_model_sha256','initial_v2_origin_sha256','frozen_opponent_pool_sha256',
-        'model_sha256','final_checkpoint_sha256'])
-        requireOk(first[key]===x[key],'mixed same-arm trained model across seed parts');
+        'frozen_opponent_model_sha256','model_sha256','final_checkpoint_sha256'])
+        requireOk(JSON.stringify(first[key])===JSON.stringify(x[key]),
+          'mixed same-arm trained model across seed parts');
     const wins=parts.reduce((sum,x)=>sum+x.wins,0);
     result[u]={updates_per_match:u,wins,win_rate:wins/(2*N),
       trained_matches:first.training_matches,
       initial_model_sha256:first.initial_model_sha256,
       initial_v2_origin_sha256:first.initial_v2_origin_sha256,
       frozen_opponent_pool_sha256:first.frozen_opponent_pool_sha256,
+      frozen_opponent_model_sha256:first.frozen_opponent_model_sha256,
       training_seed:first.training_seed,
       training_source_sha:first.training_source_sha,
       final_model_sha256:first.model_sha256,
       final_checkpoint_sha256:first.final_checkpoint_sha256};
   }
   for(const key of ['trained_matches','initial_model_sha256','initial_v2_origin_sha256',
-    'frozen_opponent_pool_sha256','training_seed','training_source_sha'])
-    requireOk(result[1][key]===result[4][key],
+    'frozen_opponent_model_sha256','training_seed','training_source_sha'])
+    requireOk(JSON.stringify(result[1][key])===JSON.stringify(result[4][key]),
       'noncontrolled initial conditions, sources, seeds or training budget');
   requireOk(result[1].final_model_sha256!==result[4].final_model_sha256,
     'no model distinction despite different optimizer pass counts');
