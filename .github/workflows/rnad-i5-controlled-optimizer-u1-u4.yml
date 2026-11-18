@@ -77,7 +77,7 @@ jobs:
           a=json.loads(Path('preflight/u1/controlled-train-report.json').read_text())
           b=json.loads(Path('preflight/u4/controlled-train-report.json').read_text())
           assert a['initial_v3_model_sha256']==b['initial_v3_model_sha256']
-          assert a['frozen_opponent_pool_sha256']==b['frozen_opponent_pool_sha256']
+          assert a['frozen_opponent_model_sha256']==b['frozen_opponent_model_sha256']
           assert a['initial_seed']==b['initial_seed']
           assert a['optimizer_updates']==1 and b['optimizer_updates']==4
           assert a['completed_matches']==b['completed_matches']==1
