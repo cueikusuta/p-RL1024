@@ -76,9 +76,17 @@ jobs:
           assert new['generation']==1 and new['step']==0
           assert new['training_match_ids']==[]
           assert len(new['completed_generation_match_ids'])==1280
-          assert new['optimizer']==old['optimizer']
-          assert new['scheduler']==old['scheduler']
-          assert new['python_rng']==old['python_rng']
+          def exact(a,b):
+              if isinstance(a,torch.Tensor):
+                  return isinstance(b,torch.Tensor) and torch.equal(a,b)
+              if isinstance(a,dict):
+                  return isinstance(b,dict) and a.keys()==b.keys() and all(exact(a[k],b[k]) for k in a)
+              if isinstance(a,(list,tuple)):
+                  return isinstance(b,type(a)) and len(a)==len(b) and all(exact(x,y) for x,y in zip(a,b))
+              return a==b
+          assert exact(new['optimizer'],old['optimizer'])
+          assert exact(new['scheduler'],old['scheduler'])
+          assert exact(new['python_rng'],old['python_rng'])
           assert torch.equal(new['torch_rng'],old['torch_rng'])
           for name in ('model','target','magnet'):
               assert new[name].keys()==old[name].keys()
@@ -139,8 +147,11 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
+          mkdir -p smoke4
+          cp -a smoke/self smoke4/self
+          cp -a smoke/frozen smoke4/frozen
           python -m scripts.rnad.shared_league_real_smoke \
-            --bootstrap generation1 --smoke smoke --out wave2-update-proof
+            --bootstrap generation1 --smoke smoke4 --out wave2-update-proof
           python - <<'PY'
           import json
           r=json.load(open('wave2-update-proof/smoke-report.json'))
