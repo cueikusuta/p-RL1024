@@ -117,7 +117,16 @@ def verify_manifest(manifest):
     return canonical_hash(manifest)
 
 
+def _matrix(rows, count, width, *, integer=False):
+    return (isinstance(rows, list) and len(rows) == count and
+            all(isinstance(row, list) and len(row) == width and
+                all(type(x) is int if integer else
+                    type(x) in (int, float) and math.isfinite(x)
+                    for x in row) for row in rows))
+
+
 def _verify_events(record):
+    from scripts.rnad.train_selection_specialist import TRIPLES
     events = record.get("events")
     rounds = record.get("rounds")
     action_counts = record.get("action_counts")
@@ -125,48 +134,89 @@ def _verify_events(record):
           isinstance(action_counts, list) and len(action_counts) == 2 and
           all(type(n) is int and n >= 0 for n in action_counts) and
           isinstance(events, list) and len(events) ==
-          4 * rounds + sum(action_counts), "Incomplete accepted 3-phase timeline")
+          4 * rounds + sum(action_counts),
+          "Incomplete accepted 3-phase timeline")
     counts = Counter()
-    for i, event in enumerate(events):
-        _need(isinstance(event, dict) and
-              not (set(event) & FORBIDDEN) and
-              event.get("phase") in PHASES and
-              event.get("actor") in (0, 1), "Illegal phase, seat or privileged feature")
-        counts[event["phase"]] += 1
-        actions = event.get("actions")
-        idx = event.get("action_index")
-        mu = event.get("behavior_prob")
-        log_magnet = event.get("magnet_log_prob")
-        state = event.get("state")
-        reward = event.get("reward")
-        _need(isinstance(actions, list) and bool(actions) and
-              all(isinstance(a, list) and a and
-                  all(type(v) in (int, float) and math.isfinite(v) for v in a)
-                  for a in actions) and
-              len({len(a) for a in actions}) == 1 and
-              type(idx) is int and 0 <= idx < len(actions) and
-              type(mu) in (int, float) and math.isfinite(mu) and 0 < mu <= 1 and
-              type(log_magnet) in (int, float) and math.isfinite(log_magnet) and
-              log_magnet <= 0 and
-              isinstance(state, list) and state and
-              all(type(v) in (int, float) and math.isfinite(v) for v in state) and
-              isinstance(reward, list) and len(reward) == 2 and
-              all(type(v) in (int, float) and math.isfinite(v) for v in reward)
-              and abs(sum(reward)) < 1e-8,
-              "Invalid accepted event probability/action/features/reward")
-        expected = ([1, -1] if record["winner"] == 0 else [-1, 1]) if (
-            i == len(events) - 1) else [0, 0]
-        _need(all(abs(a - b) < 1e-8 for a, b in zip(reward, expected)),
-              "Unexpected nonterminal or payoff reward")
-    _need(counts["draft"] == counts["selection"] == 2 * rounds and
+    for i, e in enumerate(events):
+        _need(isinstance(e, dict) and
+              set(e) == {"actor", "phase", "phase_input",
+                         "action_index", "behavior_prob",
+                         "magnet_log_prob", "policy_pi", "magnet_pi",
+                         "predicted_value", "reward"} and
+              e.get("phase") in PHASES and type(e.get("actor")) is int and
+              e["actor"] in (0, 1), "Illegal/privileged phase or seat")
+        phase = e["phase"]
+        counts[phase] += 1
+        p = e["phase_input"]
+        _need(isinstance(p, dict) and not (set(p) & FORBIDDEN),
+              "Missing public/own phase actor input")
+        if phase == "draft":
+            _need(set(p) == {"pool", "codes", "extra"} and
+                  isinstance(p["pool"], list) and
+                  6 <= len(p["pool"]) <= 100 and
+                  _matrix(p["pool"], len(p["pool"]), 44) and
+                  isinstance(p["codes"], list) and
+                  len(p["codes"]) > 0 and
+                  _matrix(p["codes"], len(p["codes"]), 6, integer=True) and
+                  _matrix(p["extra"], len(p["codes"]), 4) and
+                  all(len(set(code)) == 6 and
+                      all(0 <= index < len(p["pool"]) for index in code)
+                      for code in p["codes"]),
+                  "Invalid authoritative draft public candidate tensor")
+            n = len(p["codes"])
+        elif phase == "selection":
+            _need(set(p) == {"own_cat", "foe_cat", "own_num", "foe_num",
+                             "legal"} and
+                  _matrix(p["own_cat"], 6, 9, integer=True) and
+                  _matrix(p["foe_cat"], 6, 3, integer=True) and
+                  _matrix(p["own_num"], 6, 16) and
+                  _matrix(p["foe_num"], 6, 6) and
+                  p["legal"] == [list(t) for t in TRIPLES],
+                  "Invalid canonical public selection 60 candidate contract")
+            n = 60
+        else:
+            _need(set(p) == {"state", "actions"} and
+                  isinstance(p["state"], list) and
+                  len(p["state"]) == 96 and
+                  all(type(x) in (int,float) and math.isfinite(x)
+                      for x in p["state"]) and
+                  isinstance(p["actions"], list) and p["actions"] and
+                  _matrix(p["actions"], len(p["actions"]), 48),
+                  "Invalid public v5 battle feature/action tensor")
+            n = len(p["actions"])
+        index, behavior = e.get("action_index"), e.get("behavior_prob")
+        pi, magnet = e.get("policy_pi"), e.get("magnet_pi")
+        value, log_magnet = e.get("predicted_value"), e.get("magnet_log_prob")
+        _need(type(index) is int and 0 <= index < n and
+              isinstance(pi, list) and isinstance(magnet, list) and
+              len(pi) == len(magnet) == n and
+              all(type(x) in (int,float) and math.isfinite(x) and x > 0
+                  for x in pi + magnet) and
+              abs(sum(pi)-1) < 1e-5 and abs(sum(magnet)-1) < 1e-5 and
+              type(behavior) in (int, float) and math.isfinite(behavior) and
+              0 < behavior <= 1 and
+              abs(behavior - ((1-.02) * pi[index] + .02/n)) < 1e-6 and
+              type(log_magnet) in (int,float) and math.isfinite(log_magnet) and
+              abs(log_magnet - math.log(magnet[index])) < 1e-5 and
+              type(value) in (int,float) and math.isfinite(value) and
+              abs(value) <= 1.00001,
+              "Illegal Actor behavior/magnet probability/value")
+        reward = e.get("reward")
+        _need(isinstance(reward, list) and len(reward) == 2 and
+              all(type(x) in (int,float) and math.isfinite(x)
+                  for x in reward) and abs(sum(reward)) < 1e-8,
+              "Invalid zero-sum payoff")
+        expected = ([1,-1] if record["winner"] == 0 else [-1,1]) if (
+            i == len(events)-1) else [0,0]
+        _need(all(abs(x-y) < 1e-8 for x,y in zip(reward,expected)),
+              "Unexpected nonterminal or terminal payoff")
+    _need(counts["draft"] == counts["selection"] == 2*rounds and
           counts["battle"] == sum(action_counts),
-          "Incomplete draft, selection or battle coverage")
-    # Check both seat-specific accepted battle totals explicitly.
-    for seat in (0, 1):
+          "Incomplete accepted phase coverage")
+    for seat in (0,1):
         _need(sum(e["actor"] == seat and e["phase"] == "battle"
                   for e in events) == action_counts[seat],
               "Wrong accepted battle counts by seat")
-
 
 def verify_actor(manifest, payload):
     manifest_sha = verify_manifest(manifest)
