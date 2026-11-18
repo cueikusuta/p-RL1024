@@ -34,6 +34,7 @@ jobs:
       - name: Install exact CPU torch from locked source
         run: |
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
       - name: Lock preregistered only-one-variable comparison and authority smoke
         run: |
           set -euo pipefail
@@ -111,6 +112,7 @@ jobs:
       - name: Install exact CPU torch
         run: |
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
       - name: Get immutable c005 and three frozen R-NaD opponent source models
         run: |
           set -euo pipefail
