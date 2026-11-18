@@ -126,7 +126,9 @@ def _matrix(rows, count, width, *, integer=False):
 
 
 def _verify_events(record):
-    from scripts.rnad.train_selection_specialist import TRIPLES
+    TRIPLES = [(i,j,k) for i in range(6)
+               for j in range(6) for k in range(j+1,6)
+               if i != j and i != k]
     events = record.get("events")
     rounds = record.get("rounds")
     action_counts = record.get("action_counts")
