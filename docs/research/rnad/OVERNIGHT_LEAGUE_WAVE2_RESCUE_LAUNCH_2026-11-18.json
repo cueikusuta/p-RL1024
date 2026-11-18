@@ -1,0 +1,15 @@
+{
+  "schema": "rnad-i5-overnight-wave2-rescue-from-saved-wave1-v1",
+  "original_run_id": 44175858663,
+  "immutable_training_source_sha": "833f4039b69bbad64dc7a28c059d4b934004e5bf",
+  "first_wave_series_count": 20,
+  "second_wave_only": true,
+  "do_not_regenerate_or_rerun_first_wave": true,
+  "preserve_full_state_and_seed_identity": true,
+  "max_parallel_github_hosted_runners": 20,
+  "seconds_per_second_wave": 17280,
+  "official_three_phase_gate_passed": false,
+  "independent_review_p1_resolved": false,
+  "champion_promoted": false,
+  "main_merged": false
+}
