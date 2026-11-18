@@ -1,0 +1,31 @@
+{
+  "schema": "rnad-i5-20261118-controlled-c005-u1-u4-launch-v1",
+  "initial_model": "c005-v2-to-v3",
+  "source_archive_run": 43757054212,
+  "frozen_opponents": [
+    "base128",
+    "base256",
+    "c005"
+  ],
+  "trainer": "R-NaD-NeuRD-V-trace-accepted-four-win",
+  "training_seed_first": 6500001,
+  "accepted_training_matches_per_arm": 2048,
+  "training_arms": [
+    1,
+    4
+  ],
+  "same_initial_weights": true,
+  "same_training_match_seed_stream": true,
+  "same_frozen_opponents": true,
+  "same_learning_rate_eta_magnet": true,
+  "only_treatment": "optimizer_updates_per_complete_accepted_match",
+  "heldout_seed_first": 8800001,
+  "heldout_seed_last": 8802048,
+  "heldout_paired_seed_clusters": 2048,
+  "seat_swap": true,
+  "real_aq_complete_matches": 8192,
+  "model_selection_on_heldout": false,
+  "champion_promoted": false,
+  "formal_league_gate_passed": false,
+  "main_merged": false
+}
