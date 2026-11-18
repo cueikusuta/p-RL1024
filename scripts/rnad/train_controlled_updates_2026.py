@@ -59,6 +59,15 @@ def train_controlled(*,updates,model_dir,out,matches=TRAIN_MATCHES):
     old_model,pool,pool_sha=prepare_models(model_dir,"unused-v5",series,shard=2)
     require(Path(old_model)==Path(model) and
             sha(pool)==pool_sha,"v3 three-frozen-opponent pool changed")
+    # Pool JSON includes per-arm file paths, so its BYTE sha differs across
+    # independent writer directories. The actual frozen opponent weights MUST
+    # be identical; compare each model digest rather than path-bearing bytes.
+    pool_rows=json.loads(Path(pool).read_text())["models"]
+    opponent_sha={row["name"]:row["sha256"] for row in pool_rows}
+    require(set(opponent_sha)=={"base128","base256","c005"} and
+            len(pool_rows)==3 and all(
+                sha(Path(row["path"]))==row["sha256"] for row in pool_rows),
+            "not the same three immutable opponent model weights")
     current=current_git_sha()
     identity={
         "schema":SCHEMA,"training_source_sha":current,
@@ -67,6 +76,7 @@ def train_controlled(*,updates,model_dir,out,matches=TRAIN_MATCHES):
         "initial_v2_origin_sha256":origin_sha,
         "initial_v3_model_sha256":initial_sha,
         "frozen_opponent_pool_sha256":pool_sha,
+        "frozen_opponent_model_sha256":opponent_sha,
         "initial_model":"c005-v2-to-v3",
         "eta":0.2,"magnet_period":4,
         "trainer_source":"scripts/rnad/train.py",
