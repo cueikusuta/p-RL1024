@@ -161,10 +161,7 @@ def _verify_events(record):
     _need(counts["draft"] == counts["selection"] == 2 * rounds and
           counts["battle"] == sum(action_counts),
           "Incomplete draft, selection or battle coverage")
-    _need(sum(e["actor"] == seat and e["phase"] == "battle" for e in events) ==
-          action_counts[seat] for seat in (0, 1) if True)
-    # The comprehension above is intentionally not used for trust decisions;
-    # check both seat-specific battle totals explicitly.
+    # Check both seat-specific accepted battle totals explicitly.
     for seat in (0, 1):
         _need(sum(e["actor"] == seat and e["phase"] == "battle"
                   for e in events) == action_counts[seat],
