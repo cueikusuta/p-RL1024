@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {join} from 'node:path';
 import {PersistentRNADInference} from './infer.mjs';
 import {evaluateAgainstOriginalAQ} from './evaluate-vs-aq-full.mjs';
+import {weightsSha256 as AQ_BASE_SHA} from '../../models/aq-base.mjs';
 import {verifiedRunningSourceSha} from '../dev/simulator/rnad-match.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
@@ -98,12 +99,13 @@ export function evaluateOvernightPart({dir,shard,part,pairs=PAIRED_SEEDS_PER_PAR
       modelPath:frozen.modelPath,seed:seedStart+offset,pairs:count,
       phaseMode:'neural-all',switchGuard:'anti-loop-v1'});
     requireOk(one.source_sha===source&&one.engine_sha===provenance.sourceCommit&&
-      one.model_sha256===frozen.model_sha256&&one.matches===2*count&&
+      one.model_sha256===frozen.model_sha256&&
+      one.aq_base_model_sha256===AQ_BASE_SHA&&one.matches===2*count&&
       one.rows.length===2*count&&one.champion_promoted===false,
       'Authoritative AQ study changed source, model or outcomes');
     rows.push(...one.rows);
     console.log(JSON.stringify({shard,part,completed_seed_pairs:rows.length/2,
-      target_seed_pairs:pairs,complete_four_win_matches:rows.length}),true);
+      target_seed_pairs:pairs,complete_four_win_matches:rows.length}));
   }
   const wins=validatePartRows(rows,{seedStart,pairs});
   return {schema:OVERNIGHT_EVAL_SCHEMA,
@@ -111,6 +113,7 @@ export function evaluateOvernightPart({dir,shard,part,pairs=PAIRED_SEEDS_PER_PAR
     benchmark:'AQ-Base-001 exact integrated strategy-match',
     training_source_sha:TRAINING_SOURCE_SHA,
     original_training_run_id:ORIGINAL_OVERNIGHT_RUN,
+    aq_base_model_sha256:AQ_BASE_SHA,
     training_shard:shard,part,mode:frozen.mode,origin:frozen.origin,
     updates_per_match:frozen.updates_per_match,
     trained_matches:frozen.trained_matches,optimizer_updates:frozen.optimizer_updates,
