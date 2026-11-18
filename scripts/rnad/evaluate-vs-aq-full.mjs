@@ -22,6 +22,8 @@ import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V3}
   from '../../src/ml/rnad-phase-features-v3.js';
 import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V4}
   from '../../src/ml/rnad-phase-features-v4.js';
+import {RNAD_THREE_PHASE_FEATURE_SCHEMA_V5}
+  from '../../src/ml/rnad-phase-features-v5.js';
 import {pairedHoeffding95} from './aggregate-eval.mjs';
 import {verifiedRunningSourceSha} from '../dev/simulator/rnad-match.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
@@ -43,10 +45,12 @@ export function createRnadAQMatchSession({modelPath,seat,phaseMode='neural-all',
   const model=new PersistentRNADInference(modelPath);
   if(![RNAD_THREE_PHASE_FEATURE_SCHEMA,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2,
         RNAD_THREE_PHASE_FEATURE_SCHEMA_V3,
-        RNAD_THREE_PHASE_FEATURE_SCHEMA_V4].includes(model.featureSchema))
+        RNAD_THREE_PHASE_FEATURE_SCHEMA_V4,
+        RNAD_THREE_PHASE_FEATURE_SCHEMA_V5].includes(model.featureSchema))
     throw new Error('Full AQ comparison requires a three-phase model');
   const historyNeeded=[RNAD_THREE_PHASE_FEATURE_SCHEMA_V3,
-    RNAD_THREE_PHASE_FEATURE_SCHEMA_V4].includes(model.featureSchema);
+    RNAD_THREE_PHASE_FEATURE_SCHEMA_V4,
+    RNAD_THREE_PHASE_FEATURE_SCHEMA_V5].includes(model.featureSchema);
   const neural=new RNADMixedPolicy({model,
     magnet:new PersistentRNADInference(modelPath),epsilon:0,
     selectionMode:'greedy'});
