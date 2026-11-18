@@ -1,0 +1,166 @@
+name: RNAD I5 matched initial vs post 20-model real AQ result
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/OVERNIGHT_PREPOST_REAL_AQ_LAUNCH_2026-11-18.json
+permissions: {}
+concurrency:
+  group: rnad-i5-20261118-one-shot-prepost-aq
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned Node 22.14.0 (official checksum)
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Check new baseline reconstruction, locked manifest and parent evidence
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --check scripts/rnad/evaluate-overnight-initial-vs-aq.mjs
+          node --check scripts/rnad/analyze-overnight-prepost.mjs
+          node --test test/rnad-vs-aq-full.test.js test/rnad-overnight-real-aq-eval.test.js
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {BASELINE_ORIGINS} from './scripts/rnad/evaluate-overnight-initial-vs-aq.mjs';
+          const x=JSON.parse(readFileSync('docs/research/rnad/OVERNIGHT_PREPOST_REAL_AQ_LAUNCH_2026-11-18.json'));
+          const expected={
+            schema:'rnad-i5-20261118-one-shot-prepost-v1',
+            initial_origins:BASELINE_ORIGINS,
+            final_shards:20,original_training_run:44221678145,
+            post_evaluation_run:44262950098,
+            identical_evaluation_seeds_start:8600001,
+            identical_evaluation_seeds_end:8601024,
+            independent_paired_seeds_per_model:1024,seat_swap:true,
+            unique_pretrained_baselines:4,new_complete_matches:8192,
+            reuse_existing_40960_final_complete_matches:true,
+            familywise_95_correction_for_20_prepost_comparisons:true,
+            no_additional_training:true,champion_promoted:false,main_merged:false
+          };
+          if(JSON.stringify(x)!==JSON.stringify(expected))
+            throw Error('Unregistered prepost baseline A/B launch');
+          JS
+          mkdir -p preflight/series preflight/archive preflight/v5
+          gh run download 44221678145 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-overnight-v3-wave2-0 --dir preflight/series
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir preflight/archive
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-battle-only-recovery --dir preflight/v5
+          node --input-type=module <<'JS'
+          import {frozenInitialModel} from './scripts/rnad/evaluate-overnight-initial-vs-aq.mjs';
+          import {evaluateAgainstOriginalAQ} from './scripts/rnad/evaluate-vs-aq-full.mjs';
+          const origin=frozenInitialModel({seriesDir:'preflight/series',originIndex:0,
+            archiveDir:'preflight/archive',v5Dir:'preflight/v5'});
+          const r=evaluateAgainstOriginalAQ({modelPath:origin.modelPath,seed:8590001,
+            pairs:1,phaseMode:'neural-all',switchGuard:'anti-loop-v1'});
+          if(r.matches!==2)throw Error('Real AQ complete Match initial policy smoke failed');
+          JS
+  eval_initial:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        origin: [0, 1, 2, 3]
+        part: [0, 1]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned Node 22.14.0 (official checksum)
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Reuse source-bound frozen models without training
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/series inputs/archive inputs/v5 results
+          gh run download 44221678145 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-overnight-v3-wave2-${{ matrix.origin }} --dir inputs/series
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir inputs/archive
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-battle-only-recovery --dir inputs/v5
+      - name: Exactly 512 pre/post matched seed blocks with original AQ, both seats
+        run: |
+          set -euo pipefail
+          node scripts/rnad/evaluate-overnight-initial-vs-aq.mjs \
+            --origin-index ${{ matrix.origin }} --part ${{ matrix.part }} \
+            --series inputs/series --archive inputs/archive --v5 inputs/v5 \
+            --out results/study.json
+      - name: Preserve no-training actual real AQ initial outcomes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: initial-${{ matrix.origin == 0 && 'base128' || matrix.origin == 1 && 'base256' || matrix.origin == 2 && 'c005' || 'battle-focus256-v5' }}-p${{ matrix.part }}
+          path: results/study.json
+          if-no-files-found: warn
+          retention-days: 90
+  summarize:
+    needs: [preflight, eval_initial]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned Node 22.14.0 (official checksum)
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Strict paired comparison of source-verified initial models vs 20 final models
+        run: |
+          set -euo pipefail
+          mkdir -p pre post summary
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --pattern 'initial-*-p*' --dir pre
+          gh run download 44262950098 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-overnight-aq-s*-p*' --dir post
+          node scripts/rnad/analyze-overnight-prepost.mjs pre post summary
+          cat summary/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve evaluated matched initial-final report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-initial-vs-final-20-paired-aq-report
+          path: |
+            summary/REPORT.md
+            summary/REPORT.json
+          if-no-files-found: warn
+          retention-days: 90
