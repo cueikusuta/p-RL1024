@@ -36,12 +36,34 @@ def manifest(*, exploiter=False):
 
 
 def event(seat, phase, terminal=False):
+    if phase == "draft":
+        data = {
+            "pool": [[.1] * 44 for _ in range(6)],
+            "codes": [[0,1,2,3,4,5]], "extra": [[.2,.3,0,0]],
+        }
+        n = 1
+    elif phase == "selection":
+        from scripts.rnad.train_selection_specialist import TRIPLES
+        data = {
+            "own_cat": [[0]*9 for _ in range(6)],
+            "foe_cat": [[0]*3 for _ in range(6)],
+            "own_num": [[.1]*16 for _ in range(6)],
+            "foe_num": [[.1]*6 for _ in range(6)],
+            "legal": [list(t) for t in TRIPLES],
+        }
+        n = 60
+    else:
+        data = {"state": [.1]*96,
+                "actions": [[.1]*48,[.2]*48]}
+        n = 2
     return {
-        "actor": seat, "phase": phase, "state": [0.1, 0.2],
-        "actions": [[0.1, 0.3], [0.2, 0.4]],
-        "action_index": 0, "behavior_prob": 0.5,
-        "magnet_log_prob": -0.69,
-        "reward": [1, -1] if terminal else [0, 0],
+        "actor": seat, "phase": phase, "phase_input": data,
+        "action_index": 0,
+        "behavior_prob": 1/n,
+        "magnet_log_prob": -__import__("math").log(n),
+        "policy_pi": [1/n]*n, "magnet_pi": [1/n]*n,
+        "predicted_value": 0,
+        "reward": [1,-1] if terminal else [0,0],
     }
 
 
