@@ -66,7 +66,7 @@ class HandoffContractTest(unittest.TestCase):
             json.loads((after/"manifest.json").read_text())["files"],original)
         for name,sha in original.items():
             self.assertEqual(digest(after/(name+".json")),sha)
-        with self.assertRaisesRegex(FileExistsError,"already exists"):
+        with self.assertRaisesRegex(FileExistsError,"File exists"):
             _seal_bundle(before,after,expected_generation=1,
                          old_sha=self.old_sha,new_sha=self.new_sha,
                          engine=self.engine)
