@@ -30,9 +30,9 @@ def restore(models,battle_v5,series,out,shard):
     assert metadata["source_sha"]==ident["series_source_sha"]
     assert ident["origin"]==config["origin"]
     assert metadata["initialization_sha256"]==ident["initial_model_file_sha256"]
-    original,pool,poolsha=prepare_models(models,battle_v5,root,shard)
+    original,pool,poolsha=prepare_models(models,battle_v5,Path(str(out)+'-sources'),shard)
     assert sha(original)==ident["initial_model_file_sha256"]
-    assert sha(pool)==ident["frozen_pool_file_sha256"]
+    assert sha(root/'league-pool.json')==ident["frozen_pool_file_sha256"]
     torch.set_num_threads(1)
     torch.manual_seed(config["seed"])
     v5=config["mode"]=="selfplay"
