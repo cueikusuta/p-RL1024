@@ -198,6 +198,15 @@ export function scoreFrozenASelection(p,actor){
     throw new Error('Nonfinite frozen A prediction');
   return logits;
 }
+// Value features for IntegratedPolicyV1: only own/public embeddings,
+ // no teacher supervision or hidden opponent set enters this critic.
+export function selectionValueFeatures(p, actor) {
+  if (!verifiedModels.has(p)) throw new TypeError('Unverified selection critic');
+  validateActor(p,actor);
+  const own=actor.own_cats.map((cats,i)=>assembleOwn(p,cats,actor.own_numeric[i]));
+  const foe=actor.foe_cats.map((cats,i)=>assembleFoe(p,cats,actor.foe_numeric[i]));
+  return [...mean(own),...mean(foe)];
+}
 export function checkASelectionParity(p,{tolerance=0.00015}={}){
   const fixture=p.parity_fixture;
   const actual=scoreFrozenASelection(p,fixture.actor);
