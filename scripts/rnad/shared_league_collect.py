@@ -113,7 +113,19 @@ def collect(*, bootstrap, actor_id, out, smoke=False):
                     cmd.extend(["--legacy", str(opponent_path)])
                 elif historical_path is not None:
                     cmd.extend(["--opponent", str(historical_path)])
-                subprocess.run(cmd, check=True, timeout=1800)
+                # Retry only the SAME authority seed and seat after
+                # transport/process failure; never substitute a new seed.
+                # A failed subprocess cannot publish a valid accepted Match.
+                for attempt in range(3):
+                    try:
+                        subprocess.run(cmd, check=True, timeout=1800)
+                        break
+                    except (subprocess.CalledProcessError,
+                            subprocess.TimeoutExpired):
+                        if path.is_file():
+                            path.unlink()
+                        if attempt == 2:
+                            raise
             row = read_gzip(path)
             if (row.get("match_id") != match_id or row.get("seed") != seed or
                 row.get("learner_seat") != seat or row.get("policy_id") !=
