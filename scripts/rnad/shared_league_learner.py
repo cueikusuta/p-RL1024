@@ -15,7 +15,7 @@ import json
 import math
 import os
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import torch
@@ -25,7 +25,7 @@ from scripts.rnad.shared_league_bootstrap import (
     POLICY_ID, digest, export_bundle, write_json,
 )
 from scripts.rnad.shared_league_contract import (
-    OPTIMIZER_BATCH_MATCHES, OPTIMIZER_STEPS, verify_generation,
+    OPTIMIZER_BATCH_MATCHES, OPTIMIZER_STEPS, verify_actor,
     verify_manifest, canonical_hash,
 )
 from scripts.rnad.train import current_git_sha, frozen_engine_sha
@@ -202,11 +202,48 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
            for i in range(20)]
     if any(not x.is_file() for x in paths):
         raise ValueError("Cannot train on incomplete 20/20 Actor artifact set")
-    payloads=[_load(x) for x in paths]
-    report=verify_generation(manifest,payloads)
-    records={p["actor_id"]: p for p in payloads}
-    rows = [row for p in payloads for row in p["matches"]]
-    ordering = _order(rows)
+    # Verify each of the 20 immutable actor shards before any optimization.
+    # Write verified Matches back to disk one-by-one; keeping all 1280 giant
+    # variable-width draft policy tensors in Python objects can exceed a
+    # hosted runner's RAM even though the gzip artifacts fit on disk.
+    verified = Path(actors) / "_strict_verified_matches"
+    verified.mkdir(exist_ok=True)
+    match_ids, meta, roles = set(), [], Counter()
+    for actor_id, path in enumerate(paths):
+        payload = _load(path)
+        if payload.get("actor_id") != actor_id:
+            raise ValueError("Actor artifact ID mismatch")
+        newly_verified = verify_actor(manifest, payload)
+        if len(newly_verified) != 64 or newly_verified & match_ids:
+            raise ValueError("Incomplete or duplicated actor training shard")
+        match_ids.update(newly_verified)
+        roles[payload["role"]] += 1
+        for row in payload["matches"]:
+            name = row["match_id"]
+            with gzip.open(verified / (name + ".json.gz"), "wt",
+                           compresslevel=4) as output_match:
+                json.dump(row, output_match,
+                          separators=(",", ":"), allow_nan=False)
+            meta.append({"match_id": name, "role": payload["role"]})
+        del payload
+    expected_roles = {"self": 8, "historical": 6,
+                      "fixed": 4, "exploiter": 2}
+    if not manifest["opponents"]["exploiter"]:
+        expected_roles["historical"] += expected_roles.pop("exploiter")
+    if (len(match_ids) != 1280 or
+        set(roles) != set(expected_roles) or
+        dict(roles) != expected_roles):
+        raise ValueError("Must finish all 20 Actors and 1280 unique paired Matches")
+    report = {
+        "generation": manifest["generation"],
+        "independent_seed_clusters": 640,
+        "accepted_complete_four_win_matches": 1280,
+        "optimizer_minibatch_matches": 32,
+        "optimizer_steps_one_epoch": 40,
+        "manifest_sha256": canonical_hash(manifest),
+        "opponent_roles": dict(roles),
+    }
+    ordering = _order(meta)
     ids = [x["match_id"] for x in ordering]
     order_sha=hashlib.sha256(("\n".join(ids)+"\n").encode()).hexdigest()
     checkpoint_file=root/"checkpoint-g0.pt"
@@ -241,11 +278,12 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
             raise ValueError("Missing no-reuse minibatch")
         optimizer.zero_grad(set_to_none=True)
         losses,ratios=[],[]
-        for record in selected:
-            actor_id=int(record["match_id"].split("-a")[1].split("-")[0])
-            role=records[actor_id]["role"]
-            loss,ratio=_match_loss(model,target,magnet,record,role=role)
+        for choice in selected:
+            record = _load(verified / (choice["match_id"] + ".json.gz"))
+            loss,ratio=_match_loss(model,target,magnet,record,
+                                   role=choice["role"])
             (loss/32).backward()
+            del record
             losses.append(float(loss.detach()))
             ratios.append(ratio)
         norm=torch.nn.utils.clip_grad_norm_(
