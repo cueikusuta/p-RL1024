@@ -32,7 +32,7 @@ jobs:
           m=json.loads(Path('docs/research/rnad/SHARED_LEAGUE_V1_LAUNCH_2026-11-18.json').read_text())
           assert m == {
             'schema':'rnad-i5-shared-main-generation0-launch-v1',
-            'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'source_sha':subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip(),
             'expert_draft_run':44096608535,
             'expert_selection_run':44067733118,
             'expert_selection_js_run':44085352444,
@@ -122,8 +122,8 @@ jobs:
           PY
           cp frozen/DB/draft512/draft512-e6.json bootstrap/original-draft.json
           cp frozen/AJS/A4096.json bootstrap/original-selection-js.json
-          sha256sum bootstrap/actor/*.json bootstrap/fixed/*.json \
-            bootstrap/checkpoint-g0.pt > bootstrap/file-pins.sha256
+          (cd bootstrap && sha256sum actor/*.json fixed/*.json \
+            checkpoint-g0.pt > file-pins.sha256)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rnad-i5-shared-main-g0-bootstrap
