@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
-          python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
       - name: Trainable three-head graph, 20 actor aggregation and seed/restart contract tests
         run: |
           set -euo pipefail
