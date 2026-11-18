@@ -317,45 +317,65 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
                           "research_only":True}),flush=True)
     if ckpt["step"] != OPTIMIZER_STEPS:
         return {"complete":False,"step":ckpt["step"]}
-    export_dir=output/"generation1-actor"
-    out_sha=export_bundle(model,generation=1,
+    # A complete generation is the ONLY legal boundary for a new Actor
+    # Main/Magnet snapshot. The Magnet changes once every four generations;
+    # it must remain bit-for-bit frozen for all 20 Actors within a generation.
+    completed_gen=manifest["generation"]
+    next_gen=completed_gen+1
+    if next_gen % MAGNET_CADENCE == 0:
+        magnet.load_state_dict(model.state_dict(), strict=True)
+    export_dir=output/f"generation{next_gen}-actor"
+    out_sha=export_bundle(model,generation=next_gen,
                           original_draft=original_draft,
                           selection_template=original_selection_js,
                           engine_sha=manifest["engine_sha"],
                           code_sha=manifest["source_sha"],
                           out=export_dir)
-    # Magnet is deliberately kept frozen across the initial generation.
-    next_mag=output/"generation1-magnet"
-    magnet_sha=export_bundle(magnet,generation=1,
+    next_mag=output/f"generation{next_gen}-magnet"
+    magnet_sha=export_bundle(magnet,generation=next_gen,
                              original_draft=original_draft,
                              selection_template=original_selection_js,
                              engine_sha=manifest["engine_sha"],
                              code_sha=manifest["source_sha"],out=next_mag)
-    finished=output/"checkpoint-g1.pt"
-    ckpt["generation"]=1
+    finished=output/f"checkpoint-g{next_gen}.pt"
+    ckpt["generation"]=next_gen
     ckpt["step"]=0
     ckpt["main_sha256"]=out_sha
-    ckpt["training_match_ids"]=ids
+    ckpt["magnet_sha256"]=magnet_sha
     ckpt["completed_generation_match_ids"]=ids
+    ckpt["training_match_ids"]=[]
+    ckpt.pop("order_sha256",None)
+    ckpt["cumulative_optimizer_updates"]=(
+        int(ckpt.get("cumulative_optimizer_updates",completed_gen*40))+40)
+    ckpt["cumulative_complete_matches"]=(
+        int(ckpt.get("cumulative_complete_matches",completed_gen*1280))+1280)
+    ckpt["magnet"]={k:v.clone() for k,v in magnet.state_dict().items()}
     ckpt["is_champion"]=False
     torch.save(ckpt,finished)
-    write_json(output/"generation1-index.json",{
-        "schema":SCHEMA,"generation":1,
+    write_json(output/f"generation{next_gen}-index.json",{
+        "schema":SCHEMA,"generation":next_gen,
         "main_sha256":out_sha,"magnet_sha256":magnet_sha,
         "full_checkpoint_sha256":digest(finished),
         "accepted_complete_matches":len(ids),
-        "optimizer_updates":40, "research_only":True,
+        "optimizer_updates":40,
+        "cumulative_optimizer_updates":ckpt["cumulative_optimizer_updates"],
+        "cumulative_complete_matches":ckpt["cumulative_complete_matches"],
+        "research_only":True,
         "champion_promoted":False,
         "source_manifest_sha256":canonical_hash(manifest),
     })
     result={**report,"optimizer_updates_completed":40,
+            "next_generation":next_gen,
             "single_writer_main_sha256":out_sha,
             "frozen_magnet_sha256":magnet_sha,
+            "magnet_rotated":next_gen%MAGNET_CADENCE==0,
+            "cumulative_optimizer_updates":ckpt["cumulative_optimizer_updates"],
+            "cumulative_complete_matches":ckpt["cumulative_complete_matches"],
             "research_only":True,"champion_promoted":False,
             "independent_review_completed":False,
             "three_phase_top1_gate_passed":False,
             "real_match_strength_established":False}
-    write_json(output/"generation1-report.json",result)
+    write_json(output/f"generation{next_gen}-report.json",result)
     return result
 
 
