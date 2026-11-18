@@ -67,11 +67,14 @@ function draftFeatures(deep,encoded){
   assert(h.length>0,'Empty own roster');
   const mean=Array(48).fill(0);
   for(const row of h)for(let i=0;i<48;i++)mean[i]+=row[i]/h.length;
-  const budget=encoded.credits;
-  const spent=encoded.prices.reduce((a,b)=>a+b,0);
-  return [...mean,spent/100,(budget-spent)/100,
-    encoded.carries.reduce((a,b)=>a+b,0)/h.length,
-    encoded.megas.reduce((a,b)=>a+b,0)/h.length];
+  const extras=encoded.codes.map(code=>{
+    const spent=code.reduce((n,i)=>n+encoded.prices[i],0);
+    return [spent/100,(encoded.credits-spent)/100,
+      code.reduce((n,i)=>n+encoded.carries[i],0)/6,
+      code.reduce((n,i)=>n+encoded.megas[i],0)/6];
+  });
+  return [...mean,...Array.from({length:4},(_,k)=>
+    extras.reduce((n,row)=>n+row[k],0)/extras.length)];
 }
 function readBundle(directory){
   const root=resolve(directory), p=JSON.parse(readFileSync(join(root,'manifest.json')));
@@ -221,6 +224,13 @@ export function createIntegratedAcceptedMatch({
     ['self','historical','fixed','exploiter'].includes(role),
     'Invalid generation/actor/seat');
   const own=session({modelDir:mainDir,magnetDir,epsilon});
+  assert(fileSha(join(mainDir,'manifest.json'))===mainSha&&
+    fileSha(join(magnetDir,'manifest.json'))===magnetSha,
+    'Actor main/magnet SHA not bound to generation');
+  if(role!=='self')assert(
+    legacyOpponent?fileSha(legacyOpponent)===opponentSha:
+      fileSha(join(opponentDir,'manifest.json'))===opponentSha,
+    'Frozen opponent does not match generation registry');
   const other=role==='self'?
     session({modelDir:mainDir,magnetDir,epsilon}):
     legacyOpponent?
