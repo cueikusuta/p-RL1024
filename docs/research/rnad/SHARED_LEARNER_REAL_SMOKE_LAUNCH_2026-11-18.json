@@ -1,0 +1,11 @@
+{
+  "schema": "rnad-i5-real-authority-shared-learner-smoke-v1",
+  "source_run_id": 44318145987,
+  "original_accepted_source_sha": "0f348495dd381dbfd299e00c0346f61351212075",
+  "accepted_real_matches": 4,
+  "optimizer_updates": 1,
+  "temporary_disposable_checkpoint": true,
+  "reuses_only_untrained_authority_smoke": true,
+  "writes_to_training_main_checkpoint": false,
+  "champion_promoted": false
+}
