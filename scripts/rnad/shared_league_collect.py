@@ -68,6 +68,7 @@ def collect(*, bootstrap, actor_id, out, smoke=False):
     else:
         meta_file.write_bytes(payload_bytes)
     opponent_path = None
+    historical_path = None
     if role == "fixed":
         name = opponent["id"].removeprefix("fixed-")
         opponent_path = root / "fixed" / (name + "-v3.json")
@@ -75,6 +76,21 @@ def collect(*, bootstrap, actor_id, out, smoke=False):
             hashlib.sha256(opponent_path.read_bytes()).hexdigest()
             != opponent["sha256"]):
             raise ValueError("Frozen fixed opponent content absent or modified")
+    if role == "historical":
+        if "/" in opponent["id"] or ".." in opponent["id"]:
+            raise ValueError("Untrusted frozen historical opponent identifier")
+        historical_path = root / "past" / opponent["id"]
+        source = historical_path / "manifest.json"
+        if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != opponent["sha256"]:
+            raise ValueError("Frozen historical generation differs from approved registry")
+    magnet_path = root / "magnet"
+    if not magnet_path.is_dir():
+        # Initial generation 0 used the same pinned Main and Magnet.
+        if manifest["generation"] != 0:
+            raise ValueError("Missing next-generation frozen Magnet bundle")
+        magnet_path = root / "actor"
+    if hashlib.sha256((magnet_path/"manifest.json").read_bytes()).hexdigest() != manifest["magnet_sha256"]:
+        raise ValueError("Frozen Magnet bytes mismatch generation manifest")
     n = 1 if smoke else SEEDS_PER_ACTOR
     matches = []
     for seed in range(
@@ -90,13 +106,13 @@ def collect(*, bootstrap, actor_id, out, smoke=False):
                     "node", "scripts/rnad/shared_league_actor.mjs",
                     "--seed", str(seed), "--seat", str(seat),
                     "--meta", str(meta_file), "--main", str(root / "actor"),
-                    "--magnet", str(root / "actor"),
+                    "--magnet", str(magnet_path),
                     "--out", str(path),
                 ]
                 if opponent_path is not None:
                     cmd.extend(["--legacy", str(opponent_path)])
-                elif role == "historical":
-                    cmd.extend(["--opponent", str(root / "actor")])
+                elif historical_path is not None:
+                    cmd.extend(["--opponent", str(historical_path)])
                 subprocess.run(cmd, check=True, timeout=1800)
             row = read_gzip(path)
             if (row.get("match_id") != match_id or row.get("seed") != seed or
