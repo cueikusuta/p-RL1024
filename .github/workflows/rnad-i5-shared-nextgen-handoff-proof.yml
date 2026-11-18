@@ -1,0 +1,159 @@
+name: I5 Shared Main real Wave1-to-Wave2 exact handoff proof
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/SHARED_NEXTGEN_HANDOFF_PROOF_LAUNCH_2026-11-18.json
+permissions: {}
+concurrency:
+  group: rnad-i5-shared-nextgen-handoff-proof
+  cancel-in-progress: false
+
+jobs:
+  checkpoint_handoff:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify frozen one-time source model, 40 updates, and launch contract
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json,subprocess
+          p='docs/research/rnad/SHARED_NEXTGEN_HANDOFF_PROOF_LAUNCH_2026-11-18.json'
+          j=json.load(open(p))
+          assert j=={
+            'schema':'rnad-i5-real-nextgen-handoff-proof-v1',
+            'previous_run_id':44318145987,
+            'previous_training_source_sha':'0f348495dd381dbfd299e00c0346f61351212075',
+            'candidate_source_sha':subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip(),
+            'expected_previous_completed_matches':1280,
+            'expected_previous_optimizer_updates':40,
+            'new_generation':1,
+            'expected_new_seed_start':9900641,
+            'real_next_generation_authority_matches':6,
+            'no_previous_checkpoint_or_actor_mutation':True,
+            'not_a_champion':True,
+          },j
+          PY
+      - name: Install pinned Torch for byte-verified checkpoint transition and negative regression
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
+          python -m unittest discover -s test -p rnad_shared_learner_checkpoint_test.py -v
+      - name: Reuse previous real g1 full checkpoint and genuine bootstrap
+        run: |
+          set -euo pipefail
+          mkdir -p initial final
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-shared-main-g0-bootstrap --dir initial
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-shared-main-g1-research-full-checkpoint --dir final
+          (cd initial && sha256sum -c file-pins.sha256)
+          test -s final/checkpoint-g1.pt
+          test -s final/generation1-index.json
+          test -s final/generation1-report.json
+          python -m scripts.rnad.shared_league_handoff \
+            --previous-bootstrap initial --previous-result final \
+            --out generation1
+          (cd generation1 && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import json,torch
+          old=torch.load('final/checkpoint-g1.pt',weights_only=True,map_location='cpu')
+          new=torch.load('generation1/checkpoint-g0.pt',weights_only=True,map_location='cpu')
+          assert new['generation']==1 and new['step']==0
+          assert new['training_match_ids']==[]
+          assert len(new['completed_generation_match_ids'])==1280
+          assert new['optimizer']==old['optimizer']
+          assert new['scheduler']==old['scheduler']
+          assert new['python_rng']==old['python_rng']
+          assert torch.equal(new['torch_rng'],old['torch_rng'])
+          for name in ('model','target','magnet'):
+              assert new[name].keys()==old[name].keys()
+              assert all(torch.equal(new[name][k],old[name][k]) for k in old[name])
+          m=json.load(open('generation1/generation-manifest.json'))
+          assert m['generation']==1 and m['seed_start']==9900641
+          assert m['main_sha256']!=m['magnet_sha256']
+          assert m['opponents']['historical'][0]['id']=='past-g0'
+          print('Exact full-state g0->g1 checkpoint/optimizer/magnet/Target/RNG pass')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-shared-nextgen-verified-bootstrap-g1
+          path: generation1/
+          retention-days: 30
+          if-no-files-found: error
+
+  real_wave2_smoke:
+    needs: checkpoint_handoff
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Avoid previous Wave2 setup-node download failure
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Complete authority 4-win Matches on inherited main vs self/history/fixed
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-shared-nextgen-verified-bootstrap-g1 --dir generation1
+          (cd generation1 && sha256sum -c file-pins.sha256)
+          python -m scripts.rnad.shared_league_collect \
+            --bootstrap generation1 --actor-id 0 --smoke --out smoke/self
+          python -m scripts.rnad.shared_league_collect \
+            --bootstrap generation1 --actor-id 8 --smoke --out smoke/history
+          python -m scripts.rnad.shared_league_collect \
+            --bootstrap generation1 --actor-id 18 --smoke --out smoke/frozen
+          test "$(find smoke -name '*.json.gz' | wc -l)" -eq 6
+      - name: Prove frozen inherited Magnet can be consumed by next generation's NeuRD learner
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m scripts.rnad.shared_league_real_smoke \
+            --bootstrap generation1 --smoke smoke --out wave2-update-proof
+          python - <<'PY'
+          import json
+          r=json.load(open('wave2-update-proof/smoke-report.json'))
+          assert r['full_four_win_authoritative_matches']==4
+          assert r['optimizer_updates']==1 and all(r['updated_heads'].values())
+          assert r['champion_promoted'] is False
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-shared-nextgen-real-acceptance-and-update-proof
+          path: |
+            smoke/
+            wave2-update-proof/smoke-report.json
+          retention-days: 30
+          if-no-files-found: warn
