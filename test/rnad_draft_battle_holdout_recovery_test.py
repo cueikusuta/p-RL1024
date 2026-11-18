@@ -84,7 +84,7 @@ class StrictHoldoutManifestTest(unittest.TestCase):
         self.doc["trace_sha256_by_seed"][str(START+TARGET)] = "b"*64
         self.doc["unconditional_original_512_seed_population"] = False
         self.save()
-        with self.assertRaisesRegex(ValueError, "deterministic"):
+        with self.assertRaisesRegex(ValueError, "distinct, ordered|deterministic"):
             self.verified()
 
 
