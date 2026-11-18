@@ -1,0 +1,656 @@
+name: I5 shared single Main 10h repeated generation league
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/SHARED_LEAGUE_10H_LAUNCH_2026-11-18.json
+permissions: {}
+concurrency:
+  group: rnad-i5-one-main-ten-hour-research
+  cancel-in-progress: false
+
+jobs:
+  handoff:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Lock one Main, 10-hour budget, successful real Wave2 proof and old source
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json,subprocess
+          d=json.load(open('docs/research/rnad/SHARED_LEAGUE_10H_LAUNCH_2026-11-18.json'))
+          assert d=={
+            'schema':'rnad-i5-ten-hour-single-main-generation-loop-v1',
+            'source_sha':subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip(),
+            'verified_seed0_run':44318145987,
+            'verified_wave2_handoff_proof_run':44324808407,
+            'verified_original_training_source_sha':'0f348495dd381dbfd299e00c0346f61351212075',
+            'target_budget_seconds':36000,
+            'maximum_new_generations':48,
+            'actor_count':20,
+            'independent_seeds_per_actor':32,
+            'both_seats':True,
+            'four_win_complete_matches_per_generation':1280,
+            'shared_optimizer_steps_per_generation':40,
+            'single_shared_learner':True,
+            'preserve_full_optim_target_magnet_rng':True,
+            'no_action_setup_node':True,
+            'frozen_champion_and_main_unchanged':True,
+          },d
+          PY
+          test "$(gh api repos/cueikusuta/p-RL1024/actions/runs/44318145987 --jq .conclusion)" = success
+          test "$(gh api repos/cueikusuta/p-RL1024/actions/runs/44324808407 --jq .conclusion)" = success
+      - name: Install pinned CPU PyTorch and test multi-generation checkpoint contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
+          python -m unittest discover -s test -p rnad_shared_learner_checkpoint_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
+      - name: Verify immutable generation 1 Main/checkpoint from first success and reseal actor source
+        run: |
+          set -euo pipefail
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-shared-main-g0-bootstrap --dir previous
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-shared-main-g1-research-full-checkpoint --dir result
+          (cd previous && sha256sum -c file-pins.sha256)
+          python -m scripts.rnad.shared_league_handoff \
+            --previous-bootstrap previous --previous-result result \
+            --out bootstrap-g1 --budget-seconds 36000
+          (cd bootstrap-g1 && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import json
+          m=json.load(open('bootstrap-g1/generation-manifest.json'))
+          assert m['generation']==1 and m['seed_start']==9900641
+          assert m['opponents']['historical'][0]['id']=='past-g0'
+          assert m['main_sha256']!=m['magnet_sha256']
+          d=json.load(open('bootstrap-g1/continuation-context.json'))
+          assert d['budget_seconds']==36000
+          assert d['original_generation']==1
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-cont-bootstrap-g1
+          path: bootstrap-g1/
+          retention-days: 30
+          if-no-files-found: error
+
+  g1:
+    needs: handoff
+    if: ${{ needs.handoff.result == 'success' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 1
+      bootstrap_artifact: rnad-i5-cont-bootstrap-g1
+    permissions:
+      contents: read
+      actions: read
+
+  g2:
+    needs: g1
+    if: ${{ needs.g1.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 2
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g1
+    permissions:
+      contents: read
+      actions: read
+
+  g3:
+    needs: g2
+    if: ${{ needs.g2.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 3
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g2
+    permissions:
+      contents: read
+      actions: read
+
+  g4:
+    needs: g3
+    if: ${{ needs.g3.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 4
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g3
+    permissions:
+      contents: read
+      actions: read
+
+  g5:
+    needs: g4
+    if: ${{ needs.g4.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 5
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g4
+    permissions:
+      contents: read
+      actions: read
+
+  g6:
+    needs: g5
+    if: ${{ needs.g5.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 6
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g5
+    permissions:
+      contents: read
+      actions: read
+
+  g7:
+    needs: g6
+    if: ${{ needs.g6.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 7
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g6
+    permissions:
+      contents: read
+      actions: read
+
+  g8:
+    needs: g7
+    if: ${{ needs.g7.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 8
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g7
+    permissions:
+      contents: read
+      actions: read
+
+  g9:
+    needs: g8
+    if: ${{ needs.g8.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 9
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g8
+    permissions:
+      contents: read
+      actions: read
+
+  g10:
+    needs: g9
+    if: ${{ needs.g9.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 10
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g9
+    permissions:
+      contents: read
+      actions: read
+
+  g11:
+    needs: g10
+    if: ${{ needs.g10.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 11
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g10
+    permissions:
+      contents: read
+      actions: read
+
+  g12:
+    needs: g11
+    if: ${{ needs.g11.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 12
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g11
+    permissions:
+      contents: read
+      actions: read
+
+  g13:
+    needs: g12
+    if: ${{ needs.g12.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 13
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g12
+    permissions:
+      contents: read
+      actions: read
+
+  g14:
+    needs: g13
+    if: ${{ needs.g13.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 14
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g13
+    permissions:
+      contents: read
+      actions: read
+
+  g15:
+    needs: g14
+    if: ${{ needs.g14.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 15
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g14
+    permissions:
+      contents: read
+      actions: read
+
+  g16:
+    needs: g15
+    if: ${{ needs.g15.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 16
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g15
+    permissions:
+      contents: read
+      actions: read
+
+  g17:
+    needs: g16
+    if: ${{ needs.g16.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 17
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g16
+    permissions:
+      contents: read
+      actions: read
+
+  g18:
+    needs: g17
+    if: ${{ needs.g17.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 18
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g17
+    permissions:
+      contents: read
+      actions: read
+
+  g19:
+    needs: g18
+    if: ${{ needs.g18.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 19
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g18
+    permissions:
+      contents: read
+      actions: read
+
+  g20:
+    needs: g19
+    if: ${{ needs.g19.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 20
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g19
+    permissions:
+      contents: read
+      actions: read
+
+  g21:
+    needs: g20
+    if: ${{ needs.g20.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 21
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g20
+    permissions:
+      contents: read
+      actions: read
+
+  g22:
+    needs: g21
+    if: ${{ needs.g21.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 22
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g21
+    permissions:
+      contents: read
+      actions: read
+
+  g23:
+    needs: g22
+    if: ${{ needs.g22.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 23
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g22
+    permissions:
+      contents: read
+      actions: read
+
+  g24:
+    needs: g23
+    if: ${{ needs.g23.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 24
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g23
+    permissions:
+      contents: read
+      actions: read
+
+  g25:
+    needs: g24
+    if: ${{ needs.g24.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 25
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g24
+    permissions:
+      contents: read
+      actions: read
+
+  g26:
+    needs: g25
+    if: ${{ needs.g25.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 26
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g25
+    permissions:
+      contents: read
+      actions: read
+
+  g27:
+    needs: g26
+    if: ${{ needs.g26.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 27
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g26
+    permissions:
+      contents: read
+      actions: read
+
+  g28:
+    needs: g27
+    if: ${{ needs.g27.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 28
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g27
+    permissions:
+      contents: read
+      actions: read
+
+  g29:
+    needs: g28
+    if: ${{ needs.g28.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 29
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g28
+    permissions:
+      contents: read
+      actions: read
+
+  g30:
+    needs: g29
+    if: ${{ needs.g29.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 30
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g29
+    permissions:
+      contents: read
+      actions: read
+
+  g31:
+    needs: g30
+    if: ${{ needs.g30.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 31
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g30
+    permissions:
+      contents: read
+      actions: read
+
+  g32:
+    needs: g31
+    if: ${{ needs.g31.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 32
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g31
+    permissions:
+      contents: read
+      actions: read
+
+  g33:
+    needs: g32
+    if: ${{ needs.g32.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 33
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g32
+    permissions:
+      contents: read
+      actions: read
+
+  g34:
+    needs: g33
+    if: ${{ needs.g33.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 34
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g33
+    permissions:
+      contents: read
+      actions: read
+
+  g35:
+    needs: g34
+    if: ${{ needs.g34.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 35
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g34
+    permissions:
+      contents: read
+      actions: read
+
+  g36:
+    needs: g35
+    if: ${{ needs.g35.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 36
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g35
+    permissions:
+      contents: read
+      actions: read
+
+  g37:
+    needs: g36
+    if: ${{ needs.g36.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 37
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g36
+    permissions:
+      contents: read
+      actions: read
+
+  g38:
+    needs: g37
+    if: ${{ needs.g37.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 38
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g37
+    permissions:
+      contents: read
+      actions: read
+
+  g39:
+    needs: g38
+    if: ${{ needs.g38.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 39
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g38
+    permissions:
+      contents: read
+      actions: read
+
+  g40:
+    needs: g39
+    if: ${{ needs.g39.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 40
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g39
+    permissions:
+      contents: read
+      actions: read
+
+  g41:
+    needs: g40
+    if: ${{ needs.g40.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 41
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g40
+    permissions:
+      contents: read
+      actions: read
+
+  g42:
+    needs: g41
+    if: ${{ needs.g41.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 42
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g41
+    permissions:
+      contents: read
+      actions: read
+
+  g43:
+    needs: g42
+    if: ${{ needs.g42.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 43
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g42
+    permissions:
+      contents: read
+      actions: read
+
+  g44:
+    needs: g43
+    if: ${{ needs.g43.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 44
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g43
+    permissions:
+      contents: read
+      actions: read
+
+  g45:
+    needs: g44
+    if: ${{ needs.g44.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 45
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g44
+    permissions:
+      contents: read
+      actions: read
+
+  g46:
+    needs: g45
+    if: ${{ needs.g45.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 46
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g45
+    permissions:
+      contents: read
+      actions: read
+
+  g47:
+    needs: g46
+    if: ${{ needs.g46.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 47
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g46
+    permissions:
+      contents: read
+      actions: read
+
+  g48:
+    needs: g47
+    if: ${{ needs.g47.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
+    with:
+      generation: 48
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g47
+    permissions:
+      contents: read
+      actions: read
+
+  summary:
+    needs: [handoff, g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NEEDS_JSON: ${{ toJSON(needs) }}
+    steps:
+      - name: Summarize exactly completed research generations and 10h elapsed clock
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          states=json.loads(os.environ["NEEDS_JSON"])
+          success=[int(k[1:]) for k,v in states.items()
+                   if k.startswith('g') and v['result']=='success']
+          failures=[k for k,v in states.items()
+                    if v['result'] not in ('success','skipped')]
+          assert states.get('handoff',{}).get('result')=='success',states
+          assert success, 'No completed 1280-Match shared Learner generations'
+          assert sorted(success)==list(range(1,max(success)+1)), states
+          assert not failures, 'Generation failure; no silent continuation: '+str(failures)
+          total=1280*len(success)
+          updates=40*len(success)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('# Shared single Main 10h research\n')
+              f.write(f'* Completed generations: {len(success)} (g1 to g{max(success)})\n')
+              f.write(f'* New real accepted complete four-win Matches: {total:,}\n')
+              f.write(f'* New single-writer optimizer steps: {updates:,}\n')
+              f.write('* Only research. BestVerified, Champion and main are unchanged.\n')
+          print(json.dumps({'generations_completed':len(success),
+                            'new_complete_matches':total,
+                            'new_optimizer_updates':updates,
+                            'frozen_champion_unchanged':True}))
+          PY
