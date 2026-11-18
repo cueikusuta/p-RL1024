@@ -19,6 +19,13 @@ export function evalControlled({dir,updates,part}){
   const manifest=JSON.parse(readFileSync(join(dir,'controlled-train-report.json')));
   const checkpoint=JSON.parse(readFileSync(join(dir,'checkpoints/latest.json')));
   const file=join(dir,'final-model.json'),fileSHA=sha(file);
+  const frozen=manifest.frozen_opponent_model_sha256;
+  const required=['base128','base256','c005'];
+  if(!frozen||Object.keys(frozen).sort().join(',')!==
+      required.slice().sort().join(',')||
+     required.some(name=>!(/^[0-9a-f]{64}$/.test(frozen[name]))||
+       sha(join(dir,'frozen',name+'-v3.json'))!==frozen[name]))
+    throw Error('Altered frozen opponent model weights between controlled A/B arms');
   if(manifest.schema!=='rnad-i5-controlled-c005-v3-update1-vs-update4-v1'||
      manifest.optimizer_updates_per_match!==updates||
      manifest.optimizer_updates!==2048*updates||
@@ -59,6 +66,7 @@ export function evalControlled({dir,updates,part}){
     initial_model_sha256:manifest.initial_v3_model_sha256,
     initial_v2_origin_sha256:manifest.initial_v2_origin_sha256,
     frozen_opponent_pool_sha256:manifest.frozen_opponent_pool_sha256,
+    frozen_opponent_model_sha256:frozen,
     model_sha256:fileSHA,final_checkpoint_sha256:manifest.final_checkpoint_sha256,
     engine_sha:manifest.engine_sha,
     aq_base_model_sha256:AQ_SHA,
