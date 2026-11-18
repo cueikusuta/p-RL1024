@@ -9,6 +9,8 @@ import {encodeRnadThreePhaseDecision,RNAD_THREE_PHASE_FEATURE_SCHEMA}
   from '../../src/ml/rnad-phase-features.js';
 import {encodeRnadThreePhaseDecisionV2,RNAD_THREE_PHASE_FEATURE_SCHEMA_V2}
   from '../../src/ml/rnad-phase-features-v2.js';
+import {encodeRnadThreePhaseDecisionV3,RNAD_THREE_PHASE_FEATURE_SCHEMA_V3}
+  from '../../src/ml/rnad-phase-features-v3.js';
 import {encodeRnadThreePhaseDecisionV4,RNAD_THREE_PHASE_FEATURE_SCHEMA_V4}
   from '../../src/ml/rnad-phase-features-v4.js';
 import {encodeRnadThreePhaseDecisionV5,RNAD_THREE_PHASE_FEATURE_SCHEMA_V5}
@@ -35,16 +37,16 @@ function stage0ThreePhaseTeacher({observation,legalActions,rng}){
     referenceLogProbability:-Math.log(legalActions.length),predictedValue:0};
 }
 export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0',
-  featuresV2=false,featuresV4=false,featuresV5=false,
+  featuresV2=false,featuresV3=false,featuresV4=false,featuresV5=false,
   utilityLabels=false,draftReview=false}={}){
   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
     typeof threePhase!=='boolean'||typeof featuresV2!=='boolean'||
-    typeof featuresV4!=='boolean'||typeof featuresV5!=='boolean'||
+    typeof featuresV3!=='boolean'||typeof featuresV4!=='boolean'||typeof featuresV5!=='boolean'||
     typeof utilityLabels!=='boolean'||typeof draftReview!=='boolean'||
     (draftReview&&(!utilityLabels||!threePhase))||
     (utilityLabels&&teacher!=='aq-public-strategy-selection')||
-    ((featuresV2||featuresV4||featuresV5)&&!threePhase)||
-    Number(featuresV2)+Number(featuresV4)+Number(featuresV5)>1||
+    ((featuresV2||featuresV3||featuresV4||featuresV5)&&!threePhase)||
+    Number(featuresV2)+Number(featuresV3)+Number(featuresV4)+Number(featuresV5)>1||
     !['basic-stage0','aq-public-belief','aq-public-strategy-selection'].includes(teacher)||
     (teacher!=='basic-stage0'&&!threePhase))
     throw new TypeError('Invalid teacher seed');
@@ -61,7 +63,7 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
     policyVersion:aq?teacherId:
       threePhase?'basic-stage0-3phase-teacher':'stage0-fixed-teacher',
     phasePolicy:aq??(threePhase?stage0ThreePhaseTeacher:null),
-    includeAcceptedHistory:featuresV4||featuresV5,
+    includeAcceptedHistory:featuresV3||featuresV4||featuresV5,
     policy:effectivePolicy});
   if(!match.completed||!match.jointTimeline||!match.trajectories||
      ![0,1].includes(match.winner)||match.score[match.winner]!==4)
@@ -76,6 +78,8 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
       encodeRnadThreePhaseDecisionV5(record.observation,record.legal_actions):
       featuresV4?
       encodeRnadThreePhaseDecisionV4(record.observation,record.legal_actions):
+      featuresV3?
+      encodeRnadThreePhaseDecisionV3(record.observation,record.legal_actions):
       featuresV2?
       encodeRnadThreePhaseDecisionV2(record.observation,record.legal_actions):
       threePhase?
@@ -108,6 +112,7 @@ export function createTeacherMatch(seed,{threePhase=false,teacher='basic-stage0'
       'rnad-fixed-stage0-teacher-match-v1',
     feature_schema:featuresV5?RNAD_THREE_PHASE_FEATURE_SCHEMA_V5:
       featuresV4?RNAD_THREE_PHASE_FEATURE_SCHEMA_V4:
+      featuresV3?RNAD_THREE_PHASE_FEATURE_SCHEMA_V3:
       featuresV2?RNAD_THREE_PHASE_FEATURE_SCHEMA_V2:
       threePhase?RNAD_THREE_PHASE_FEATURE_SCHEMA:RNAD_FEATURE_SCHEMA,
     source_sha:verifiedRunningSourceSha(),
@@ -125,13 +130,14 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
   const inputs={};
   for(let i=0;i<args.length;i+=2){
     const k=args[i]?.slice(2);
-    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2','features-v4','features-v5','utility-labels','draft-review'].includes(k)||
+    if(!args[i]?.startsWith('--')||!['seed','out','three-phase','teacher','features-v2','features-v3','features-v4','features-v5','utility-labels','draft-review'].includes(k)||
       Object.hasOwn(inputs,k))throw new Error('Invalid teacher CLI option');
     inputs[k]=args[i+1];
   }
   if(!inputs.seed||!inputs.out||
     (inputs['three-phase']!==undefined&&inputs['three-phase']!=='true')||
     (inputs['features-v2']!==undefined&&inputs['features-v2']!=='true')||
+    (inputs['features-v3']!==undefined&&inputs['features-v3']!=='true')||
     (inputs['features-v4']!==undefined&&inputs['features-v4']!=='true')||
     (inputs['features-v5']!==undefined&&inputs['features-v5']!=='true')||
     (inputs['utility-labels']!==undefined&&inputs['utility-labels']!=='true')||
@@ -141,6 +147,7 @@ if(process.argv[1]?.endsWith('/export-teacher.mjs')){
     {threePhase:inputs['three-phase']==='true',
      teacher:inputs.teacher??'basic-stage0',
      featuresV2:inputs['features-v2']==='true',
+     featuresV3:inputs['features-v3']==='true',
      featuresV4:inputs['features-v4']==='true',
      featuresV5:inputs['features-v5']==='true',
      utilityLabels:inputs['utility-labels']==='true',
