@@ -17,7 +17,13 @@ from scripts.rnad.shared_league_contract import (
     ACTOR_SCHEMA, MATCHES_PER_ACTOR, SEEDS_PER_ACTOR, _opponent,
     _verify_events, canonical_hash, verify_actor, verify_manifest,
 )
-from scripts.rnad.train import current_git_sha, frozen_engine_sha
+def current_git_sha():
+    return subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                   text=True, timeout=5).strip()
+
+
+def frozen_engine_sha():
+    return json.loads(Path("provenance/manifest.json").read_text())["sourceCommit"]
 
 
 def read_gzip(path):
