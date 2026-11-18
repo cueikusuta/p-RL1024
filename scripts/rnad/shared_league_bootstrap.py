@@ -160,6 +160,8 @@ def initialize(*, draft, draft_report, selection, selection_study,
     for name in OLD_NAMES:
         if legacy["models"][name] != digest(Path(old_pool) / (name + ".json")):
             raise ValueError("Old frozen opponent differs from approved source")
+    torch.manual_seed(521881)
+    random.seed(521881)
     model = IntegratedPolicyV1(sr["vocab"])
     teacher_manifest = {
         "schema": TEACHER_MANIFEST_SCHEMA, "policy_id": POLICY_ID,
