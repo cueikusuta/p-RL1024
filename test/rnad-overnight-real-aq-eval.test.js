@@ -75,6 +75,7 @@ test('fail closed on missing/duplicate partitions, changed checkpoint or disguis
     x=>{x[0].independent_seed_pairs=1;},
   ]){
     const a=structuredClone(all);mutation(a);
-    assert.throws(()=>aggregateOvernightResults(a),/Invalid overnight/);
+    assert.throws(()=>aggregateOvernightResults(a),
+      /Invalid overnight|Invalid or incomplete accepted seat-swapped Match/);
   }
 });
