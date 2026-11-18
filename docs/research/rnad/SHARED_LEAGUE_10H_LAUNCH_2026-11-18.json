@@ -1,0 +1,18 @@
+{
+  "schema": "rnad-i5-ten-hour-single-main-generation-loop-v1",
+  "source_sha": "ccce9a49f5b4a703620b8d7bb554494b95135b17",
+  "verified_seed0_run": 44318145987,
+  "verified_wave2_handoff_proof_run": 44324808407,
+  "verified_original_training_source_sha": "0f348495dd381dbfd299e00c0346f61351212075",
+  "target_budget_seconds": 36000,
+  "maximum_new_generations": 48,
+  "actor_count": 20,
+  "independent_seeds_per_actor": 32,
+  "both_seats": true,
+  "four_win_complete_matches_per_generation": 1280,
+  "shared_optimizer_steps_per_generation": 40,
+  "single_shared_learner": true,
+  "preserve_full_optim_target_magnet_rng": true,
+  "no_action_setup_node": true,
+  "frozen_champion_and_main_unchanged": true
+}
