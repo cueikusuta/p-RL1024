@@ -6,6 +6,8 @@ on:
       - scripts/rnad/shared_league_staging.py
       - scripts/rnad/shared_league_prep_profile.py
       - scripts/rnad/shared_league_learner.py
+      - scripts/rnad/shared_league_memory_probe.py
+      - scripts/rnad/shared_league_numeric_parity.py
       - test/rnad_shared_league_staging_test.py
       - .github/workflows/rnad-i5-learner-staging-profile.yml
   workflow_dispatch:
@@ -32,7 +34,7 @@ jobs:
       - name: Run strict staging syntax and contract tests
         run: |
           set -euo pipefail
-          python -m py_compile scripts/rnad/shared_league_staging.py scripts/rnad/shared_league_learner.py scripts/rnad/shared_league_prep_profile.py
+          python -m py_compile scripts/rnad/shared_league_staging.py scripts/rnad/shared_league_learner.py scripts/rnad/shared_league_prep_profile.py scripts/rnad/shared_league_numeric_parity.py scripts/rnad/shared_league_memory_probe.py
           python -m unittest discover -s test -p rnad_shared_league_staging_test.py -v
           python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
           python -m unittest discover -s test -p rnad_shared_learner_checkpoint_test.py -v
@@ -84,6 +86,10 @@ jobs:
           assert r['accepted_complete_four_win_matches']==1280
           assert r['optimizer_updates']==40
           assert r['checkpoint_published'] is False
+          assert r['historical_numeric_parity']['actual_match_count'] == 1280
+          assert r['historical_numeric_parity']['ieee754_bitwise_float_parity'] is True
+          assert r['concurrent_stage_memory']['sample_count'] > 0
+          assert r['concurrent_stage_memory']['peak_parent_and_children_rss_kib'] > 0
           with open('profile-summary.md','w') as f:
               f.write('## I5 single existing G0 Learner performance profile (research only)\n')
               f.write(f"* Strict G0 accepted Matches: {r['accepted_complete_four_win_matches']}\n")
@@ -93,6 +99,12 @@ jobs:
               f.write(f"* 40 updates: {r['forty_update_wall_seconds']}s\n")
               f.write(f"* Stage + updates: {r['combined_stage_and_40_update_seconds']}s\n")
               f.write(f"* Peak worker RSS (KiB): {r['peak_stage_worker_rss_kib']}\n")
+              f.write(f"* Concurrent parent+worker RSS peak (KiB): {r['concurrent_stage_memory']['peak_parent_and_children_rss_kib']}\n")
+              f.write(f"* Concurrent child RSS peak (KiB): {r['concurrent_stage_memory']['peak_children_concurrent_rss_kib']}\n")
+              f.write(f"* Peak cgroup memory (KiB): {r['concurrent_stage_memory']['peak_cgroup_memory_kib']}\n")
+              f.write(f"* cgroup memory limit (KiB): {r['concurrent_stage_memory']['cgroup_limit_kib']}\n")
+              f.write(f"* cgroup minimum headroom (KiB): {r['concurrent_stage_memory']['minimum_cgroup_headroom_kib']}\n")
+              f.write(f"* Actual G0 bit-exact numeric parity: {r['historical_numeric_parity']['actual_match_count']} Matches / {r['historical_numeric_parity']['wall_seconds']}s (outside Learner prep metric)\n")
               f.write(f"* Stage CPU phase SUMS (not wall times): {r['preparation_cpu_phase_sum_seconds']}\n")
               f.write('\nThe old G0 log provides an approximate baseline, not a paired same-SHA speedup proof. No model/Champion published.\n')
           PY
