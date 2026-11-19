@@ -159,7 +159,7 @@ jobs:
       - name: Use runner's Node22 or SHA-verified official Node archive
         run: |
           set -euo pipefail
-          if ! command -v node || ! node --version | grep -Eq '^v22\\.'; then
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
             archive=node-v22.14.0-linux-x64.tar.xz
             curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
             curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
