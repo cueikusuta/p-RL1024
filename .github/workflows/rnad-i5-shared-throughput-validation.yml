@@ -47,6 +47,7 @@ jobs:
           (cd bootstrap && sha256sum -c file-pins.sha256)
           python -m scripts.rnad.shared_league_real_smoke --bootstrap bootstrap --smoke smoke --out real-smoke-optimized
           test -s real-smoke-optimized/smoke-report.json
+          python -m scripts.rnad.shared_league_vector_parity --bootstrap bootstrap --smoke smoke
   actor-parity:
     needs: verify
     runs-on: ubuntu-latest
