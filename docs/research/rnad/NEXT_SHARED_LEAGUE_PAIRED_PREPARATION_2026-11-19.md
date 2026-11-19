@@ -29,7 +29,7 @@
 
 ## 対応あり評価：世代モデルを凍結し、完全Matchで比較
 
-既存の [対応あり評価契約](PAIRED_LEAGUE_EVALUATION_2026-11-19.md)、`paired-league-run.mjs` / `paired-league-eval.mjs` / `paired-league-stats.mjs` を再利用する。旧評価結果は再解釈しない。
+既存の [対応あり評価契約（親PR #6）](https://github.com/cueikusuta/p-RL1024/blob/feat/5-rnad-stage0-contracts/docs/research/rnad/PAIRED_LEAGUE_EVALUATION_2026-11-19.md)、`paired-league-run.mjs` / `paired-league-eval.mjs` / `paired-league-stats.mjs` を再利用する。旧評価結果は再解釈しない。
 
 1. **評価計画を事前登録**。candidate、旧世代/Champion、AQ-Base、source SHA、engine SHA、モデルmanifest SHA256、未使用seed cohort、除外seed、固定標本数、比較family、多重比較補正、実用的改善幅、停止規則をIssue #5に保存。実ファイルSHAとArtifactを確認するまで数字を捏造しない。
 2. **直接H2H**：同seedで新世代対旧世代を両席入替。seedブロック `s_i=(2戦の新世代勝数)/2` と帰無値0.5で対応あり検定。
