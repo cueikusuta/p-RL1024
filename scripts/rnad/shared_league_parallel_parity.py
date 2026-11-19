@@ -18,6 +18,7 @@ from scripts.rnad.shared_league_bootstrap import digest
 from scripts.rnad.shared_league_contract import verify_actor, verify_manifest
 from scripts.rnad.shared_league_learner import _match_loss, _models
 from scripts.rnad.shared_league_parallel import ParallelGradientPool
+from scripts.rnad.shared_league_batched import batched_match_losses
 
 
 def benchmark(bootstrap, actor_bundle, *, processes=4):
@@ -85,6 +86,31 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
     if abs(sum(losses)-sum(other_losses)) > 1e-3 or (
             abs(max(ratios)-max(other_ratios)) > 1e-5):
         raise AssertionError("Loss or V-trace ratios drifted")
+    # Additional full optimizer step on the SAME 32 real accepted Matches.
+    # Compare all parameter gradients, not only batch loss magnitudes.
+    vector, vtarget, vmagnet, vopt, vschedule = _models(root, checkpoint)
+    vopt.zero_grad(set_to_none=True)
+    vector_start = time.perf_counter()
+    vector_losses, vector_ratios = [], []
+    for start in range(0, 32, 4):
+        block = [(row, payload["role"]) for row in rows[start:start+4]]
+        results = batched_match_losses(vector, vtarget, vmagnet, block)
+        (sum(loss for loss,_ in results)/32).backward()
+        vector_losses.extend(float(loss.detach()) for loss,_ in results)
+        vector_ratios.extend(ratio for _,ratio in results)
+    vector_seconds = time.perf_counter() - vector_start
+    for reference_grad, vec_param in zip(serial_grads, vector.parameters()):
+        torch.testing.assert_close(
+            reference_grad, vec_param.grad, rtol=4e-3, atol=4e-5)
+    torch.nn.utils.clip_grad_norm_(vector.parameters(), 10.,
+                                   error_if_nonfinite=True)
+    vopt.step()
+    vschedule.step()
+    for p, q in zip(serial.parameters(), vector.parameters()):
+        torch.testing.assert_close(p, q, rtol=4e-3, atol=4e-5)
+    if abs(sum(losses)-sum(vector_losses)) > 1e-3 or (
+            abs(max(ratios)-max(vector_ratios)) > 1e-5):
+        raise AssertionError("Vectorized full 32 Match objective drifted")
     return {
         "schema":"rnad-i5-authoritative-parallel-gradient-research-v1",
         "source_sha": manifest["source_sha"],
@@ -94,6 +120,9 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         "serial_32_match_gradient_seconds":round(scalar_seconds, 4),
         "worker_init_seconds":round(init_seconds, 4),
         "parallel_32_match_gradient_seconds":round(parallel_seconds, 4),
+        "vector_microbatch4_gradient_seconds":round(vector_seconds, 4),
+        "single_trial_speed_ratio_scalar_over_vector":
+            round(scalar_seconds/vector_seconds, 4),
         "single_trial_speed_ratio_not_established":
             round(scalar_seconds / parallel_seconds, 4),
         "gradients_and_optimizer_step_numerically_equivalent":True,
