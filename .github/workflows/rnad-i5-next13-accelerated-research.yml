@@ -210,7 +210,7 @@ jobs:
               "actors_checked":20,"complete_matches":40,
               "all_seats_verified":True,"not_a_full_generation":True,
               "not_a_strength_claim":True
-          },indent=2)+"\\n")
+          },indent=2)+"\n")
           PY
           # This is a functional optimizer/checkpoint smoke only, never a strength estimate.
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
