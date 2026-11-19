@@ -197,6 +197,7 @@ jobs:
           (cd bootstrap && sha256sum -c file-pins.sha256)
       - name: Isolated TorchInductor real-Match parity and cold compilation cost
         run: |
+          set -euo pipefail
           python -m scripts.rnad.shared_league_vector_parity --bootstrap bootstrap --smoke smoke | tee compile-candidate-report.json
           cat compile-candidate-report.json >> "$GITHUB_STEP_SUMMARY"
   native-candidate:
@@ -221,7 +222,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4 onnx==1.17.0 onnxruntime==1.20.1
-          npm install --prefix .rnad-onnx-deps --no-save --no-audit --no-fund onnxruntime-node@1.20.1
+          npm install --prefix .rnad-onnx-deps --no-save --no-audit --no-fund onnxruntime-node@1.20.1 --onnxruntime-node-install-cuda=skip
       - name: Obtain immutable actual actor, full-Match inputs and export frozen battle head
         run: |
           set -euo pipefail

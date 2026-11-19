@@ -34,6 +34,11 @@ def _call(module, *args, **kwargs):
         raise ValueError("RNAD_TORCH_COMPILE must be 0 or 1")
     if flag == "0":
         return module(*args, **kwargs)
+    # The complex 60-action selection embedding/scatter graph failed the
+    # real Match gradient-parity gate under TorchInductor. Its weights MUST
+    # remain eager while smaller independent heads are explored.
+    if type(module).__name__ == "DecomposedTeacher":
+        return module(*args, **kwargs)
     key = id(module)
     compiled = _COMPILED_MODULES.get(key)
     if compiled is None:
