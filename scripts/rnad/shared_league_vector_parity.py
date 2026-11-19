@@ -8,13 +8,16 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import time
 from pathlib import Path
 
 import torch
 
 from scripts.rnad.shared_league_contract import _verify_events, verify_manifest
-from scripts.rnad.shared_league_learner import _match_loss, _models
+from scripts.rnad.shared_league_learner import (
+    _match_loss, _models, _verified_phase_tensors,
+)
 from scripts.rnad.shared_league_batched import batched_match_losses
 from scripts.rnad.train import frozen_engine_sha
 
@@ -100,6 +103,21 @@ def compare(bootstrap, smoke):
         step_max = max(step_max, float((p-q).abs().max()))
         torch.testing.assert_close(p, q, rtol=2e-3, atol=3e-5,
                                    msg=lambda msg: f"{name}: {msg}")
+    tensor_seconds = None
+    if os.environ.get("RNAD_TORCH_COMPILE", "0") == "0":
+        packed = [(_verified_phase_tensors(match), role)
+                  for match, role in rows]
+        tensor_result = _vector(root, checkpoint, packed)
+        for (plain_loss, plain_ratio), (cache_loss, cache_ratio) in zip(
+                b[3], tensor_result[3]):
+            if (abs(plain_loss-cache_loss) > 2e-4 or
+                    abs(plain_ratio-cache_ratio) > 2e-4):
+                raise AssertionError("Tensor-typed accepted observation drifted")
+        for name in b[4]:
+            torch.testing.assert_close(
+                b[4][name], tensor_result[4][name],
+                rtol=3e-3, atol=3e-5)
+        tensor_seconds = tensor_result[-1]
     return {
         "schema":"rnad-i5-real-match-scalar-vs-vector-parity-v1",
         "accepted_matches":len(rows),
@@ -110,6 +128,7 @@ def compare(bootstrap, smoke):
         "maximum_absolute_optimizer_weight_diff":step_max,
         "scalar_wall_seconds":a[-1],
         "vector_wall_seconds":b[-1],
+        "vector_preconverted_tensor_wall_seconds":tensor_seconds,
         "one_trial_speed_ratio_not_evidence":a[-1]/b[-1],
         "champion_or_strength_claim":False,
         "generation_completed":False,
