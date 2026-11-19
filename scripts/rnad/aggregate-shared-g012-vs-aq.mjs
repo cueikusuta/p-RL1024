@@ -141,7 +141,7 @@ export function reportMarkdown(x){
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
-  assert(process.argv.length===5,'Usage: node aggregate-shared-g012-vs-aq.mjs DIR OUT');
+  assert(process.argv.length===4,'Usage: node aggregate-shared-g012-vs-aq.mjs DIR OUT');
   const directory=process.argv[2],target=process.argv[3];
   const entries=readdirSync(directory,{withFileTypes:true})
     .filter(x=>x.isDirectory()).map(x=>x.name).sort();
