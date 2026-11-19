@@ -91,7 +91,7 @@ export function evaluatePart({modelDir,generation,part}){
     'Invalid pre-registered G012 evaluation shard');
   const manifest=JSON.parse(readFileSync(join(modelDir,'manifest.json'),'utf8'));
   assert(manifest.schema==='rnad-integrated-policy-actor-bundle-v1'&&
-    manifest.generation===generation&&
+    manifest.generation===generation+1&&
     manifest.source_sha===verifiedRunningSourceSha()&&
     manifest.engine_sha===provenance.sourceCommit&&
     typeof manifest.policy_id==='string'&&
@@ -132,7 +132,7 @@ export function evaluatePart({modelDir,generation,part}){
     }
   }
   assert(rows.length===2*SEEDS_PER_PART,'Incomplete eval shard');
-  return {schema:SCHEMA,generation,part,
+  return {schema:SCHEMA,generation,checkpoint_generation:manifest.generation,part,
     evaluation_policy:'frozen-greedy-no-training',
     benchmark:'AQ-Base-001 exact integrated strategy-match',
     aq_base_model_sha256:AQ_BASE_SHA,
