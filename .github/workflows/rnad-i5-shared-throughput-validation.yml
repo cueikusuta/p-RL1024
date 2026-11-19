@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/rnad/shared_league_actor.mjs
-          python -m py_compile scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py scripts/rnad/shared_league_batched.py scripts/rnad/shared_league_parallel.py scripts/rnad/shared_league_parallel_parity.py scripts/rnad/shared_league_pipelined.py scripts/rnad/shared_league_onnx_cpu_export.py
+          python -m py_compile scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py scripts/rnad/shared_league_batched.py scripts/rnad/shared_league_parallel.py scripts/rnad/shared_league_parallel_parity.py scripts/rnad/shared_league_pipelined.py scripts/rnad/shared_league_onnx_cpu_export.py scripts/rnad/shared_league_compiler_repeat.py
           node scripts/verify-snapshot.mjs
       - name: Install pinned CPU PyTorch
         run: |
@@ -135,6 +135,28 @@ jobs:
           with open("actor-parity-report.json","w") as f:json.dump(report,f,indent=2)
           PY
           cat actor-parity-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Profile actual accepted Actor CPU hotspots (8 Matches)
+        run: |
+          set -euo pipefail
+          mkdir -p cpu-prof/accepted
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("bootstrap/generation-manifest.json").read_text())
+          jobs=[]
+          for seed in range(m["seed_start"],m["seed_start"]+4):
+              for seat in (0,1):
+                  ident=f"g{m['generation']}-a0-s{seed}-seat{seat}"
+                  jobs.append({"seed":seed,"seat":seat,
+                               "out":str(Path("cpu-prof/accepted")/(ident+".json.gz"))})
+          Path("cpu-prof/jobs.json").write_text(json.dumps({
+              "schema":"rnad-shared-actor-batch-jobs-v1","jobs":jobs}))
+          PY
+          magnet=bootstrap/actor
+          test ! -d bootstrap/magnet || magnet=bootstrap/magnet
+          node --cpu-prof --cpu-prof-dir=cpu-prof --cpu-prof-name=rnad.cpuprofile scripts/rnad/shared_league_actor.mjs --meta batched/actor-meta.json --main bootstrap/actor --magnet "$magnet" --batch-jobs cpu-prof/jobs.json
+          node scripts/rnad/shared_league_actor_profile.mjs cpu-prof/rnad.cpuprofile | tee actor-cpu-profile-report.json
+          cat actor-cpu-profile-report.json >> "$GITHUB_STEP_SUMMARY"
   parallel-learner:
     needs: verify
     runs-on: ubuntu-latest
@@ -200,6 +222,11 @@ jobs:
           set -euo pipefail
           python -m scripts.rnad.shared_league_vector_parity --bootstrap bootstrap --smoke smoke | tee compile-candidate-report.json
           cat compile-candidate-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Reused TorchInductor head hot-run versus cold compilation study
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_compiler_repeat --bootstrap bootstrap --smoke smoke | tee compile-hot-report.json
+          cat compile-hot-report.json >> "$GITHUB_STEP_SUMMARY"
   native-candidate:
     needs: verify
     continue-on-error: true
