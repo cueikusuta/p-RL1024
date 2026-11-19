@@ -23,7 +23,12 @@ jobs:
         with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: {python-version: '3.11'}
-      - name: Run pure-Python staging syntax and strict-contract tests
+      - name: Install pinned CPU dependencies for contract fixtures
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Run strict staging syntax and contract tests
         run: |
           set -euo pipefail
           python -m py_compile scripts/rnad/shared_league_staging.py scripts/rnad/shared_league_learner.py scripts/rnad/shared_league_prep_profile.py
