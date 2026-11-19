@@ -5,7 +5,10 @@ export const PHASE_PIPELINE_SCHEMA='p-rl1024-phase-pipeline-v1';
 const STAGES=['draft','selection','battle'];
 const hasOwn=(object,key)=>Object.prototype.hasOwnProperty.call(object,key);
 const isObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
-const clone=value=>structuredClone(value);
+// Primitive values cannot alias mutable state; preserve full deep cloning
+// of objects and original errors on unserializable functions/symbols.
+const clone=value=>value!==null&&['undefined','string','number','boolean','bigint']
+  .includes(typeof value)?value:structuredClone(value);
 function immutable(value) {
   if(value&&typeof value==='object'){
     Object.freeze(value);
