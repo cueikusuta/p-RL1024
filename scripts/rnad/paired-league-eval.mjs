@@ -63,7 +63,7 @@ function verifyPlan(p){
     covered.add(name);
   }
   if(p.stage==='final')
-    requireOk(p.excluded_seed_ranges.length>=1&&
+    requireOk(p.seed_blocks>=512&&p.excluded_seed_ranges.length>=1&&
       p.independent_holdout_precommitted===true,
       'final promotion proof requires a new, declared disjoint holdout');
   return p;
