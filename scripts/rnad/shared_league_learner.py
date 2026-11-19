@@ -203,6 +203,46 @@ def _match_loss(model, target, magnet, record, *, role):
     return balanced, max(ratios)
 
 
+
+def _verified_phase_tensors(row):
+    """Only after verify_actor: convert public/self tensors without labels."""
+    phase_dtype = {
+        "draft": (("pool", torch.float32), ("codes", torch.long),
+                  ("extra", torch.float32)),
+        "selection": (("own_cat", torch.long), ("foe_cat", torch.long),
+                      ("own_num", torch.float32),
+                      ("foe_num", torch.float32)),
+        "battle": (("state", torch.float32), ("actions", torch.float32)),
+    }
+    packed = dict(row)
+    packed["events"] = []
+    for event in row["events"]:
+        phase = event["phase"]
+        if phase not in phase_dtype:
+            raise ValueError("Invalid phase for strict tensor cache")
+        copy_event = dict(event)
+        payload = dict(event["phase_input"])
+        for key, dtype in phase_dtype[phase]:
+            payload[key] = torch.as_tensor(payload[key], dtype=dtype)
+        copy_event["phase_input"] = payload
+        packed["events"].append(copy_event)
+    return packed
+
+
+def _cached_verified(root, choice, *, tensor_cache):
+    name = choice["match_id"]
+    if not tensor_cache:
+        return _load(root / (name+".json"))
+    path = root / (name+".pt")
+    if digest(path) != choice["tensor_cache_sha256"]:
+        raise ValueError("Corrupt strict tensor cache after acceptance")
+    # Safe tensors and primitive metadata only; no arbitrary pickle objects.
+    row = torch.load(path, map_location="cpu", weights_only=True)
+    if row.get("match_id") != name or row.get("completed") is not True:
+        raise ValueError("Tensor cache does not match verified Match")
+    return row
+
+
 def _atomic_checkpoint(path, ckpt):
     path=Path(path)
     tmp = path.with_suffix(".tmp")
@@ -239,6 +279,12 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
     # hosted runner's RAM even though the gzip artifacts fit on disk.
     verified = Path(actors) / "_strict_verified_matches"
     verified.mkdir(exist_ok=True)
+    cache_flag = os.environ.get("RNAD_VERIFIED_TENSOR_CACHE", "0")
+    if cache_flag not in ("0", "1"):
+        raise ValueError("Invalid strict verified tensor cache flag")
+    tensor_cache = cache_flag == "1"
+    if tensor_cache and os.environ.get("RNAD_LEARNER_BACKEND", "reference") != "vector":
+        raise ValueError("Tensor cache needs the experimental vector Learner")
     match_ids, meta, roles = set(), [], Counter()
     for actor_id, path in enumerate(paths):
         payload = _load(path)
@@ -253,10 +299,16 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
             name = row["match_id"]
             # Strict validation has already happened. Do not recompress all
             # 1,280 Matches only to decompress them in the learner.
-            with (verified / (name + ".json")).open("w", encoding="utf-8") as output_match:
-                json.dump(row, output_match,
-                          separators=(",", ":"), allow_nan=False)
-            meta.append({"match_id": name, "role": payload["role"]})
+            if tensor_cache:
+                path_cache = verified / (name + ".pt")
+                torch.save(_verified_phase_tensors(row), path_cache)
+                meta.append({"match_id": name, "role": payload["role"],
+                             "tensor_cache_sha256": digest(path_cache)})
+            else:
+                with (verified / (name + ".json")).open("w", encoding="utf-8") as output_match:
+                    json.dump(row, output_match,
+                              separators=(",", ":"), allow_nan=False)
+                meta.append({"match_id": name, "role": payload["role"]})
         del payload
     expected_roles = {"self": 8, "historical": 6,
                       "fixed": 4, "exploiter": 2}
@@ -329,7 +381,7 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
             size = vector_batch_size()
             for start in range(0, len(selected), size):
                 micro = selected[start:start+size]
-                loaded = [(_load(verified / (x["match_id"]+".json")),
+                loaded = [(_cached_verified(verified, x, tensor_cache=tensor_cache),
                            x["role"]) for x in micro]
                 results = batched_match_losses(model, target, magnet, loaded)
                 (sum(loss for loss, _ in results)/32).backward()

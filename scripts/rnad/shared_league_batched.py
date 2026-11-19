@@ -101,9 +101,11 @@ def _draft_inference(net, rows):
 def _selection_inference(net, rows):
     keys = (("own_cat", torch.long), ("foe_cat", torch.long),
             ("own_num", torch.float32), ("foe_num", torch.float32))
-    batched = {key: torch.as_tensor(
-        [entry[2][key] for entry in rows], dtype=dtype)
-        for key, dtype in keys}
+    # as_tensor(list_of_tensors) attempts scalar conversion; stack supports
+    # both strict-verified JSON arrays and safely decoded tensor caches.
+    batched = {key: torch.stack([
+        torch.as_tensor(entry[2][key], dtype=dtype) for entry in rows],
+        dim=0) for key, dtype in keys}
     logits, _, _, own, foe = _call(
         net.selection, batched, return_embeddings=True)
     inputs = torch.cat((own.mean(dim=1), foe.mean(dim=1)), dim=-1)
@@ -153,9 +155,9 @@ def _battle_inference(model, target, magnet, entries):
             break
         widths = [len(entry[2]["actions"]) for _, entry in wave]
         max_width = max(widths)
-        state_input = torch.as_tensor(
-            [entry[2]["state"] for _, entry in wave],
-            dtype=torch.float32)
+        state_input = torch.stack([
+            torch.as_tensor(entry[2]["state"], dtype=torch.float32)
+            for _, entry in wave], dim=0)
         candidate = torch.zeros(
             (len(wave), max_width, model.battle.action_features),
             dtype=torch.float32)
