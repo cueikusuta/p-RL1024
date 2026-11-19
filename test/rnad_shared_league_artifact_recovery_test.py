@@ -16,6 +16,24 @@ class SharedArtifactRecoveryTests(unittest.TestCase):
         self.original = [artifact_name(self.generation, i)
                          for i in range(ACTORS)]
 
+    def test_generation_zero_supported_and_fail_closed(self):
+        # G0 uses bootstrap/actor as both Main and Magnet, but its
+        # artifact namespace and strict recovery still require 20 IDs.
+        names = [artifact_name(0, i) for i in range(ACTORS)]
+        self.assertEqual(missing_actor_ids(0, rows(names)), [])
+        self.assertEqual(accepted_artifact_names(0, rows(names)), names)
+        partial = [name for i, name in enumerate(names) if i != 19]
+        self.assertEqual(missing_actor_ids(0, rows(partial)), [19])
+        rescued = artifact_name(0, 19, recovered=True)
+        self.assertEqual(
+            accepted_artifact_names(0, rows(partial + [rescued]))[19],
+            rescued)
+        with self.assertRaisesRegex(ValueError, "Ambiguous"):
+            missing_actor_ids(0, rows(names + [rescued]))
+        for bad in (-1, 49):
+            with self.assertRaisesRegex(ValueError, "Invalid"):
+                artifact_name(bad, 0)
+
     def test_all_twenty_success_no_replay(self):
         self.assertEqual(
             missing_actor_ids(self.generation, rows(self.original)), [])

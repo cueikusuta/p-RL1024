@@ -20,7 +20,7 @@ FULL_NAME = re.compile(
 
 
 def artifact_name(generation: int, actor_id: int, recovered=False) -> str:
-    if (type(generation) is not int or not 1 <= generation <= 48 or
+    if (type(generation) is not int or not 0 <= generation <= 48 or
         type(actor_id) is not int or not 0 <= actor_id < ACTORS):
         raise ValueError("Invalid shared league generation or logical actor")
     return (f"{PREFIX}{generation}-" +

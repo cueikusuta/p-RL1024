@@ -61,6 +61,7 @@ jobs:
           node --test test/rnad-authority-match.test.js test/rnad-receipts.test.js test/rnad-three-phase.test.js test/rnad-infer-allocation-parity.test.js test/rnad-draft-fastpath-parity.test.js test/rnad-paired-league-eval.test.js
           python -m unittest discover -s test -p rnad_shared_league_advanced_perf_test.py -v
           python -m unittest discover -s test -p rnad_shared_initial_historical_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_artifact_recovery_test.py -v
 
   bootstrap:
     needs: preflight

@@ -84,8 +84,18 @@ jobs:
               ["git","rev-parse","HEAD"],text=True).strip()
           assert m["main_sha256"] == __import__("hashlib").sha256(
               open("bootstrap/actor/manifest.json","rb").read()).hexdigest()
-          assert m["magnet_sha256"] == __import__("hashlib").sha256(
-              open("bootstrap/magnet/manifest.json","rb").read()).hexdigest()
+          from pathlib import Path
+          magnet = Path("bootstrap/magnet/manifest.json")
+          if g == 0:
+              # The genesis bootstrap intentionally aliases Main as Magnet.
+              # Do not require a nonexistent extra magnet bundle at G0.
+              assert not magnet.exists()
+              assert m["magnet_sha256"] == m["main_sha256"]
+          else:
+              # Later generations MUST carry the frozen Magnet explicitly.
+              assert magnet.is_file()
+              assert m["magnet_sha256"] == __import__("hashlib").sha256(
+                  magnet.read_bytes()).hexdigest()
           PY
       - name: Read-only 32 independent seed clusters x both seats on one immutable Main
         run: |
