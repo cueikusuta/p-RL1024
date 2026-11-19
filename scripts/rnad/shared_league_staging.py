@@ -29,18 +29,27 @@ def _rss_kib():
 
 
 def _stage_actor(args):
-    actor_id, source_path, manifest, destination, tensor_cache, fast_json = args
+    actor_id, source_path, manifest, destination, tensor_cache, fast_json, codec = args
     source_path, destination = Path(source_path), Path(destination)
     timings = {"decompress": 0.0, "parse": 0.0, "legacy_read_parse": 0.0,
                "verify": 0.0,
                "serialize": 0.0, "write": 0.0}
+    if codec not in ("stdlib", "orjson"):
+        raise ValueError("Invalid strict staging JSON codec")
+    if codec == "orjson":
+        if not fast_json:
+            raise ValueError("orjson requires fast JSON staging")
+        try:
+            import orjson
+        except ImportError as exc:
+            raise RuntimeError("orjson codec explicitly selected but not installed") from exc
     start = time.perf_counter()
     if fast_json:
         with gzip.open(source_path, "rb") as source:
             raw = source.read()
         timings["decompress"] = time.perf_counter() - start
         parse_start = time.perf_counter()
-        payload = json.loads(raw)
+        payload = orjson.loads(raw) if codec == "orjson" else json.loads(raw)
         del raw
         timings["parse"] = time.perf_counter() - parse_start
     else:
@@ -75,8 +84,12 @@ def _stage_actor(args):
                          "tensor_cache_sha256": checksum})
         elif fast_json:
             start = time.perf_counter()
-            encoded = json.dumps(
-                row, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            # orjson input came from strict RFC-compliant JSON decoding:
+            # NaN/Infinity were rejected at the ingestion boundary rather than
+            # silently converted into JSON null during serialization.
+            encoded = (orjson.dumps(row) if codec == "orjson" else
+                       json.dumps(row, separators=(",", ":"),
+                                  allow_nan=False).encode("utf-8"))
             timings["serialize"] += time.perf_counter() - start
             start = time.perf_counter()
             (destination / (name + ".json")).write_bytes(encoded)
@@ -97,17 +110,19 @@ def _stage_actor(args):
 
 def stage_verified_actors(manifest, paths, verified, *,
                           tensor_cache=False, workers=1, fast_json=False,
-                          profile=False, return_metrics=False):
+                          codec="stdlib", profile=False, return_metrics=False):
     if type(workers) is not int or workers not in (1, 2, 4):
         raise ValueError("RNAD_PREP_WORKERS must be 1, 2 or 4")
     if type(fast_json) is not bool or type(profile) is not bool or type(tensor_cache) is not bool:
         raise ValueError("Invalid staging flags")
+    if codec not in ("stdlib", "orjson") or (codec == "orjson" and not fast_json):
+        raise ValueError("Invalid bounded R-NaD JSON codec selection")
     verify_manifest(manifest)
     if len(paths) != ACTORS or any(not Path(p).is_file() for p in paths):
         raise ValueError("Cannot stage incomplete 20/20 Actor set")
     verified = Path(verified)
     verified.mkdir(parents=True, exist_ok=True)
-    args = [(i, str(path), manifest, str(verified), tensor_cache, fast_json)
+    args = [(i, str(path), manifest, str(verified), tensor_cache, fast_json, codec)
             for i, path in enumerate(paths)]
     start = time.perf_counter()
     if workers == 1:
@@ -130,7 +145,7 @@ def stage_verified_actors(manifest, paths, verified, *,
     metrics = {
         "schema": "rnad-learner-staging-profile-v1",
         "actors": len(results), "accepted_matches": len(match_ids),
-        "workers": workers, "fast_json": fast_json,
+        "workers": workers, "fast_json": fast_json, "codec": codec,
         "wall_seconds": round(wall, 4),
         "max_worker_rss_kib": max(item["rss_kib"] for item in results),
         "sum_actor_phase_seconds": {
@@ -151,6 +166,9 @@ def staging_config():
     value = os.environ.get("RNAD_PREP_WORKERS", "1")
     fast = os.environ.get("RNAD_PREP_FAST_JSON", "0")
     prof = os.environ.get("RNAD_PROFILE_STAGING", "0")
+    codec = os.environ.get("RNAD_PREP_CODEC", "stdlib")
     if value not in ("1", "2", "4") or fast not in ("0", "1") or prof not in ("0", "1"):
         raise ValueError("Invalid bounded R-NaD Learner staging configuration")
-    return int(value), fast == "1", prof == "1"
+    if codec not in ("stdlib", "orjson") or (codec == "orjson" and fast != "1"):
+        raise ValueError("Invalid bounded R-NaD JSON codec selection")
+    return int(value), fast == "1", prof == "1", codec
