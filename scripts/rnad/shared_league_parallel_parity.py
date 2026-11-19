@@ -1,0 +1,115 @@
+"""Independent real-authority 32-Match CPU gradient-parallel research gate.
+
+No checkpoint or opponent is promoted; compare an unchanged 32-Match optimizer
+step using pinned G0 Match receipts. Each worker reads only validated Matches.
+"""
+from __future__ import annotations
+
+import argparse
+import gzip
+import json
+import tempfile
+import time
+from pathlib import Path
+
+import torch
+
+from scripts.rnad.shared_league_bootstrap import digest
+from scripts.rnad.shared_league_contract import verify_actor, verify_manifest
+from scripts.rnad.shared_league_learner import _match_loss, _models
+from scripts.rnad.shared_league_parallel import ParallelGradientPool
+
+
+def benchmark(bootstrap, actor_bundle, *, processes=4):
+    torch.set_num_threads(1)
+    root = Path(bootstrap)
+    manifest = json.loads((root/"generation-manifest.json").read_text())
+    verify_manifest(manifest)
+    with gzip.open(actor_bundle, "rt") as f:
+        payload = json.load(f)
+    verified = verify_actor(manifest, payload)
+    if len(verified) != 64 or payload["actor_id"] != 0:
+        raise ValueError("Need authoritative 64-Match actor-0 bundle")
+    if digest(root/"checkpoint-g0.pt") != json.loads(
+            (root/"checkpoint-index.json").read_text())["sha256"]:
+        raise ValueError("Pinned bootstrap checkpoint digest mismatch")
+    checkpoint = torch.load(root/"checkpoint-g0.pt", map_location="cpu",
+                            weights_only=True)
+    rows = sorted(payload["matches"], key=lambda r: r["match_id"])[:32]
+    if len({r["match_id"] for r in rows}) != 32:
+        raise ValueError("Not 32 unique accepted completed Matches")
+
+    serial, target, magnet, opt, scheduler = _models(root, checkpoint)
+    opt.zero_grad(set_to_none=True)
+    started = time.perf_counter()
+    losses, ratios = [], []
+    for row in rows:
+        loss, ratio = _match_loss(serial, target, magnet, row,
+                                  role=payload["role"])
+        (loss/32).backward()
+        losses.append(float(loss.detach()))
+        ratios.append(ratio)
+    scalar_seconds = time.perf_counter() - started
+    serial_grads = [p.grad.detach().clone() for p in serial.parameters()]
+    torch.nn.utils.clip_grad_norm_(serial.parameters(), 10.,
+                                   error_if_nonfinite=True)
+    opt.step()
+    scheduler.step()
+
+    parallel, p_target, p_magnet, p_opt, p_schedule = _models(root, checkpoint)
+    with tempfile.TemporaryDirectory() as tmp:
+        tasks = []
+        for row in rows:
+            path = Path(tmp)/(row["match_id"]+".json")
+            path.write_text(json.dumps(row, separators=(",",":"),
+                                       allow_nan=False))
+            tasks.append((str(path), payload["role"], None))
+        start = time.perf_counter()
+        with ParallelGradientPool(
+                parallel, p_target, p_magnet, workers=processes) as workers:
+            init_seconds = time.perf_counter()-start
+            start_work = time.perf_counter()
+            other_losses, other_ratios = workers.step_gradients(tasks)
+            parallel_seconds = time.perf_counter()-start_work
+            parallel_grads = [p.grad.detach().clone()
+                              for p in parallel.parameters()]
+        for left, right in zip(serial_grads, parallel_grads):
+            torch.testing.assert_close(
+                left, right, rtol=4e-3, atol=4e-5)
+        torch.nn.utils.clip_grad_norm_(parallel.parameters(), 10.,
+                                       error_if_nonfinite=True)
+        p_opt.step()
+        p_schedule.step()
+        for p, q in zip(serial.parameters(), parallel.parameters()):
+            torch.testing.assert_close(p, q, rtol=4e-3, atol=4e-5)
+    if abs(sum(losses)-sum(other_losses)) > 1e-3 or (
+            abs(max(ratios)-max(other_ratios)) > 1e-5):
+        raise AssertionError("Loss or V-trace ratios drifted")
+    return {
+        "schema":"rnad-i5-authoritative-parallel-gradient-research-v1",
+        "source_sha": manifest["source_sha"],
+        "accepted_matches":32,
+        "accepted_decisions":sum(len(r["events"]) for r in rows),
+        "worker_count":processes,
+        "serial_32_match_gradient_seconds":round(scalar_seconds, 4),
+        "worker_init_seconds":round(init_seconds, 4),
+        "parallel_32_match_gradient_seconds":round(parallel_seconds, 4),
+        "single_trial_speed_ratio_not_established":
+            round(scalar_seconds / parallel_seconds, 4),
+        "gradients_and_optimizer_step_numerically_equivalent":True,
+        "strength_evaluated":False,"generation_completed":False,
+    }
+
+
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--bootstrap",required=True)
+    parser.add_argument("--actor",required=True)
+    parser.add_argument("--workers",type=int,choices=(2,4),default=4)
+    a=parser.parse_args()
+    print(json.dumps(benchmark(a.bootstrap,a.actor,processes=a.workers),
+                     indent=2),flush=True)
+
+
+if __name__=="__main__":
+    main()
