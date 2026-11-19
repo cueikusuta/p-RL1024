@@ -16,6 +16,7 @@ import math
 import os
 import random
 from collections import Counter, defaultdict
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -356,69 +357,86 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
         raise ValueError("Invalid checkpoint model, replay order or training prefix")
     model,target,magnet,optimizer,scheduler=_models(root,ckpt)
     torch.set_num_threads(1)
-    for step in range(ckpt["step"],max_steps):
-        selected=ordering[32*step:32*(step+1)]
-        if len(selected)!=32 or len(set(x["match_id"] for x in selected))!=32:
-            raise ValueError("Missing no-reuse minibatch")
-        optimizer.zero_grad(set_to_none=True)
-        losses,ratios=[],[]
-        backend = os.environ.get("RNAD_LEARNER_BACKEND", "reference")
-        if backend == "reference":
-            for choice in selected:
-                record = _load(verified / (choice["match_id"] + ".json"))
-                loss,ratio=_match_loss(model,target,magnet,record,
-                                       role=choice["role"])
-                (loss/32).backward()
-                del record
-                losses.append(float(loss.detach()))
-                ratios.append(ratio)
-        elif backend == "vector":
-            # Preserve all 32 Match IDs, exact loss normalization and the
-            # single optimizer update; bound graph peak memory by microbatch.
-            from scripts.rnad.shared_league_batched import (
-                batched_match_losses, vector_batch_size,
-            )
-            size = vector_batch_size()
-            for start in range(0, len(selected), size):
-                micro = selected[start:start+size]
-                loaded = [(_cached_verified(verified, x, tensor_cache=tensor_cache),
-                           x["role"]) for x in micro]
-                results = batched_match_losses(model, target, magnet, loaded)
-                (sum(loss for loss, _ in results)/32).backward()
-                losses.extend(float(loss.detach()) for loss, _ in results)
-                ratios.extend(ratio for _, ratio in results)
-                del results, loaded
-        else:
-            raise ValueError("Unknown research-only Learner backend")
-        norm=torch.nn.utils.clip_grad_norm_(
-            model.parameters(),10.0,error_if_nonfinite=True)
-        if not torch.isfinite(norm):
-            raise ValueError("Nonfinite minibatch gradient")
-        optimizer.step()
-        scheduler.step()
-        with torch.no_grad():
-            for dst,src in zip(target.parameters(),model.parameters()):
-                dst.mul_(.99).add_(src,alpha=.01)
-        if any(not torch.isfinite(p).all() for p in model.parameters()):
-            raise ValueError("Nonfinite integrated Main after optimizer step")
-        ckpt.update({
-            "step": step+1, "model":model.state_dict(),
-            "target":target.state_dict(), "magnet":magnet.state_dict(),
-            "optimizer":optimizer.state_dict(),
-            "scheduler":scheduler.state_dict(),
-            "torch_rng":torch.get_rng_state(),
-            "python_rng":random.getstate(),
-            "training_match_ids":ids[:32*(step+1)],
-        })
-        # snapshot state_dict values before mutating next minibatch.
-        ckpt["model"]={k:v.clone() for k,v in model.state_dict().items()}
-        ckpt["target"]={k:v.clone() for k,v in target.state_dict().items()}
-        _atomic_checkpoint(checkpoint_path,ckpt)
-        print(json.dumps({"step":step+1,"steps_total":40,
-                          "accepted_matches_applied":32*(step+1),
-                          "mean_three_phase_loss":sum(losses)/len(losses),
-                          "max_off_policy_ratio":max(ratios),
-                          "research_only":True}),flush=True)
+    backend = os.environ.get("RNAD_LEARNER_BACKEND", "reference")
+    if backend not in ("reference", "vector", "parallel"):
+        raise ValueError("Unknown research-only Learner backend")
+    if backend == "parallel":
+        from scripts.rnad.shared_league_parallel import (
+            ParallelGradientPool, configured_workers,
+        )
+        pool_context = ParallelGradientPool(
+            model, target, magnet, workers=configured_workers())
+    else:
+        pool_context = nullcontext(None)
+    with pool_context as parallel_pool:
+        for step in range(ckpt["step"],max_steps):
+            selected=ordering[32*step:32*(step+1)]
+            if len(selected)!=32 or len(set(x["match_id"] for x in selected))!=32:
+                raise ValueError("Missing no-reuse minibatch")
+            optimizer.zero_grad(set_to_none=True)
+            losses,ratios=[],[]
+            if backend == "reference":
+                for choice in selected:
+                    record = _load(verified / (choice["match_id"] + ".json"))
+                    loss,ratio=_match_loss(model,target,magnet,record,
+                                           role=choice["role"])
+                    (loss/32).backward()
+                    del record
+                    losses.append(float(loss.detach()))
+                    ratios.append(ratio)
+            elif backend == "vector":
+                # Preserve all 32 Match IDs, exact loss normalization and the
+                # single optimizer update; bound graph peak memory by microbatch.
+                from scripts.rnad.shared_league_batched import (
+                    batched_match_losses, vector_batch_size,
+                )
+                size = vector_batch_size()
+                for start in range(0, len(selected), size):
+                    micro = selected[start:start+size]
+                    loaded = [(_cached_verified(verified, x, tensor_cache=tensor_cache),
+                               x["role"]) for x in micro]
+                    results = batched_match_losses(model, target, magnet, loaded)
+                    (sum(loss for loss, _ in results)/32).backward()
+                    losses.extend(float(loss.detach()) for loss, _ in results)
+                    ratios.extend(ratio for _, ratio in results)
+                    del results, loaded
+            elif backend == "parallel":
+                tasks = [
+                    (str(verified/(x["match_id"]+(".pt" if tensor_cache else ".json"))),
+                     x["role"],
+                     x.get("tensor_cache_sha256") if tensor_cache else None)
+                    for x in selected
+                ]
+                losses,ratios = parallel_pool.step_gradients(tasks)
+            norm=torch.nn.utils.clip_grad_norm_(
+                model.parameters(),10.0,error_if_nonfinite=True)
+            if not torch.isfinite(norm):
+                raise ValueError("Nonfinite minibatch gradient")
+            optimizer.step()
+            scheduler.step()
+            with torch.no_grad():
+                for dst,src in zip(target.parameters(),model.parameters()):
+                    dst.mul_(.99).add_(src,alpha=.01)
+            if any(not torch.isfinite(p).all() for p in model.parameters()):
+                raise ValueError("Nonfinite integrated Main after optimizer step")
+            ckpt.update({
+                "step": step+1, "model":model.state_dict(),
+                "target":target.state_dict(), "magnet":magnet.state_dict(),
+                "optimizer":optimizer.state_dict(),
+                "scheduler":scheduler.state_dict(),
+                "torch_rng":torch.get_rng_state(),
+                "python_rng":random.getstate(),
+                "training_match_ids":ids[:32*(step+1)],
+            })
+            # snapshot state_dict values before mutating next minibatch.
+            ckpt["model"]={k:v.clone() for k,v in model.state_dict().items()}
+            ckpt["target"]={k:v.clone() for k,v in target.state_dict().items()}
+            _atomic_checkpoint(checkpoint_path,ckpt)
+            print(json.dumps({"step":step+1,"steps_total":40,
+                              "accepted_matches_applied":32*(step+1),
+                              "mean_three_phase_loss":sum(losses)/len(losses),
+                              "max_off_policy_ratio":max(ratios),
+                              "research_only":True}),flush=True)
     if ckpt["step"] != OPTIMIZER_STEPS:
         return {"complete":False,"step":ckpt["step"]}
     # A complete generation is the ONLY legal boundary for a new Actor
