@@ -50,8 +50,14 @@ def _stage_actor(args):
             raw = source.read()
         timings["decompress"] = time.perf_counter() - start
         parse_start = time.perf_counter()
-        payload = orjson.loads(raw) if codec == "orjson" else json.loads(raw)
-        del raw
+        try:
+            payload = orjson.loads(raw) if codec == "orjson" else json.loads(raw)
+        except ValueError as exc:
+            # JSONDecodeError constructors are not reliably pickleable through
+            # ProcessPoolExecutor; propagate a stable fail-closed ValueError.
+            raise ValueError("Invalid strict JSON Actor artifact") from exc
+        finally:
+            del raw
         timings["parse"] = time.perf_counter() - parse_start
     else:
         # Keep the original streaming decoder as a measurable reference.
