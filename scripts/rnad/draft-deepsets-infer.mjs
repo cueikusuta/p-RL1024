@@ -114,6 +114,17 @@ function linear(values,weight,bias,outputs){
   }
   return out;
 }
+function linearInto(values,weight,bias,out){
+  // Same left-to-right dot products as linear(), without per-candidate
+  // Float64Array allocations. Scratch remains private to scoreEncoded().
+  const inputs=values.length;
+  for(let j=0;j<out.length;j++){
+    let sum=bias[j],offset=j*inputs;
+    for(let k=0;k<inputs;k++)sum+=values[k]*weight[offset+k];
+    out[j]=sum;
+  }
+  return out;
+}
 function relu(v){
   for(let i=0;i<v.length;i++)v[i]=Math.max(0,v[i]);
   return v;
@@ -216,14 +227,29 @@ export class DeepSetsDraftPolicy{
         throw new TypeError('Malformed encoded own-set features');
       return relu(mlp(f,this.layers,'phi',[48,48]));
     });
+    // A legal pool may contain thousands of six-Pokemon combinations.
+    // Reuse rho aggregation/hidden buffers across candidates. No buffers
+    // escape to the caller; logits and public authority checks are unchanged.
     const result=[];
+    const avg=new Float64Array(48),second=new Float64Array(48);
+    const high=new Float64Array(48),x=new Float64Array(148);
+    const h0=new Float64Array(64),h2=new Float64Array(32);
+    const scalar=new Float64Array(1);
+    const rho0W=this.layers['rho.0.weight'],rho0B=this.layers['rho.0.bias'];
+    const rho2W=this.layers['rho.2.weight'],rho2B=this.layers['rho.2.bias'];
+    const rho4W=this.layers['rho.4.weight'],rho4B=this.layers['rho.4.bias'];
     for(const code of codes){
-      if(!Array.isArray(code)||code.length!==6||
-        new Set(code).size!==6||code.some(i=>!Number.isSafeInteger(i)||
-          i<0||i>=hidden.length))
+      if(!Array.isArray(code)||code.length!==6)
         throw new TypeError('Malformed draft candidate indices');
-      const avg=new Float64Array(48),second=new Float64Array(48);
-      const high=Float64Array.from({length:48},()=>-Infinity);
+      // Fixed-length duplicate detection avoids a Set allocation for
+      // every candidate while still rejecting identical numeric indices.
+      for(let at=0;at<6;at++){
+        const i=code[at];
+        if(!Number.isSafeInteger(i)||i<0||i>=hidden.length||
+          code.indexOf(i)!==at)
+          throw new TypeError('Malformed draft candidate indices');
+      }
+      avg.fill(0);second.fill(0);high.fill(-Infinity);
       let spent=0,carry=0,mega=0;
       for(const i of code){
         const v=hidden[i];spent+=prices[i];carry+=carries[i];mega+=megas[i];
@@ -234,9 +260,12 @@ export class DeepSetsDraftPolicy{
         }
       }
       if(spent>credits)throw new Error('Over-budget legal draft pick');
-      const x=[...avg,...second,...high,spent/100,
-        (credits-spent)/100,carry/6,mega/6];
-      const score=mlp(x,this.layers,'rho',[64,32,1])[0];
+      x.set(avg,0);x.set(second,48);x.set(high,96);
+      x[144]=spent/100;x[145]=(credits-spent)/100;
+      x[146]=carry/6;x[147]=mega/6;
+      relu(linearInto(x,rho0W,rho0B,h0));
+      relu(linearInto(h0,rho2W,rho2B,h2));
+      const score=linearInto(h2,rho4W,rho4B,scalar)[0];
       if(!Number.isFinite(score))throw new Error('Nonfinite model draft score');
       result.push(score);
     }
