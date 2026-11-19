@@ -227,6 +227,11 @@ jobs:
       RNAD_LEARNER_BACKEND: parallel
       RNAD_PARALLEL_VECTOR: '1'
       RNAD_LEARNER_CPU_WORKERS: '4'
+      # Opt-in only in source-correct new generations; leave previous pinned runs untouched.
+      RNAD_PREP_WORKERS: '4'
+      RNAD_PREP_FAST_JSON: '1'
+      RNAD_PREP_CODEC: orjson
+      RNAD_PROFILE_STAGING: '1'
       OMP_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
@@ -240,6 +245,17 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m pip install --disable-pip-version-check orjson==3.13.0
+          python - <<'PY'
+          import os, orjson
+          assert orjson.__version__ == '3.13.0'
+          assert os.environ['RNAD_PREP_WORKERS'] == '4'
+          assert os.environ['RNAD_PREP_FAST_JSON'] == '1'
+          assert os.environ['RNAD_PREP_CODEC'] == 'orjson'
+          from scripts.rnad.shared_league_staging import staging_config
+          assert staging_config() == (4, True, True, 'orjson')
+          print('strict verified 4-worker orjson staging enabled only for fresh source')
+          PY
           node scripts/verify-snapshot.mjs
           python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
       - name: Verify all twenty full accepted actor artifacts before any update
