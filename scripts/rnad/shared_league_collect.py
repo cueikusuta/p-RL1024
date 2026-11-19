@@ -11,6 +11,7 @@ import gzip
 import hashlib
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from scripts.rnad.shared_league_contract import (
@@ -56,7 +57,48 @@ def _verified_match(path, *, seed, seat, match_id, manifest, opponent):
     return row
 
 
-def collect(*, bootstrap, actor_id, out, smoke=False):
+def _batch_chunks(jobs, workers):
+    """Deterministic, disjoint bounded work: each Node stays alive per chunk."""
+    if workers not in (1, 2, 4):
+        raise ValueError("Actor match workers must be 1, 2 or 4")
+    return [part for i in range(workers) if (part := jobs[i::workers])]
+
+
+def _run_actor_jobs(cmd, output, jobs, workers):
+    chunks = _batch_chunks(jobs, workers)
+    commands = []
+    for index, chunk in enumerate(chunks):
+        name = ("actor-batch-jobs.json" if workers == 1 else
+                f"actor-batch-jobs-{index}.json")
+        batch_file = output / name
+        batch_file.write_text(json.dumps({
+            "schema": "rnad-shared-actor-batch-jobs-v1", "jobs": chunk},
+            separators=(",", ":")), encoding="utf-8")
+        commands.append(cmd + ["--batch-jobs", str(batch_file)])
+    if len(commands) == 1:
+        subprocess.run(commands[0], check=True, timeout=1800)
+        return
+    # Only independent seed/seat matches run in parallel. Model snapshots
+    # are read-only, outputs use exclusive creation, and retries validate
+    # every completed authority artifact before accepting it.
+    with ThreadPoolExecutor(max_workers=len(commands)) as executor:
+        futures = [executor.submit(
+            subprocess.run, command, check=True, timeout=1800)
+            for command in commands]
+        first_error = None
+        for future in futures:
+            try:
+                future.result()
+            except (subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired) as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
+
+
+def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1):
+    _batch_chunks([], match_workers)
     root = Path(bootstrap)
     manifest = json.loads((root / "generation-manifest.json").read_text())
     manifest_sha = verify_manifest(manifest)
@@ -129,7 +171,6 @@ def collect(*, bootstrap, actor_id, out, smoke=False):
         cmd.extend(["--legacy", str(opponent_path)])
     elif historical_path is not None:
         cmd.extend(["--opponent", str(historical_path)])
-    batch_file = output / "actor-batch-jobs.json"
     for attempt in range(3):
         missing = []
         for seed, seat, match_id, path in slots:
@@ -140,12 +181,8 @@ def collect(*, bootstrap, actor_id, out, smoke=False):
                 missing.append({"seed": seed, "seat": seat, "out": str(path)})
         if not missing:
             break
-        batch_file.write_text(json.dumps({
-            "schema": "rnad-shared-actor-batch-jobs-v1", "jobs": missing},
-            separators=(",", ":")), encoding="utf-8")
         try:
-            subprocess.run(cmd + ["--batch-jobs", str(batch_file)],
-                           check=True, timeout=1800)
+            _run_actor_jobs(cmd, output, missing, match_workers)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             # Preserve only complete verified Matches from a partially failed
             # batch. The next attempt regenerates exactly the missing pairs.
@@ -200,10 +237,13 @@ def main():
     parser.add_argument("--actor-id", type=int, required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--match-workers", type=int, choices=(1, 2, 4),
+                        default=1, help="Opt-in bounded Node processes per Actor")
     args = parser.parse_args()
     print(json.dumps(collect(
         bootstrap=args.bootstrap, actor_id=args.actor_id,
-        out=args.out, smoke=args.smoke)), flush=True)
+        out=args.out, smoke=args.smoke,
+        match_workers=args.match_workers)), flush=True)
 
 
 if __name__ == "__main__":
