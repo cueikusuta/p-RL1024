@@ -22,7 +22,7 @@
 
 - **常駐Actor（①）**：1 Actorにつき単一Nodeを維持し、最大64完全MatchでSHA検証済みモデルを再利用。各Match・seatのGRU状態は新規生成し、試合別gzipは独立排他的に保存。単独計測64 Matchで約1.012倍に留まったため、倍率の保証はしない。
 - **GRU推論（②）と割当削減（④）**：`infer.mjs` でGRUゲートscratch、および候補用のstate/action連結scratchとhidden scratchを同期呼び出し内だけ再利用。積和の加算順序は旧実装を維持し、両seat・`advance=false`・resetを含む独立スカラー参照との**厳密一致テスト**を追加。推論結果からscratchへの参照を返さない。
-- **合法行動生成と軌跡（③）**：`validateRnadLegalActions` の厳密な重複検査で作成したJSON署名を内部collectorの包含判定にも再利用。外部から受け取る合法actionのclone・公開観測のallowlist・authority receipt検証を削除しない。観測projectionとphase pipelineの権限境界は従来どおり。
+- **合法行動生成と軌跡（③）**：`validateRnadLegalActions` の厳密な重複検査で作成したJSON署名を内部collectorの包含判定にも再利用。観測projector・phase pipelineではallowlist済みプリミティブ値に対する無意味な`structuredClone`を省略し、配列・オブジェクトのdeep clone、function/symbolの拒否、秘密情報の境界は保持。外部から受け取る合法actionのclone・公開観測のallowlist・authority receipt検証を削除しない。
 - **Deep Setsドラフト推論の追加改善（②・④）**：8実受理MatchのCPUプロファイルで`scoreEncoded`の自己サンプル69.84%が最大ホットスポット。`draft-deepsets-infer.mjs`の候補ごとのrho入力・中間層配列を同一`scoreEncoded`呼び出し内で再利用し、6体の重複判定でSetを生成しない。非ゼロ重み・多数合法候補で旧スカラー実装との厳密一致テストを追加し、最新HEADで検証する。これによりスコア・合法候補・試合出力を変更してはならない。実測速度は別途CIで測定する。
 - **履歴I/O（⑤）**：既存PR #8の厳密gzip・SHA検証と一時plain JSON／tensor cacheを維持。未検証cacheを既定にしない。
 - **Actor内並列（⑥）**：`shared_league_collect.py --match-workers 1|2|4` を追加。既定1、2/4は任意のCPU余力があるときのみ明示指定。各プロセスは互いに重複しないseed/seat集合を常駐処理し、失敗時にはすべての完了Artifactを再検証して不足分のみ再試行。20 Actorの**20/20 barrier、共有Learner単一Optimizer、1,280 Match/40更新は不変**。同時に20 Actor×4を無条件で有効化してはならない。
