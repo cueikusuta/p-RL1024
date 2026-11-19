@@ -32,5 +32,6 @@ jobs:
           node scripts/verify-snapshot.mjs
           node --check scripts/rnad/paired-league-stats.mjs
           node --check scripts/rnad/paired-league-eval.mjs
+          node --check scripts/rnad/paired-league-run.mjs
       - name: Paired seed-block tests, multiplicity and fail-closed negative controls
         run: node --test test/rnad-paired-league-eval.test.js
