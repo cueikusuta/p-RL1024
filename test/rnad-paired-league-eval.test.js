@@ -103,11 +103,19 @@ test('independent final holdout must be preregistered and cannot overlap consume
   const p=basePlan();p.stage='final';
   assert.throws(()=>evaluatePairedLeague(p,[old(),challenger()]),/disjoint holdout/);
   p.independent_holdout_precommitted=true;
-  const x=evaluatePairedLeague(p,[old(),challenger()]);
+  assert.throws(()=>evaluatePairedLeague(p,[old(),challenger()]),/disjoint holdout/);
+  p.seed_blocks=512;
+  const x=evaluatePairedLeague(p,[
+    matchReport('G10',(i,seat)=>seat===0,{count:512}),
+    matchReport('G11',(i,seat)=>i%4!==0||seat===0,{count:512}),
+  ]);
   assert.equal(x.diagnostic_only,false);
   assert.equal(x.requires_independent_chatgpt_review,true);
   p.excluded_seed_ranges=[{start:START+10,count:1}];
-  assert.throws(()=>evaluatePairedLeague(p,[old(),challenger()]),/overlaps evaluation/);
+  assert.throws(()=>evaluatePairedLeague(p,[
+    matchReport('G10',(i,seat)=>seat===0,{count:512}),
+    matchReport('G11',(i,seat)=>i%4!==0||seat===0,{count:512}),
+  ]),/overlaps evaluation/);
 });
 test('identical checkpoints, changed weights, duplicate or missing seat fail closed',()=>{
   const good=old(),newer=challenger();
