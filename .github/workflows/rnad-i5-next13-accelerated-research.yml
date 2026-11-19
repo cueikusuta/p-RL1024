@@ -207,6 +207,23 @@ jobs:
           print(json.dumps(report))
           PY
           rm -f smoke/checkpoint-smoke.pt
+          # Do not release the first 20-Actor generation until same-SHA
+          # accelerated regression checks have completed successfully.
+          ci_success=0
+          for attempt in $(seq 1 180); do
+            conclusions="$(gh api "repos/cueikusuta/p-RL1024/actions/runs?head_sha=${GITHUB_SHA}&per_page=100" \
+              --jq '.workflow_runs[] | select(.name == "I5 shared R-NaD throughput isolated regression") | .conclusion' 2>/dev/null || true)"
+            if printf '%s\n' "$conclusions" | grep -qx success; then
+              ci_success=1; break
+            fi
+            if printf '%s\n' "$conclusions" | grep -Eqx 'failure|timed_out|cancelled|action_required'; then
+              echo "Same-source accelerated regression CI is not green" >&2
+              exit 1
+            fi
+            sleep 20
+          done
+          test "$ci_success" = 1
+          echo "Same-source performance CI green; small accepted-Match optimizer/checkpoint smoke green" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
