@@ -1,0 +1,26 @@
+{
+  "schema": "rnad-i5-g1g11g12-preregistered-final-aq-v1",
+  "reviewed_workflow_sha": "2d15b780bdbb4cf0e9097cf272e3e6171bd93cb1",
+  "training_source_sha": "01501f3a1e12511140bf772d435d39c0c07319bc",
+  "engine_sha": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "model_generation_artifacts": {
+    "G1": 14527518068,
+    "G11": 14540081530,
+    "G12": 14541007309
+  },
+  "candidate_fixed_before_evaluation": "G12",
+  "baseline_ids": [
+    "G1",
+    "G11"
+  ],
+  "comparison_family": "G12-G1 and G12-G11 vs same frozen AQ-Base-001",
+  "seed_start": 10700001,
+  "independent_seed_blocks": 2048,
+  "both_seats": true,
+  "expected_complete_matches": 12288,
+  "familywise_alpha": 0.05,
+  "bonferroni_comparisons": 2,
+  "minimum_practical_gain": 0.02,
+  "fixed_sample_and_no_early_peeking": true,
+  "no_auto_champion_or_merge": true
+}
