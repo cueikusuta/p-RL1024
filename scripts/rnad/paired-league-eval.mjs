@@ -14,7 +14,7 @@ const validSha=(s,length)=>typeof s==='string'&&
 const isId=s=>typeof s==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(s);
 const fail=s=>{throw new TypeError('RNAD prospective paired evaluation: '+s);};
 const requireOk=(p,s)=>{if(!p)fail(s);};
-function verifyPlan(p){
+export function verifyPlan(p){
   requireOk(p?.schema===PAIRED_LEAGUE_PLAN_SCHEMA&&
     ['development','final'].includes(p.stage)&&
     ['shared-opponent','direct-head-to-head'].includes(p.evaluation_type)&&
@@ -32,7 +32,9 @@ function verifyPlan(p){
     p.minimum_practical_gain>=0&&p.minimum_practical_gain<1&&
     Array.isArray(p.comparisons)&&p.comparisons.length>=1&&
     p.comparisons.length<=190&&
-    Array.isArray(p.excluded_seed_ranges),
+    Array.isArray(p.excluded_seed_ranges)&&
+    p.model_sha256_by_id&&typeof p.model_sha256_by_id==='object'&&
+    !Array.isArray(p.model_sha256_by_id),
     'missing or malformed preregistered evaluation plan');
   const seen=new Set(),mentioned=new Set();
   for(const c of p.comparisons){
@@ -49,6 +51,9 @@ function verifyPlan(p){
     else requireOk(!mentioned.has(p.opponent_id),
       'common-opponent models may not be the benchmark');
   }
+  requireOk(Object.keys(p.model_sha256_by_id).length===mentioned.size&&
+    [...mentioned].every(id=>validSha(p.model_sha256_by_id[id],64)),
+    'all prospective candidate and Champion weight SHAs must be fixed');
   const covered=new Set();
   for(const r of p.excluded_seed_ranges){
     requireOk(Number.isSafeInteger(r?.start)&&r.start>0&&
@@ -75,6 +80,8 @@ function validateShard(shard,plan){
     shard.source_sha===plan.source_sha&&
     shard.engine_sha===plan.engine_sha&&
     shard.opponent_id===plan.opponent_id&&
+    shard.model_sha256===plan.model_sha256_by_id[shard.model_id]&&
+    (plan.stage!=='final'||shard.historical_reanalysis!==true)&&
     shard.evaluation_policy==='frozen-greedy-no-training'&&
     shard.training_during_evaluation===false&&
     shard.champion_promoted===false&&
@@ -169,7 +176,7 @@ export function evaluatePairedLeague(plan,reports){
       estimand:baseline?'paired-difference-vs-same-frozen-opponent':
         'direct-head-to-head-seat-swapped-win-probability',
       candidate_model_sha256:modelSha.get(c.candidate_model_id),
-      baseline_model_sha256:baseline?modelSha.get(c.baseline_model_id):null,
+      baseline_model_sha256:plan.model_sha256_by_id[c.baseline_model_id],
       candidate_wins:candidate.reduce((n,x)=>n+2*x,0),
       baseline_wins:baseline?baseline.reduce((n,x)=>n+2*x,0):null,
       matches_per_model:2*plan.seed_blocks,
