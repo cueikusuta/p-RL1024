@@ -18,6 +18,15 @@
 - Actor収集・依存導入・20ジョブの待機・転送・復旧・checkpointアップロードを含む**世代総壁時計**の2倍改善は未確認。次回は `Actor開始→20/20検証→Learner 40更新→handoff完了` の各経過時間と総時間、runner-minutes、エラー率、試合/秒、モデル差分を記録する。
 - PR #8 の高速経路（vector/parallel、selection埋込再利用、Actor永続プロセスなど）は**opt-in**で使い、strict parity、実受理Match、数値許容差、最新HEAD CIを満たした経路だけ採用する。ONNX Actorやtorch.compileの未検証経路を既定化しない。
 
+## 追加のシミュレーション高速化（PR #8、品質ゲート未完了）
+
+- **常駐Actor（①）**：1 Actorにつき単一Nodeを維持し、最大64完全MatchでSHA検証済みモデルを再利用。各Match・seatのGRU状態は新規生成し、試合別gzipは独立排他的に保存。単独計測64 Matchで約1.012倍に留まったため、倍率の保証はしない。
+- **GRU推論（②）と割当削減（④）**：`infer.mjs` でGRUゲートscratch、および候補用のstate/action連結scratchとhidden scratchを同期呼び出し内だけ再利用。積和の加算順序は旧実装を維持し、両seat・`advance=false`・resetを含む独立スカラー参照との**厳密一致テスト**を追加。推論結果からscratchへの参照を返さない。
+- **合法行動生成と軌跡（③）**：`validateRnadLegalActions` の厳密な重複検査で作成したJSON署名を内部collectorの包含判定にも再利用。外部から受け取る合法actionのclone・公開観測のallowlist・authority receipt検証を削除しない。観測projectionとphase pipelineの権限境界は従来どおり。
+- **履歴I/O（⑤）**：既存PR #8の厳密gzip・SHA検証と一時plain JSON／tensor cacheを維持。未検証cacheを既定にしない。
+- **Actor内並列（⑥）**：`shared_league_collect.py --match-workers 1|2|4` を追加。既定1、2/4は任意のCPU余力があるときのみ明示指定。各プロセスは互いに重複しないseed/seat集合を常駐処理し、失敗時にはすべての完了Artifactを再検証して不足分のみ再試行。20 Actorの**20/20 barrier、共有Learner単一Optimizer、1,280 Match/40更新は不変**。同時に20 Actor×4を無条件で有効化してはならない。
+- **検証**：CIは単一Node×64、2Node×64、各Matchごと単独Node×64について全ての権威受理軌跡を一致照合し、各ルートの所要時間を記録する。これらは速度の診断であり、有意な実end-to-end改善を単一測定から主張しない。新コミットのソースSHAに合うbootstrapでのみ実学習する。
+
 ## 次の学習runに進む前の必須チェック
 
 - [ ] PR #8 の最新HEADテストと実Matchの受理一致を確認し、**別ChatGPT Chatセッション**による独立レビューで指摘を解消する。PR #6側のP1・既存フェーズentryゲートも未解決を成功扱いしない。
