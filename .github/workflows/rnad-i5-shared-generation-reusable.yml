@@ -20,6 +20,9 @@ jobs:
   actor:
     name: "g${{ inputs.generation }} actor ${{ matrix.actor_id }}"
     runs-on: ubuntu-latest
+    # Only the strict recovery gate may tolerate an initial shard transport failure.
+    # It is NEVER allowed to release the Learner without 20 verified artifacts.
+    continue-on-error: true
     timeout-minutes: 150
     permissions: {contents: read, actions: read}
     strategy:
@@ -98,9 +101,112 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+  inspect:
+    name: "g${{ inputs.generation }} strict failure-only recovery plan"
+    needs: actor
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    outputs:
+      missing: ${{ steps.plan.outputs.missing }}
+      missing_count: ${{ steps.plan.outputs.missing_count }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Recover only missing immutable Actor artifact names, not successful IDs
+        id: plan
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7; do
+            if gh api 'repos/cueikusuta/p-RL1024/actions/runs/${{ github.run_id }}/artifacts?per_page=100' \
+                 --paginate --jq '.artifacts[] | {name,expired}' | \
+                 jq -s '{artifacts:.}' > listing.json; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            sleep "$((attempt * 10))"
+          done
+          python -m scripts.rnad.shared_league_artifact_recovery inspect \
+            --generation "${{ inputs.generation }}" --artifact-json listing.json > plan.json
+          cat plan.json
+          echo "missing=$(jq -c '.missing' plan.json)" >> "$GITHUB_OUTPUT"
+          echo "missing_count=$(jq -r '.missing_count' plan.json)" >> "$GITHUB_OUTPUT"
+          echo "Only missing Actor IDs may be regenerated; original artifacts immutable" >> "$GITHUB_STEP_SUMMARY"
+
+  rescue:
+    name: "g${{ inputs.generation }} only-missing Actor ${{ matrix.actor_id }}"
+    needs: inspect
+    if: ${{ !cancelled() && needs.inspect.outputs.missing_count != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        actor_id: ${{ fromJSON(needs.inspect.outputs.missing) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Use runner's Node22 or SHA-verified official Node archive
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Get the SAME SHA-locked Main/Magnet and regenerate only failed ID's original seeds
+        run: |
+          set -euo pipefail
+          sleep "$(( 4 * ${{ matrix.actor_id }} ))"
+          for attempt in 1 2 3 4 5 6 7; do
+            rm -rf bootstrap
+            if gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+                --name "${{ inputs.bootstrap_artifact }}" --dir bootstrap; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            delay=$((10 << (attempt - 1)))
+            if [ "$delay" -gt 180 ]; then delay=180; fi
+            sleep "$delay"
+          done
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json,subprocess
+          m=json.load(open("bootstrap/generation-manifest.json"))
+          assert m["generation"]==int("${{ inputs.generation }}")
+          assert m["seed_start"]==9900001+640*m["generation"]
+          assert m["source_sha"]==subprocess.check_output(
+              ["git","rev-parse","HEAD"],text=True).strip()
+          PY
+          python -m scripts.rnad.shared_league_collect \
+            --bootstrap bootstrap --actor-id "${{ matrix.actor_id }}" \
+            --out "out/actor-${{ matrix.actor_id }}"
+          test -s "out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-cont-g${{ inputs.generation }}-recovered-actor-${{ matrix.actor_id }}
+          path: out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz
+          retention-days: 3
+          if-no-files-found: error
+
   learner:
     name: "g${{ inputs.generation }} shared single writer and next handoff"
-    needs: actor
+    needs: [actor, inspect, rescue]
+    # Recovery can run only after ALL 20 initial matrix jobs finished.
+    # Even soft-failed jobs may not reach Learner without a strict 20/20 gate.
+    if: ${{ !cancelled() && needs.inspect.result == 'success' && (needs.rescue.result == 'success' || needs.rescue.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 340
     permissions: {contents: read, actions: read}
@@ -147,11 +253,25 @@ jobs:
           }
           download_pinned "${{ inputs.bootstrap_artifact }}" bootstrap
           (cd bootstrap && sha256sum -c file-pins.sha256)
+          # Re-list after recovery. Each of the 20 IDs must resolve to
+          # exactly ONE original OR recovered immutable artifact.
+          # Two variants, stale IDs, missing shards or duplicates fail closed.
+          for attempt in 1 2 3 4 5 6 7; do
+            if gh api 'repos/cueikusuta/p-RL1024/actions/runs/${{ github.run_id }}/artifacts?per_page=100' \
+                 --paginate --jq '.artifacts[] | {name,expired}' | \
+                 jq -s '{artifacts:.}' > listing.json; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            sleep "$((attempt * 10))"
+          done
+          python -m scripts.rnad.shared_league_artifact_recovery resolve \
+            --generation "${{ inputs.generation }}" --artifact-json listing.json > resolved.json
+          test "$(jq -r '.source_artifacts | length' resolved.json)" -eq 20
           for n in $(seq 0 19); do
-            download_pinned "rnad-i5-cont-g${{ inputs.generation }}-actor-$n" \
-              "actors/actor-$n"
+            artifact_name="$(jq -r --argjson n "$n" '.source_artifacts[$n]' resolved.json)"
+            download_pinned "$artifact_name" "actors/actor-$n"
             test -s "actors/actor-$n/actor-$n.json.gz"
           done
+          echo '20/20 distinct accepted source artifacts; full Match receipt verification follows' >> "$GITHUB_STEP_SUMMARY"
       - name: Exactly 1 Learner x 40 NeuRD/V-trace steps; full optimizer/Target/Magnet/RNG state
         run: |
           set -euo pipefail
