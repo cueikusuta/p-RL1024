@@ -32,7 +32,7 @@ jobs:
       - name: Check bitwise GRU and legal support / bounded worker contracts
         run: |
           set -euo pipefail
-          node --test test/rnad-infer-allocation-parity.test.js test/rnad-draft-fastpath-parity.test.js test/rnad-draft-deepsets-inference.test.js test/rnad-stage0-contract.test.js
+          node --test test/rnad-infer-allocation-parity.test.js test/rnad-draft-fastpath-parity.test.js test/rnad-draft-deepsets-inference.test.js test/rnad-stage0-contract.test.js test/phase-pipeline-contract.test.js
           python -m unittest discover -s test -p rnad_shared_actor_match_parallel_test.py -v
       - name: Install pinned CPU PyTorch
         run: |
