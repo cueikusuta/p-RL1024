@@ -33,6 +33,8 @@ jobs:
           set -euo pipefail
           python -m py_compile scripts/rnad/shared_league_staging.py scripts/rnad/shared_league_learner.py scripts/rnad/shared_league_prep_profile.py
           python -m unittest discover -s test -p rnad_shared_league_staging_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
+          python -m unittest discover -s test -p rnad_shared_learner_checkpoint_test.py -v
   historical-staging:
     needs: regression
     runs-on: ubuntu-latest
