@@ -18,10 +18,12 @@
 
 - 計算：[`scripts/rnad/paired-league-stats.mjs`](../../../scripts/rnad/paired-league-stats.mjs)
 - **次の新規評価用**fail-closed集計：[`scripts/rnad/paired-league-eval.mjs`](../../../scripts/rnad/paired-league-eval.mjs)
+- **実際の権威Match評価shard生成**：[`scripts/rnad/paired-league-run.mjs`](../../../scripts/rnad/paired-league-run.mjs)。既存G012の凍結相手セッションと同じ実戦エンジンを使用し、AQ共通対照・世代対Champion直接H2Hを別モードで実行。完全一致する`source/engine/model SHA`を要求し、seed×席の2Match単位で分割。学習重み・リーグ主ループは変更しない。
 - 契約・退行検証：[`test/rnad-paired-league-eval.test.js`](../../../test/rnad-paired-league-eval.test.js)
 - ランナー：GitHub-hosted **ubuntu-latest**。学習用セルフホストへの移行なし。既存S0～S2の学習・今までの固定launch workflowは不変。
 - 新しく計画するたびに`rnad-i5-prospective-paired-league-plan-v1` JSONを**評価開始前にIssue #5へ登録しSHA固定**する。最低限`stage`（development/final）、`evaluation_type`（shared-opponent/direct-head-to-head）、比較するモデルID、評価source/engine SHA、benchmark/Champion ID、モデル重みSHA、完全未使用のseed_start/seed_blocks、学習・development・消費済holdoutの`excluded_seed_ranges`、familywise α、比較family、minimum_practical_gain、固定試合数と中間閲覧/停止規則、想定の効果量と検出力を記す。
 - 原入力は各候補・各モデル版の `rnad-i5-frozen-paired-match-evidence-v1`：2席×各seedの`completed:true`、4勝Matchの`score`、`rounds`、`accepted_decisions`、`won`、`source_sha`/ `engine_sha`/ `model_sha256`、評価中no-trainingを厳密照合する。複数shardを結合可能だが欠落/重複/体裁不整合/同一版の重み変化は拒否。
+- 評価shard CLI：`node scripts/rnad/paired-league-run.mjs --plan PLAN.json --model-dir FROZEN_DIR --model-id G11 --part 0 --parts 8 --out SHARD.json`（直接H2Hでは`--baseline-dir CHAMPION_DIR`も必須）。これを計画済みの全model×partで実行し、全shardを回収する。
 - 集計CLI：`node scripts/rnad/paired-league-eval.mjs PLAN.json REPORT.json SHARD1.json [SHARD2.json ...]`。出力が `statistical_gate_passed:true` でも**Champion書込・学習再開・PRマージの操作は一切行わない**。原Artifactが実GitHub Runで受理されたMatchかどうかは、別のsource-bound収集/Artifact SHA検証で確証する必要があり、自己申告JSONだけで本番昇格してはならない。
 - 完了した学習世代のチェックポイントを**評価時に凍結**し、同一モデル版を両席・全shardで使う。開発評価で使ったseedを最終の未使用確認へ再利用しない。学習中のリーグ戦は非定常・方策変更中なので正式な独立確認データに転用しない。
 
@@ -50,6 +52,10 @@
   "model_selection_before_holdout": true,
   "automatic_champion_promotion": false,
   "minimum_practical_gain": 0,
+  "model_sha256_by_id": {
+    "G11": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "G10": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
   "excluded_seed_ranges": [{"start":6200001,"count":128}],
   "comparisons": [{"candidate_model_id":"G11","baseline_model_id":"G10"}]
 }
