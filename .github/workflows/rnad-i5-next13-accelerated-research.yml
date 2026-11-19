@@ -151,6 +151,53 @@ jobs:
           python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
             --actor-id 18 --smoke --out smoke/frozen
           test "$(find smoke -name '*.json.gz' | wc -l)" -eq 4
+          # This is a functional optimizer/checkpoint smoke only, never a strength estimate.
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          python - <<'PY'
+          import gzip, hashlib, json, math
+          from pathlib import Path
+          import torch
+          from scripts.rnad.shared_league_learner import _models, _match_loss
+          torch.set_num_threads(1)
+          root=Path("bootstrap")
+          cp=torch.load(root/"checkpoint-g0.pt",map_location="cpu",weights_only=True)
+          model,target,magnet,optimizer,scheduler=_models(root,cp)
+          losses=[]
+          for directory,role in (("self","self"),("frozen","fixed")):
+              matches=sorted((Path("smoke")/directory/"accepted").glob("*.json.gz"))
+              assert len(matches)==2, f"Expected 2 accepted Matches from {directory}"
+              with gzip.open(matches[0],"rt") as src: record=json.load(src)
+              assert record["completed"] is True
+              loss,ratio=_match_loss(model,target,magnet,record,role=role)
+              assert math.isfinite(float(loss.detach())) and math.isfinite(float(ratio))
+              (loss/2).backward()
+              losses.append(float(loss.detach()))
+          norm=torch.nn.utils.clip_grad_norm_(model.parameters(),10.0,error_if_nonfinite=True)
+          assert math.isfinite(float(norm))
+          optimizer.step()
+          scheduler.step()
+          assert all(torch.isfinite(p).all() for p in model.parameters())
+          cp["model"]={k:v.clone() for k,v in model.state_dict().items()}
+          cp["optimizer"]=optimizer.state_dict()
+          cp["scheduler"]=scheduler.state_dict()
+          cp["torch_rng"]=torch.get_rng_state()
+          torch.save(cp,"smoke/checkpoint-smoke.pt")
+          restored=torch.load("smoke/checkpoint-smoke.pt",map_location="cpu",weights_only=True)
+          model2,_,_,optimizer2,scheduler2=_models(root,restored)
+          assert all(torch.equal(a,b) for a,b in zip(model.parameters(),model2.parameters()))
+          assert optimizer2.state_dict()["state"]
+          assert scheduler2.last_epoch == scheduler.last_epoch
+          report={"schema":"rnad-i5-next13-two-match-optimizer-smoke-v1",
+                  "complete_real_matches_generated":4,
+                  "matches_used_in_smoke_optimizer":2,
+                  "finite_losses":True,"optimizer_step":1,
+                  "checkpoint_restored":True,
+                  "not_a_full_generation":True,"not_a_strength_claim":True}
+          (Path("smoke")/"small-optimizer-report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print(json.dumps(report))
+          PY
+          rm -f smoke/checkpoint-smoke.pt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
