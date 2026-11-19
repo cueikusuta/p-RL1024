@@ -1,0 +1,95 @@
+name: I5 Learner staging real 1280-Match CPU profile
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - scripts/rnad/shared_league_staging.py
+      - scripts/rnad/shared_league_prep_profile.py
+      - scripts/rnad/shared_league_learner.py
+      - test/rnad_shared_league_staging_test.py
+      - .github/workflows/rnad-i5-learner-staging-profile.yml
+  workflow_dispatch:
+permissions: {contents: read, actions: read}
+concurrency:
+  group: i5-learner-staging-profile-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Run pure-Python staging syntax and strict-contract tests
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/rnad/shared_league_staging.py scripts/rnad/shared_league_learner.py scripts/rnad/shared_league_prep_profile.py
+          python -m unittest discover -s test -p rnad_shared_league_staging_test.py -v
+  historical-staging:
+    needs: regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install exact CPU torch and NumPy for historical accepted replay
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Download original immutable authority-accepted 1280 Match G0
+        run: |
+          set -euo pipefail
+          mkdir -p bootstrap actors
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-bootstrap --dir bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          for i in $(seq 0 19); do
+            mkdir -p "actors/actor-$i"
+            gh run download 44318145987 --repo cueikusuta/p-RL1024 \
+              --name "rnad-i5-shared-main-g0-actor-$i" --dir "actors/actor-$i"
+            test -s "actors/actor-$i/actor-$i.json.gz"
+          done
+      - name: Repeat historical staging on identical input, verify every JSON SHA and 40-step replay
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_prep_profile \
+            --bootstrap bootstrap --actors actors --repeats 2 \
+            --out rnad-learner-staging-report.json | tee profile.log
+          python - <<'PY'
+          import json
+          r=json.load(open('rnad-learner-staging-report.json'))
+          assert r['accepted_complete_four_win_matches']==1280
+          assert r['one_optimizer_forty_updates_per_trial']
+          assert len(r['measurements']) == 8
+          assert all(x['all_1280_sha256_equal'] for x in r['measurements'])
+          assert all(x['max_model_parameter_delta'] < 1e-5 for x in r['measurements'] if x['label']=='fast-two')
+          with open('profile-summary.md','w') as f:
+              f.write('## I5 historical CPU staging profile (research only)\n')
+              f.write('| Variant | Trials, seconds | Median, seconds |\n')
+              f.write('|---|---|---:|\n')
+              for key in ('stage_reference','stage_fast_one','stage_fast_two','stage_fast_four','combined_reference','combined_fast_two'):
+                  item=r[key]
+                  f.write(f"| {key} | {item['trials']} | {item['median']} |\n")
+              f.write(f"\nStage <=60s all trials: {r['stage_fast_two_below_60s_on_all_trials']}\n")
+              f.write('\nNo published model or strength comparison.\n')
+          PY
+          cat profile-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-learner-staging-cpu-profile
+          path: |
+            rnad-learner-staging-report.json
+            profile-summary.md
+          retention-days: 30
+          if-no-files-found: warn
