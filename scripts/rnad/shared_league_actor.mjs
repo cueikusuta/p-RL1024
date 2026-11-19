@@ -140,7 +140,7 @@ function sample(p,rng){
   return p.length-1;
 }
 
-function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02}){
+export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false}){
   assert(finite(epsilon)&&epsilon>0&&epsilon<=.1,'Invalid behavior epsilon');
   const legacy=legacyPath!==null;
   const main=legacy?readLegacy(legacyPath,legacySha):readBundle(modelDir);
@@ -186,7 +186,7 @@ function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02}
         ref.length===legalActions.length&&finite(value),'Bad model/legal candidates');
       const pi=softmax(logits),mp=softmax(ref);
       const probs=pi.map(x=>(1-epsilon)*x+epsilon/pi.length);
-      const ix=sample(probs,rng);
+      const ix=greedy?logits.reduce((best,x,i)=>x>logits[best]?i:best,0):sample(probs,rng);
       pending={seat,round,phase:observation.phase,
         action:legalActions[ix],index:ix,phase_input:phaseInput,
         policy_pi:pi,magnet_pi:mp,

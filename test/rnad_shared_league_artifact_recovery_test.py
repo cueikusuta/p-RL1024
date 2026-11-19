@@ -54,8 +54,17 @@ class SharedArtifactRecoveryTests(unittest.TestCase):
                     self.original + [artifact_name(
                         self.generation, 16, recovered=True)]))
 
-    def test_rescued_appeared_before_inspection_fails_closed(self):
-        with self.assertRaisesRegex(ValueError, "pre-existing rescue"):
+    def test_inspection_is_idempotent_after_one_successful_rescue(self):
+        old = [item for i,item in enumerate(self.original) if i != 16]
+        repaired = artifact_name(self.generation, 16, recovered=True)
+        self.assertEqual(
+            missing_actor_ids(self.generation, rows(old + [repaired])), [])
+        self.assertEqual(
+            accepted_artifact_names(self.generation, rows(old + [repaired]))[16],
+            repaired)
+
+    def test_conflicting_original_and_rescue_fail_closed(self):
+        with self.assertRaisesRegex(ValueError, "Ambiguous"):
             missing_actor_ids(
                 self.generation, rows(self.original + [
                     artifact_name(self.generation, 16, recovered=True)]))

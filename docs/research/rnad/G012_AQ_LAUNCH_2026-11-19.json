@@ -1,0 +1,29 @@
+{
+  "schema": "rnad-i5-shared-g012-heldout-aq-launch-v1",
+  "experiment": "completed training G0/G1/G2 -> checkpoint generations 1/2/3",
+  "source_sha": "f5ea7e21cd9d445b466cbc60aea41ea2605d6f99",
+  "training_run": 44325967962,
+  "training_attempt": 2,
+  "finished_generations": [
+    0,
+    1,
+    2
+  ],
+  "artifact_names": [
+    "rnad-i5-cont-bootstrap-g1",
+    "rnad-i5-cont-next-bootstrap-after-g1",
+    "rnad-i5-cont-next-bootstrap-after-g2"
+  ],
+  "heldout_first_seed": 9500001,
+  "heldout_last_seed": 9504096,
+  "seed_clusters_per_model": 4096,
+  "both_seats": true,
+  "complete_4win_matches_per_model": 8192,
+  "total_evaluation_matches": 24576,
+  "benchmark": "AQ-Base-001 exact integrated strategy-match",
+  "model_inference": "greedy-no-training",
+  "simultaneous_familywise_alpha": 0.05,
+  "comparisons": 6,
+  "champion_promoted": false,
+  "main_merged": false
+}

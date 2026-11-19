@@ -1,0 +1,46 @@
+name: I5 shared league twenty-way egress and recovery unit CI
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - .github/workflows/rnad-i5-shared-artifact-recovery-ci.yml
+      - .github/workflows/rnad-i5-shared-generation-reusable.yml
+      - scripts/rnad/shared_league_artifact_recovery.py
+      - test/rnad_shared_league_artifact_recovery_test.py
+permissions: {}
+concurrency:
+  group: rnad-i5-transport-recovery-unit
+  cancel-in-progress: true
+
+jobs:
+  strict_recovery_unit:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Test exact 20 Actor names and idempotent missing-only recovery contracts
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s test -p rnad_shared_league_artifact_recovery_test.py -v
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('.github/workflows/rnad-i5-shared-generation-reusable.yml').read_text()
+          dollar = chr(36)
+          assert 'max-parallel: 20' in s
+          assert 'actor_id: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]' in s
+          assert 'actor_id: '+dollar+'{{ fromJSON(needs.inspect.outputs.missing) }}' in s
+          assert 'continue-on-error: true' in s
+          assert 'needs: [actor, inspect, rescue]' in s
+          assert "needs.inspect.result == 'success'" in s
+          assert "needs.rescue.result == 'success'" in s
+          assert "needs.rescue.result == 'skipped'" in s
+          assert 'shared_league_artifact_recovery inspect' in s
+          assert 'shared_league_artifact_recovery resolve' in s
+          assert 'recovered-actor-'+dollar+'{{ matrix.actor_id }}' in s
+          assert '(cd bootstrap && sha256sum -c file-pins.sha256)' in s
+          assert 'for attempt in 1 2 3 4 5 6 7; do' in s
+          print('Twenty initial Actors; strict failure-only replay and single Learner gate PASS')
+          PY
