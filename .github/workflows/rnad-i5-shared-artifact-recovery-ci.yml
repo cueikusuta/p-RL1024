@@ -31,7 +31,38 @@ jobs:
           s=Path('.github/workflows/rnad-i5-shared-generation-reusable.yml').read_text()
           assert 'max-parallel: 20' in s
           assert 'actor_id: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]' in s
-          assert 'actor_id: ${{ fromJSON(needs.inspect.outputs.missing) }}' in s
+          assert 'actor_id: 
+          assert 'continue-on-error: true' in s
+          assert 'needs: [actor, inspect, rescue]' in s
+          assert "needs.inspect.result == 'success'" in s
+          assert "needs.rescue.result == 'success'" in s
+          assert "needs.rescue.result == 'skipped'" in s
+          assert 'shared_league_artifact_recovery inspect' in s
+          assert 'shared_league_artifact_recovery resolve' in s
+          assert 'recovered-actor-
+          assert '(cd bootstrap && sha256sum -c file-pins.sha256)' in s
+          assert 'for attempt in 1 2 3 4 5 6 7; do' in s
+          print('Twenty initial Actors, one failure-only dynamic rescue matrix, strict single-writer gate PASS')
+          PY
+ + '{{ fromJSON(needs.inspect.outputs.missing) }}' in s
+          assert 'continue-on-error: true' in s
+          assert 'needs: [actor, inspect, rescue]' in s
+          assert "needs.inspect.result == 'success'" in s
+          assert "needs.rescue.result == 'success'" in s
+          assert "needs.rescue.result == 'skipped'" in s
+          assert 'shared_league_artifact_recovery inspect' in s
+          assert 'shared_league_artifact_recovery resolve' in s
+          assert 'recovered-actor-${{ matrix.actor_id }}' in s
+          assert '(cd bootstrap && sha256sum -c file-pins.sha256)' in s
+          assert 'for attempt in 1 2 3 4 5 6 7; do' in s
+          print('Twenty initial Actors, one failure-only dynamic rescue matrix, strict single-writer gate PASS')
+          PY
+ + '{{ matrix.actor_id }}' in s
+          assert '(cd bootstrap && sha256sum -c file-pins.sha256)' in s
+          assert 'for attempt in 1 2 3 4 5 6 7; do' in s
+          print('Twenty initial Actors, one failure-only dynamic rescue matrix, strict single-writer gate PASS')
+          PY
+ + '{{ fromJSON(needs.inspect.outputs.missing) }}' in s
           assert 'continue-on-error: true' in s
           assert 'needs: [actor, inspect, rescue]' in s
           assert "needs.inspect.result == 'success'" in s
