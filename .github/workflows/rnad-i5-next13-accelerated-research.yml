@@ -1,0 +1,303 @@
+name: I5 accelerated 13-generation shared league (source-pinned smoke first)
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - docs/research/rnad/NEXT13_SHARED_LEAGUE_LAUNCH_2026-11-19.json
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-next13-accelerated-research
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Confirm one-shot immutable 20 Actor 40 update research protocol
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/NEXT13_SHARED_LEAGUE_LAUNCH_2026-11-19.json').read_text())
+          assert m == {
+            'schema':'rnad-i5-next13-accelerated-research-launch-v1',
+            'source_sha':subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip(),
+            'generation_count':13,'actor_count':20,'seeds_per_actor':32,
+            'both_seats':True,'complete_matches_per_generation':1280,
+            'updates_per_generation':40,'github_hosted_cpu_only':True,
+            'small_real_match_smoke_first':True,'recovery_fail_closed':True,
+            'no_automatic_champion_promotion':True
+          },m
+          PY
+          python -m py_compile scripts/rnad/shared_league_bootstrap.py \
+            scripts/rnad/integrated_policy_v1.py \
+            scripts/rnad/shared_league_contract.py \
+            scripts/rnad/shared_league_collect.py \
+            scripts/rnad/shared_league_learner.py
+          node --check scripts/rnad/shared_league_actor.mjs
+      - name: Install bounded CPU PyTorch + deterministic NumPy
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Trainable three-head graph, 20 actor aggregation and seed/restart contract tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s test -p rnad_integrated_policy_v1_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
+          python -m unittest discover -s test -p rnad_neural_test.py -v
+          python -m unittest discover -s test -p rnad_draft_battle_holdout_recovery_test.py -v
+          node --test test/rnad-authority-match.test.js test/rnad-receipts.test.js test/rnad-three-phase.test.js test/rnad-infer-allocation-parity.test.js test/rnad-draft-fastpath-parity.test.js test/rnad-paired-league-eval.test.js
+          python -m unittest discover -s test -p rnad_shared_league_advanced_perf_test.py -v
+
+  bootstrap:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned torch CPU
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Download and pin only previously trained specialist/model artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/DB frozen/A frozen/AJS frozen/old
+          gh run download 44096608535 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-frozen-trained-model-archive --dir frozen/DB
+          gh run download 44067733118 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-A-4096-six-models-and-dev --dir frozen/A
+          gh run download 44085352444 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-A4096-vs-A2048-public-js-SHA-checked --dir frozen/AJS
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir frozen/old
+          for path in frozen/DB/draft512/draft512-e6.json \
+              frozen/DB/draft512/study.json \
+              frozen/DB/battle512/trained-model.json \
+              frozen/DB/battle512/teacher-report.json \
+              frozen/A/selection-A-4096-e60-s90252.pt \
+              frozen/A/selection-A-4096-development.json \
+              frozen/AJS/A4096.json frozen/old/manifest.json; do
+            test -s "$path"
+          done
+          python -m scripts.rnad.shared_league_bootstrap \
+            --draft frozen/DB/draft512/draft512-e6.json \
+            --draft-report frozen/DB/draft512/study.json \
+            --selection frozen/A/selection-A-4096-e60-s90252.pt \
+            --selection-study frozen/A/selection-A-4096-development.json \
+            --selection-js frozen/AJS/A4096.json \
+            --battle frozen/DB/battle512/trained-model.json \
+            --battle-report frozen/DB/battle512/teacher-report.json \
+            --old-pool frozen/old --out bootstrap
+          python - <<'PY'
+          import json
+          m=json.load(open('bootstrap/generation-manifest.json'))
+          assert len(m['opponents']['fixed'])==3
+          assert m['actor_count']==20 and m['optimizer_steps']==40
+          assert m['seed_start']==9900001
+          PY
+          cp frozen/DB/draft512/draft512-e6.json bootstrap/original-draft.json
+          cp frozen/AJS/A4096.json bootstrap/original-selection-js.json
+          (cd bootstrap && sha256sum actor/*.json fixed/*.json \
+            checkpoint-g0.pt > file-pins.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-next13-g0-bootstrap
+          path: bootstrap/
+          retention-days: 90
+          if-no-files-found: error
+
+  authority_smoke:
+    needs: bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Real complete four-win Match acceptance with self and frozen opponent
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-next13-g0-bootstrap --dir bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          node scripts/verify-snapshot.mjs
+          python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
+            --actor-id 0 --smoke --out smoke/self
+          python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
+            --actor-id 18 --smoke --out smoke/frozen
+          test "$(find smoke -name '*.json.gz' | wc -l)" -eq 4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-next13-small-real-match-smoke
+          path: smoke/
+          retention-days: 30
+          if-no-files-found: warn
+
+  g0:
+    needs: authority_smoke
+    if: ${{ needs.authority_smoke.result == 'success' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 0
+      bootstrap_artifact: rnad-i5-next13-g0-bootstrap
+    permissions:
+      contents: read
+      actions: read
+
+  g1:
+    needs: g0
+    if: ${{ needs.g0.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 1
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g0
+    permissions:
+      contents: read
+      actions: read
+
+  g2:
+    needs: g1
+    if: ${{ needs.g1.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 2
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g1
+    permissions:
+      contents: read
+      actions: read
+
+  g3:
+    needs: g2
+    if: ${{ needs.g2.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 3
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g2
+    permissions:
+      contents: read
+      actions: read
+
+  g4:
+    needs: g3
+    if: ${{ needs.g3.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 4
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g3
+    permissions:
+      contents: read
+      actions: read
+
+  g5:
+    needs: g4
+    if: ${{ needs.g4.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 5
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g4
+    permissions:
+      contents: read
+      actions: read
+
+  g6:
+    needs: g5
+    if: ${{ needs.g5.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 6
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g5
+    permissions:
+      contents: read
+      actions: read
+
+  g7:
+    needs: g6
+    if: ${{ needs.g6.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 7
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g6
+    permissions:
+      contents: read
+      actions: read
+
+  g8:
+    needs: g7
+    if: ${{ needs.g7.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 8
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g7
+    permissions:
+      contents: read
+      actions: read
+
+  g9:
+    needs: g8
+    if: ${{ needs.g8.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 9
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g8
+    permissions:
+      contents: read
+      actions: read
+
+  g10:
+    needs: g9
+    if: ${{ needs.g9.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 10
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g9
+    permissions:
+      contents: read
+      actions: read
+
+  g11:
+    needs: g10
+    if: ${{ needs.g10.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 11
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g10
+    permissions:
+      contents: read
+      actions: read
+
+  g12:
+    needs: g11
+    if: ${{ needs.g11.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 12
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g11
+    permissions:
+      contents: read
+      actions: read
