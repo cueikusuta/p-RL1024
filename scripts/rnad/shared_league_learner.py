@@ -41,7 +41,10 @@ SHUFFLE_SEED = 11520261118
 
 
 def _load(path):
-    with gzip.open(path, "rt") as source:
+    """Decode immutable actor gzip or strict-verified plain JSON without recompression."""
+    path = Path(path)
+    with (gzip.open(path, "rt") if path.suffix == ".gz"
+          else path.open("r", encoding="utf-8")) as source:
         return json.load(source)
 
 
@@ -99,6 +102,28 @@ def _inputs(phase, p):
             torch.tensor([p["actions"]], dtype=torch.float32))
 
 
+def _selection_batch(model, target, magnet, events, train_seats):
+    """Batch independent selection-head forwards, never recurrent Battle."""
+    indices = [i for i, row in enumerate(events)
+               if row["actor"] in train_seats and row["phase"] == "selection"]
+    if not indices:
+        return {}
+    fields = (("own_cat", torch.long), ("foe_cat", torch.long),
+              ("own_num", torch.float32), ("foe_num", torch.float32))
+    observations = {
+        key: torch.tensor([events[i]["phase_input"][key] for i in indices],
+                          dtype=dtype)
+        for key, dtype in fields
+    }
+    logits, values = model.selection_forward_batch(observations)
+    with torch.no_grad():
+        target_logits, target_values = target.selection_forward_batch(observations)
+        magnet_logits, _ = magnet.selection_forward_batch(observations)
+    return {index: (logits[j], values[j], target_logits[j],
+                    target_values[j], magnet_logits[j])
+            for j, index in enumerate(indices)}
+
+
 def _match_loss(model, target, magnet, record, *, role):
     own_seat = record["learner_seat"]
     train_seats = (0, 1) if role == "self" else (own_seat,)
@@ -106,7 +131,9 @@ def _match_loss(model, target, magnet, record, *, role):
                 for key, net in (("main", model), ("target", target),
                                  ("magnet", magnet))}
     inputs, terms = [], []
-    for row in record["events"]:
+    selection_outputs = _selection_batch(
+        model, target, magnet, record["events"], train_seats)
+    for event_index, row in enumerate(record["events"]):
         seat, phase = row["actor"], row["phase"]
         if seat not in train_seats:
             # Frozen agent probabilities/values were logged only AFTER
@@ -121,19 +148,23 @@ def _match_loss(model, target, magnet, record, *, role):
             })
             inputs.append((None, None, phase))
             continue
-        observation, legal = _inputs(phase, row["phase_input"])
-        logits, value, next_memory = model(
-            phase, observation, legal, memories["main"][seat])
-        if phase == "battle":
-            memories["main"][seat] = next_memory.detach()
-        with torch.no_grad():
-            t, t_value, next_t = target(
-                phase, observation, legal, memories["target"][seat])
-            m, _, next_m = magnet(
-                phase, observation, legal, memories["magnet"][seat])
+        if phase == "selection":
+            logits, value, t, t_value, m = selection_outputs[event_index]
+        else:
+            observation, legal = _inputs(phase, row["phase_input"])
+            logits, value, next_memory = model(
+                phase, observation, legal, memories["main"][seat])
             if phase == "battle":
-                memories["target"][seat] = next_t
-                memories["magnet"][seat] = next_m
+                memories["main"][seat] = next_memory.detach()
+            with torch.no_grad():
+                t, t_value, next_t = target(
+                    phase, observation, legal, memories["target"][seat])
+                m, _, next_m = magnet(
+                    phase, observation, legal, memories["magnet"][seat])
+                if phase == "battle":
+                    memories["target"][seat] = next_t
+                    memories["magnet"][seat] = next_m
+        with torch.no_grad():
             target_pi, magnet_pi = torch.softmax(t, -1), torch.softmax(m, -1)
             original = torch.tensor(row["magnet_pi"], dtype=torch.float32)
             if magnet_pi.shape != original.shape or (
@@ -220,8 +251,9 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
         roles[payload["role"]] += 1
         for row in payload["matches"]:
             name = row["match_id"]
-            with gzip.open(verified / (name + ".json.gz"), "wt",
-                           compresslevel=4) as output_match:
+            # Strict validation has already happened. Do not recompress all
+            # 1,280 Matches only to decompress them in the learner.
+            with (verified / (name + ".json")).open("w", encoding="utf-8") as output_match:
                 json.dump(row, output_match,
                           separators=(",", ":"), allow_nan=False)
             meta.append({"match_id": name, "role": payload["role"]})
@@ -279,7 +311,7 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
         optimizer.zero_grad(set_to_none=True)
         losses,ratios=[],[]
         for choice in selected:
-            record = _load(verified / (choice["match_id"] + ".json.gz"))
+            record = _load(verified / (choice["match_id"] + ".json"))
             loss,ratio=_match_loss(model,target,magnet,record,
                                    role=choice["role"])
             (loss/32).backward()
