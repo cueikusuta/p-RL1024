@@ -17,3 +17,7 @@
 - 新たなRunを発行する前に、80%基準の**検出力・コストと試合数**を計画に明示する。古い計画から自動で12,288Matchを再実行しない。
 
 Goalは既存[Issue #5](https://github.com/cueikusuta/p-RL1024/issues/5)／[Draft PR #6](https://github.com/cueikusuta/p-RL1024/pull/6) を継続する。Champion変更／PRマージは、対象の品質ゲートと別ChatGPTセッション独立レビュー完了までしない。
+
+## 2026-11-19：将来のリーグ強度評価の対応あり検定
+
+本Issueの[前向き対応ありリーグ評価契約](PAIRED_LEAGUE_EVALUATION_2026-11-19.md)で、**新規評価専用**の `rnad-i5-prospective-paired-league-plan-v1` と `scripts/rnad/paired-league-eval.mjs` を追加。familywise **80%** の既定方針、両席をまとめた独立seedブロック、候補数に対するBonferroni補正を維持し、ブロックの実測分散を使うStudent-tを主判定にする。直接H2H（帰無50%）と共通AQ差（帰無0pt）を混同しない。最終判定は最低512独立seedブロック、学習と異なる未使用seed、事前固定の検出目標・試合数・モデルSHAが必須。旧Run/集計器・旧95%判断は変更しない。なおStudent-tは分布自由な有限標本保証ではなく、独立ChatGPTレビューと出自付き原Match証拠の検証は引き続き必要。
