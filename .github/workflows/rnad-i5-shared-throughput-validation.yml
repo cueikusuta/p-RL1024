@@ -29,6 +29,11 @@ jobs:
           node --check scripts/rnad/shared_league_actor.mjs
           python -m py_compile scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py scripts/rnad/shared_league_batched.py scripts/rnad/shared_league_parallel.py scripts/rnad/shared_league_parallel_parity.py scripts/rnad/shared_league_pipelined.py scripts/rnad/shared_league_onnx_cpu_export.py scripts/rnad/shared_league_compiler_repeat.py
           node scripts/verify-snapshot.mjs
+      - name: Check bitwise GRU and legal support / bounded worker contracts
+        run: |
+          set -euo pipefail
+          node --test test/rnad-infer-allocation-parity.test.js test/rnad-stage0-contract.test.js
+          python -m unittest discover -s test -p rnad_shared_actor_match_parallel_test.py -v
       - name: Install pinned CPU PyTorch
         run: |
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
@@ -100,6 +105,11 @@ jobs:
           result=collect(bootstrap="bootstrap",actor_id=0,out="batched")
           fast_elapsed=time.monotonic()-start
           assert result["accepted_matches"]==64
+          start=time.monotonic()
+          parallel=collect(bootstrap="bootstrap",actor_id=0,
+                           out="parallel",match_workers=2)
+          parallel_elapsed=time.monotonic()-start
+          assert parallel["accepted_matches"]==64
           Path("serial").mkdir(exist_ok=True)
           meta="batched/actor-meta.json"
           magnet="bootstrap/magnet" if Path("bootstrap/magnet").exists() else "bootstrap/actor"
@@ -118,7 +128,9 @@ jobs:
                       serial=json.load(f)
                   with gzip.open(Path("batched/accepted")/(ident+".json.gz"),"rt") as f:
                       batch=json.load(f)
-                  assert serial==batch, f"Actor seed/seat parity failed: {ident}"
+                  with gzip.open(Path("parallel/accepted")/(ident+".json.gz"),"rt") as f:
+                      concurrent=json.load(f)
+                  assert serial==batch==concurrent, f"Actor seed/seat parity failed: {ident}"
           serial_elapsed=time.monotonic()-start
           report={
               "schema":"rnad-i5-actor-batch-parity-timing-research-v1",
@@ -127,8 +139,12 @@ jobs:
               "matches":64,"paired_seeds":32,
               "decoded_accepted_trajectory_identical":True,
               "persistent_actor_seconds":round(fast_elapsed,3),
+              "two_node_process_actor_seconds":round(parallel_elapsed,3),
               "single_match_process_seconds":round(serial_elapsed,3),
               "speed_ratio_old_over_new":round(serial_elapsed/fast_elapsed,3),
+              "speed_ratio_persistent_over_two_process":round(
+                  fast_elapsed/parallel_elapsed,3),
+              "two_process_authoritative_trajectories_identical":True,
               "strength_or_champion_claim":False,
           }
           print(json.dumps(report,indent=2),flush=True)
