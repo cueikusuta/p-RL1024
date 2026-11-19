@@ -291,10 +291,10 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
     from scripts.rnad.shared_league_staging import (
         stage_verified_actors, staging_config,
     )
-    prep_workers, fast_json, profile_staging = staging_config()
+    prep_workers, fast_json, profile_staging, prep_codec = staging_config()
     match_ids, meta, roles = stage_verified_actors(
         manifest, paths, verified, tensor_cache=tensor_cache,
-        workers=prep_workers, fast_json=fast_json,
+        workers=prep_workers, fast_json=fast_json, codec=prep_codec,
         profile=profile_staging,
     )
     expected_roles = {"self": 8, "historical": 6,
