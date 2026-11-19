@@ -1,0 +1,49 @@
+name: I5 shared R-NaD throughput isolated regression
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+  workflow_dispatch:
+permissions: {contents: read, actions: read}
+concurrency:
+  group: i5-shared-throughput-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Validate syntax and original fixed-source engine
+        run: |
+          set -euo pipefail
+          node --check scripts/rnad/shared_league_actor.mjs
+          python -m py_compile scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py
+          node scripts/verify-snapshot.mjs
+      - name: Install pinned CPU PyTorch
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Independent phase batching, data decode and checkpoint contracts
+        run: |
+          python -m unittest discover -s test -p rnad_shared_league_perf_test.py -v
+          python -m unittest discover -s test -p rnad_shared_learner_checkpoint_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
+      - name: Original four-win authoritative Match replay through improved Learner
+        run: |
+          set -euo pipefail
+          mkdir -p bootstrap smoke
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-bootstrap --dir bootstrap
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-real-match-smoke --dir smoke
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          python -m scripts.rnad.shared_league_real_smoke --bootstrap bootstrap --smoke smoke --out real-smoke-optimized
+          test -s real-smoke-optimized/smoke-report.json
