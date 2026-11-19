@@ -87,7 +87,7 @@ jobs:
           with open('profile-summary.md','w') as f:
               f.write('## I5 single existing G0 Learner performance profile (research only)\n')
               f.write(f"* Strict G0 accepted Matches: {r['accepted_complete_four_win_matches']}\n")
-              f.write(f"* Strict JSON codec: {r[\'codec\']}\\n")
+              f.write("* Strict JSON codec: " + r["codec"] + "\\n")
               f.write(f"* New simulations: {r['actor_simulations_run']}\n")
               f.write(f"* Preparation: {r['preparation_wall_seconds']}s (target <=60s: {r['preparation_at_most_60_seconds']})\n")
               f.write(f"* 40 updates: {r['forty_update_wall_seconds']}s\n")
