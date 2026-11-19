@@ -1,0 +1,14 @@
+{
+  "schema": "rnad-i5-next13-accelerated-research-launch-v1",
+  "source_sha": "a4f7d27a2c6854251161b77def1c18dbd9c97349",
+  "generation_count": 13,
+  "actor_count": 20,
+  "seeds_per_actor": 32,
+  "both_seats": true,
+  "complete_matches_per_generation": 1280,
+  "updates_per_generation": 40,
+  "github_hosted_cpu_only": true,
+  "small_real_match_smoke_first": true,
+  "recovery_fail_closed": true,
+  "no_automatic_champion_promotion": true
+}
