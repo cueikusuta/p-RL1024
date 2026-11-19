@@ -51,8 +51,11 @@ jobs:
           assert changed == [launch], 'Launch commit contains unexpected source edits'
           contract=Path('.github/workflows/rnad-i5-next13-fast-generation-reusable.yml').read_text()
           assert "source_ref:" in contract
-          assert "ref: ${{ inputs.source_ref || github.sha }}" in contract
-          assert contract.count("ref: ${{ inputs.source_ref || github.sha }}")==4
+          # Build this expression at runtime: do not let Actions interpolate it
+          # before the checkout configuration is inspected as literal text.
+          ref_expression = 'ref: ' + chr(36) + '{'*2 + ' inputs.source_ref || github.sha ' + '}'*2
+          assert ref_expression in contract, 'Pinned checkout expression missing'
+          assert contract.count(ref_expression) == 4, 'All four checkouts must be pinned'
           print('Source-pinned 12 new generations after proven G0; prelaunch HEAD',prelaunch)
           PY
           for pair in "44517879214 01501f3a1e12511140bf772d435d39c0c07319bc" "44517879019 01501f3a1e12511140bf772d435d39c0c07319bc"; do
