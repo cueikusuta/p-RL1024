@@ -51,10 +51,21 @@ jobs:
       - name: Retrieve identical shared Main+Magnet and immutable historical/fixed opponents
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
+          # The same bootstrap artifact is requested by 20 Actor runners.
+          # Stagger reads to avoid Azure Blob "503 Egress is over the account limit".
+          sleep "$(( 4 * ${{ matrix.actor_id }} ))"
+          for attempt in 1 2 3 4 5 6 7; do
+            rm -rf bootstrap
             if gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
                 --name "${{ inputs.bootstrap_artifact }}" --dir bootstrap; then break; fi
-            if [ "$attempt" = 3 ]; then exit 1; fi
+            if [ "$attempt" = 7 ]; then
+              echo "Immutable bootstrap download still throttled after seven attempts" >&2
+              exit 1
+            fi
+            delay=$(( 10 << (attempt - 1) ))
+            if [ "$delay" -gt 180 ]; then delay=180; fi
+            echo "Artifact egress throttled; retry same immutable bundle after ${delay}s" >&2
+            sleep "$delay"
           done
           (cd bootstrap && sha256sum -c file-pins.sha256)
           node scripts/verify-snapshot.mjs
@@ -115,17 +126,30 @@ jobs:
       - name: Verify all twenty full accepted actor artifacts before any update
         run: |
           set -euo pipefail
-          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
-            --name "${{ inputs.bootstrap_artifact }}" --dir bootstrap
+          download_pinned() {
+            local name="$1"
+            local dir="$2"
+            local attempt delay
+            for attempt in 1 2 3 4 5 6 7; do
+              rm -rf "$dir"
+              mkdir -p "$dir"
+              if gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+                  --name "$name" --dir "$dir"; then return 0; fi
+              if [ "$attempt" = 7 ]; then
+                echo "Failed pinned artifact download after bounded egress backoff: $name" >&2
+                return 1
+              fi
+              delay=$(( 10 << (attempt - 1) ))
+              if [ "$delay" -gt 180 ]; then delay=180; fi
+              echo "Egress busy; waiting ${delay}s for exact same artifact: $name" >&2
+              sleep "$delay"
+            done
+          }
+          download_pinned "${{ inputs.bootstrap_artifact }}" bootstrap
           (cd bootstrap && sha256sum -c file-pins.sha256)
           for n in $(seq 0 19); do
-            mkdir -p "actors/actor-$n"
-            for attempt in 1 2 3; do
-              if gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
-                  --name "rnad-i5-cont-g${{ inputs.generation }}-actor-$n" \
-                  --dir "actors/actor-$n"; then break; fi
-              if [ "$attempt" = 3 ]; then exit 1; fi
-            done
+            download_pinned "rnad-i5-cont-g${{ inputs.generation }}-actor-$n" \
+              "actors/actor-$n"
             test -s "actors/actor-$n/actor-$n.json.gz"
           done
       - name: Exactly 1 Learner x 40 NeuRD/V-trace steps; full optimizer/Target/Magnet/RNG state
