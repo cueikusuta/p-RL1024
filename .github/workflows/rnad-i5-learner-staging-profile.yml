@@ -28,6 +28,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m pip install --disable-pip-version-check orjson==3.13.0
       - name: Run strict staging syntax and contract tests
         run: |
           set -euo pipefail
@@ -54,6 +55,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m pip install --disable-pip-version-check orjson==3.13.0
       - name: Download original immutable authority-accepted 1280 Match G0
         run: |
           set -euo pipefail
@@ -70,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m scripts.rnad.shared_league_prep_profile \
-            --bootstrap bootstrap --actors actors --workers 4 \
+            --bootstrap bootstrap --actors actors --workers 4 --codec orjson \
             --out rnad-learner-staging-report.json | tee profile.log
           python - <<'PY'
           import json
@@ -78,12 +80,14 @@ jobs:
           assert r['generations_replayed']==1
           assert r['actor_simulations_run']==0
           assert r['strictly_verified_actors']==20
+          assert r['codec']=='orjson'
           assert r['accepted_complete_four_win_matches']==1280
           assert r['optimizer_updates']==40
           assert r['checkpoint_published'] is False
           with open('profile-summary.md','w') as f:
               f.write('## I5 single existing G0 Learner performance profile (research only)\n')
               f.write(f"* Strict G0 accepted Matches: {r['accepted_complete_four_win_matches']}\n")
+              f.write(f"* Strict JSON codec: {r[\'codec\']}\\n")
               f.write(f"* New simulations: {r['actor_simulations_run']}\n")
               f.write(f"* Preparation: {r['preparation_wall_seconds']}s (target <=60s: {r['preparation_at_most_60_seconds']})\n")
               f.write(f"* 40 updates: {r['forty_update_wall_seconds']}s\n")
