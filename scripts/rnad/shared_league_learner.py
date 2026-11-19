@@ -286,31 +286,17 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
     tensor_cache = cache_flag == "1"
     if tensor_cache and os.environ.get("RNAD_LEARNER_BACKEND", "reference") != "vector":
         raise ValueError("Tensor cache needs the experimental vector Learner")
-    match_ids, meta, roles = set(), [], Counter()
-    for actor_id, path in enumerate(paths):
-        payload = _load(path)
-        if payload.get("actor_id") != actor_id:
-            raise ValueError("Actor artifact ID mismatch")
-        newly_verified = verify_actor(manifest, payload)
-        if len(newly_verified) != 64 or newly_verified & match_ids:
-            raise ValueError("Incomplete or duplicated actor training shard")
-        match_ids.update(newly_verified)
-        roles[payload["role"]] += 1
-        for row in payload["matches"]:
-            name = row["match_id"]
-            # Strict validation has already happened. Do not recompress all
-            # 1,280 Matches only to decompress them in the learner.
-            if tensor_cache:
-                path_cache = verified / (name + ".pt")
-                torch.save(_verified_phase_tensors(row), path_cache)
-                meta.append({"match_id": name, "role": payload["role"],
-                             "tensor_cache_sha256": digest(path_cache)})
-            else:
-                with (verified / (name + ".json")).open("w", encoding="utf-8") as output_match:
-                    json.dump(row, output_match,
-                              separators=(",", ":"), allow_nan=False)
-                meta.append({"match_id": name, "role": payload["role"]})
-        del payload
+    # All strict receipt/provenance checks finish before the first optimizer
+    # update. Opt-in stage variants are compared on exactly the same inputs.
+    from scripts.rnad.shared_league_staging import (
+        stage_verified_actors, staging_config,
+    )
+    prep_workers, fast_json, profile_staging = staging_config()
+    match_ids, meta, roles = stage_verified_actors(
+        manifest, paths, verified, tensor_cache=tensor_cache,
+        workers=prep_workers, fast_json=fast_json,
+        profile=profile_staging,
+    )
     expected_roles = {"self": 8, "historical": 6,
                       "fixed": 4, "exploiter": 2}
     if not manifest["opponents"]["exploiter"]:
