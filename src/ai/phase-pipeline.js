@@ -7,8 +7,9 @@ const hasOwn=(object,key)=>Object.prototype.hasOwnProperty.call(object,key);
 const isObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 // Primitive values cannot alias mutable state; preserve full deep cloning
 // of objects and original errors on unserializable functions/symbols.
-const clone=value=>value!==null&&['undefined','string','number','boolean','bigint']
-  .includes(typeof value)?value:structuredClone(value);
+const clone=value=>value===null||
+  (typeof value!=='object'&&typeof value!=='function'&&typeof value!=='symbol')?
+  value:structuredClone(value);
 function immutable(value) {
   if(value&&typeof value==='object'){
     Object.freeze(value);
