@@ -52,12 +52,17 @@ def _names(generation: int, artifacts):
 
 
 def missing_actor_ids(generation: int, artifacts):
+    """Idempotent on rerun: keep a previously rescued immutable shard."""
     available = _names(generation, artifacts)
-    if any(artifact_name(generation, i, recovered=True) in available
-           for i in range(ACTORS)):
-        raise ValueError("Initial recovery inspection found pre-existing rescue")
-    return [i for i in range(ACTORS)
-            if artifact_name(generation, i) not in available]
+    missing = []
+    for i in range(ACTORS):
+        original = artifact_name(generation, i)
+        recovered = artifact_name(generation, i, recovered=True)
+        if original in available and recovered in available:
+            raise ValueError(f"Ambiguous original/recovered Actor {i} artifacts")
+        if original not in available and recovered not in available:
+            missing.append(i)
+    return missing
 
 
 def accepted_artifact_names(generation: int, artifacts):
