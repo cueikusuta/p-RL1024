@@ -310,14 +310,34 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
             raise ValueError("Missing no-reuse minibatch")
         optimizer.zero_grad(set_to_none=True)
         losses,ratios=[],[]
-        for choice in selected:
-            record = _load(verified / (choice["match_id"] + ".json"))
-            loss,ratio=_match_loss(model,target,magnet,record,
-                                   role=choice["role"])
-            (loss/32).backward()
-            del record
-            losses.append(float(loss.detach()))
-            ratios.append(ratio)
+        backend = os.environ.get("RNAD_LEARNER_BACKEND", "reference")
+        if backend == "reference":
+            for choice in selected:
+                record = _load(verified / (choice["match_id"] + ".json"))
+                loss,ratio=_match_loss(model,target,magnet,record,
+                                       role=choice["role"])
+                (loss/32).backward()
+                del record
+                losses.append(float(loss.detach()))
+                ratios.append(ratio)
+        elif backend == "vector":
+            # Preserve all 32 Match IDs, exact loss normalization and the
+            # single optimizer update; bound graph peak memory by microbatch.
+            from scripts.rnad.shared_league_batched import (
+                batched_match_losses, vector_batch_size,
+            )
+            size = vector_batch_size()
+            for start in range(0, len(selected), size):
+                micro = selected[start:start+size]
+                loaded = [(_load(verified / (x["match_id"]+".json")),
+                           x["role"]) for x in micro]
+                results = batched_match_losses(model, target, magnet, loaded)
+                (sum(loss for loss, _ in results)/32).backward()
+                losses.extend(float(loss.detach()) for loss, _ in results)
+                ratios.extend(ratio for _, ratio in results)
+                del results, loaded
+        else:
+            raise ValueError("Unknown research-only Learner backend")
         norm=torch.nn.utils.clip_grad_norm_(
             model.parameters(),10.0,error_if_nonfinite=True)
         if not torch.isfinite(norm):
