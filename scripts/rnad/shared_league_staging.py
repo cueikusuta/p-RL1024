@@ -12,6 +12,7 @@ import multiprocessing as mp
 import os
 import time
 from collections import Counter
+from contextlib import nullcontext
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -110,10 +111,12 @@ def _stage_actor(args):
 
 def stage_verified_actors(manifest, paths, verified, *,
                           tensor_cache=False, workers=1, fast_json=False,
-                          codec="stdlib", profile=False, return_metrics=False):
+                          codec="stdlib", profile=False, return_metrics=False,
+                          monitor_memory=False):
     if type(workers) is not int or workers not in (1, 2, 4):
         raise ValueError("RNAD_PREP_WORKERS must be 1, 2 or 4")
-    if type(fast_json) is not bool or type(profile) is not bool or type(tensor_cache) is not bool:
+    if (type(fast_json) is not bool or type(profile) is not bool or
+            type(tensor_cache) is not bool or type(monitor_memory) is not bool):
         raise ValueError("Invalid staging flags")
     if codec not in ("stdlib", "orjson") or (codec == "orjson" and not fast_json):
         raise ValueError("Invalid bounded R-NaD JSON codec selection")
@@ -125,13 +128,20 @@ def stage_verified_actors(manifest, paths, verified, *,
     args = [(i, str(path), manifest, str(verified), tensor_cache, fast_json, codec)
             for i, path in enumerate(paths)]
     start = time.perf_counter()
-    if workers == 1:
-        results = [_stage_actor(arg) for arg in args]
+    if monitor_memory:
+        from scripts.rnad.shared_league_memory_probe import StageMemorySampler
+        memory_context = StageMemorySampler()
     else:
-        # Spawn avoids inheriting any PyTorch autograd or filesystem state.
-        with ProcessPoolExecutor(
-                max_workers=workers, mp_context=mp.get_context("spawn")) as pool:
-            results = list(pool.map(_stage_actor, args))
+        memory_context = nullcontext(None)
+    with memory_context as memory_sampler:
+        if workers == 1:
+            results = [_stage_actor(arg) for arg in args]
+        else:
+            # Spawn avoids inheriting any PyTorch autograd or filesystem state.
+            with ProcessPoolExecutor(
+                    max_workers=workers, mp_context=mp.get_context("spawn")) as pool:
+                results = list(pool.map(_stage_actor, args))
+    concurrent_memory = memory_sampler.result() if memory_sampler else None
     match_ids, meta, roles = set(), [], Counter()
     for i, item in enumerate(results):
         if item["actor_id"] != i or item["ids"] & match_ids:
@@ -148,6 +158,7 @@ def stage_verified_actors(manifest, paths, verified, *,
         "workers": workers, "fast_json": fast_json, "codec": codec,
         "wall_seconds": round(wall, 4),
         "max_worker_rss_kib": max(item["rss_kib"] for item in results),
+        "concurrent_memory": concurrent_memory,
         "sum_actor_phase_seconds": {
             k: round(sum(item["timings"][k] for item in results), 4)
             for k in ("decompress", "parse", "legacy_read_parse",
