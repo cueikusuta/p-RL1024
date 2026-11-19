@@ -16,12 +16,14 @@ import torch.multiprocessing as mp
 from scripts.rnad.shared_league_learner import _load, _match_loss
 
 _WORKER_NETS = None
+_WORKER_VECTOR = False
 
 
-def _worker_init(model, target, magnet):
-    global _WORKER_NETS
+def _worker_init(model, target, magnet, vector):
+    global _WORKER_NETS, _WORKER_VECTOR
     torch.set_num_threads(1)
     _WORKER_NETS = (model, target, magnet)
+    _WORKER_VECTOR = vector
 
 
 def _grad_chunk(rows):
@@ -30,19 +32,32 @@ def _grad_chunk(rows):
     model, target, magnet = _WORKER_NETS
     model.zero_grad(set_to_none=True)
     losses, ratios = [], []
-    for path, role, cache_sha256 in rows:
+    def loaded(path, cache_sha256):
         if cache_sha256 is None:
-            match = _load(path)
-        else:
-            from scripts.rnad.shared_league_bootstrap import digest
-            if digest(path) != cache_sha256:
-                raise ValueError("Worker encountered mismatched strict tensor cache")
-            match = torch.load(path, map_location="cpu", weights_only=True)
-        loss, ratio = _match_loss(model, target, magnet, match, role=role)
-        (loss / 32).backward()
-        losses.append(float(loss.detach()))
-        ratios.append(ratio)
-        del match
+            return _load(path)
+        from scripts.rnad.shared_league_bootstrap import digest
+        if digest(path) != cache_sha256:
+            raise ValueError("Worker encountered mismatched strict tensor cache")
+        return torch.load(path, map_location="cpu", weights_only=True)
+
+    if _WORKER_VECTOR:
+        from scripts.rnad.shared_league_batched import batched_match_losses
+        for start in range(0, len(rows), 4):
+            part = [(loaded(path, checksum), role)
+                    for path, role, checksum in rows[start:start+4]]
+            outputs = batched_match_losses(model, target, magnet, part)
+            (sum(loss for loss, _ in outputs) / 32).backward()
+            losses.extend(float(loss.detach()) for loss, _ in outputs)
+            ratios.extend(ratio for _, ratio in outputs)
+            del outputs, part
+    else:
+        for path, role, checksum in rows:
+            match = loaded(path, checksum)
+            loss, ratio = _match_loss(model, target, magnet, match, role=role)
+            (loss / 32).backward()
+            losses.append(float(loss.detach()))
+            ratios.append(ratio)
+            del match
     tensors = []
     for param in model.parameters():
         tensors.append(
@@ -56,9 +71,11 @@ def _grad_chunk(rows):
 
 
 class ParallelGradientPool:
-    def __init__(self, model, target, magnet, *, workers=4):
+    def __init__(self, model, target, magnet, *, workers=4, vector=False):
         if type(workers) is not int or workers not in (2, 4):
             raise ValueError("Use 2 or 4 bounded hosted CPU workers")
+        if type(vector) is not bool:
+            raise ValueError("Invalid vector worker option")
         torch.set_num_threads(1)
         if any(p.grad is not None for p in model.parameters()):
             raise ValueError("Start worker pool before accumulating gradients")
@@ -69,7 +86,7 @@ class ParallelGradientPool:
         ctx = mp.get_context("spawn")
         self.pool = ctx.Pool(
             workers, initializer=_worker_init,
-            initargs=(model, target, magnet))
+            initargs=(model, target, magnet, vector))
         self.workers = workers
         self.model = model
 

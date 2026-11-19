@@ -111,6 +111,29 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
     if abs(sum(losses)-sum(vector_losses)) > 1e-3 or (
             abs(max(ratios)-max(vector_ratios)) > 1e-5):
         raise AssertionError("Vectorized full 32 Match objective drifted")
+    vector_parallel, vt, vm, vo, vs = _models(root, checkpoint)
+    with tempfile.TemporaryDirectory() as tmp:
+        tasks=[]
+        for row in rows:
+            path=Path(tmp)/(row["match_id"]+".json")
+            path.write_text(json.dumps(row, separators=(",",":"),allow_nan=False))
+            tasks.append((str(path),payload["role"],None))
+        with ParallelGradientPool(vector_parallel, vt, vm,
+                                  workers=processes, vector=True) as workers:
+            begun=time.perf_counter()
+            vp_losses,vp_ratios=workers.step_gradients(tasks)
+            vector_parallel_seconds=time.perf_counter()-begun
+        for left,right in zip(serial_grads, vector_parallel.parameters()):
+            torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+    torch.nn.utils.clip_grad_norm_(vector_parallel.parameters(),10.,
+                                   error_if_nonfinite=True)
+    vo.step()
+    vs.step()
+    for p,q in zip(serial.parameters(),vector_parallel.parameters()):
+        torch.testing.assert_close(p,q,rtol=4e-3,atol=4e-5)
+    if abs(sum(losses)-sum(vp_losses)) > 1e-3 or (
+            abs(max(ratios)-max(vp_ratios)) > 1e-5):
+        raise AssertionError("Parallel vector objective changed")
     return {
         "schema":"rnad-i5-authoritative-parallel-gradient-research-v1",
         "source_sha": manifest["source_sha"],
@@ -121,6 +144,10 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         "worker_init_seconds":round(init_seconds, 4),
         "parallel_32_match_gradient_seconds":round(parallel_seconds, 4),
         "vector_microbatch4_gradient_seconds":round(vector_seconds, 4),
+        "parallel_vector_microbatch4_gradient_seconds":
+            round(vector_parallel_seconds, 4),
+        "single_trial_speed_ratio_scalar_over_parallel_vector":
+            round(scalar_seconds/vector_parallel_seconds, 4),
         "single_trial_speed_ratio_scalar_over_vector":
             round(scalar_seconds/vector_seconds, 4),
         "single_trial_speed_ratio_not_established":

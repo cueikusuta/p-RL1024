@@ -364,8 +364,12 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
         from scripts.rnad.shared_league_parallel import (
             ParallelGradientPool, configured_workers,
         )
+        vector_workers = os.environ.get("RNAD_PARALLEL_VECTOR", "0")
+        if vector_workers not in ("0","1"):
+            raise ValueError("RNAD_PARALLEL_VECTOR must be 0 or 1")
         pool_context = ParallelGradientPool(
-            model, target, magnet, workers=configured_workers())
+            model, target, magnet, workers=configured_workers(),
+            vector=vector_workers == "1")
     else:
         pool_context = nullcontext(None)
     with pool_context as parallel_pool:
