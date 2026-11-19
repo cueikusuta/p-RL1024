@@ -10,7 +10,10 @@ const phases=new Set(['draft','selection','battle']);
 const phaseOf=view=>['draft','selection'].includes(view?.phase)
   ?view.phase:(typeof view?.requestType==='string'?'battle':null);
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
-const clone=x=>structuredClone(x);
+// structuredClone of primitive allowlisted fields is a no-op. Preserve
+// structuredClone validation for objects, functions and symbols.
+const clone=x=>x!==null&&['undefined','string','number','boolean','bigint']
+  .includes(typeof x)?x:structuredClone(x);
 const fields=(src,keys)=>object(src)?Object.fromEntries(keys
   .filter(key=>Object.hasOwn(src,key))
   .map(key=>[key,clone(src[key])])):{};
