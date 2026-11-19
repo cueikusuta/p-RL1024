@@ -41,6 +41,27 @@ def write_gzip_once(path, data):
         json.dump(data, output, separators=(",", ":"), allow_nan=False)
 
 
+def _historical_opponent_path(root, manifest, opponent):
+    """G0's SHA-pinned initial snapshot is the immutable Main Actor bundle.
+
+    Subsequent generations use explicit past-gN directories, never an
+    unverified substitute or a fallback when frozen data is missing.
+    """
+    ident = opponent["id"]
+    if not isinstance(ident, str) or "/" in ident or ".." in ident or "\\\\" in ident:
+        raise ValueError("Untrusted frozen historical opponent identifier")
+    is_genesis = (manifest["generation"] == 0 and
+                  ident == "integrated-initial-snapshot-v0")
+    path = (Path(root) / "actor" if is_genesis else
+            Path(root) / "past" / ident)
+    source = path / "manifest.json"
+    if (not source.is_file() or
+        hashlib.sha256(source.read_bytes()).hexdigest() != opponent["sha256"] or
+        (is_genesis and opponent["sha256"] != manifest["main_sha256"])):
+        raise ValueError("Frozen historical generation differs from approved registry")
+    return path
+
+
 def _verified_match(path, *, seed, seat, match_id, manifest, opponent):
     row = read_gzip(path)
     if (row.get("match_id") != match_id or row.get("seed") != seed or
@@ -135,12 +156,7 @@ def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1):
             != opponent["sha256"]):
             raise ValueError("Frozen fixed opponent content absent or modified")
     if role == "historical":
-        if "/" in opponent["id"] or ".." in opponent["id"]:
-            raise ValueError("Untrusted frozen historical opponent identifier")
-        historical_path = root / "past" / opponent["id"]
-        source = historical_path / "manifest.json"
-        if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != opponent["sha256"]:
-            raise ValueError("Frozen historical generation differs from approved registry")
+        historical_path = _historical_opponent_path(root, manifest, opponent)
     magnet_path = root / "magnet"
     if not magnet_path.is_dir():
         # Initial generation 0 used the same pinned Main and Magnet.

@@ -60,6 +60,7 @@ jobs:
           python -m unittest discover -s test -p rnad_draft_battle_holdout_recovery_test.py -v
           node --test test/rnad-authority-match.test.js test/rnad-receipts.test.js test/rnad-three-phase.test.js test/rnad-infer-allocation-parity.test.js test/rnad-draft-fastpath-parity.test.js test/rnad-paired-league-eval.test.js
           python -m unittest discover -s test -p rnad_shared_league_advanced_perf_test.py -v
+          python -m unittest discover -s test -p rnad_shared_initial_historical_test.py -v
 
   bootstrap:
     needs: preflight
@@ -158,8 +159,10 @@ jobs:
           python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
             --actor-id 0 --smoke --out smoke/self
           python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
-            --actor-id 18 --smoke --out smoke/frozen
-          test "$(find smoke -name '*.json.gz' | wc -l)" -eq 4
+            --actor-id 8 --smoke --out smoke/historical
+          python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
+            --actor-id 14 --smoke --out smoke/frozen
+          test "$(find smoke -name '*.json.gz' | wc -l)" -eq 6
           # This is a functional optimizer/checkpoint smoke only, never a strength estimate.
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
@@ -198,7 +201,7 @@ jobs:
           assert optimizer2.state_dict()["state"]
           assert scheduler2.last_epoch == scheduler.last_epoch
           report={"schema":"rnad-i5-next13-two-match-optimizer-smoke-v1",
-                  "complete_real_matches_generated":4,
+                  "complete_real_matches_generated":6,
                   "matches_used_in_smoke_optimizer":2,
                   "finite_losses":True,"optimizer_step":1,
                   "checkpoint_restored":True,
