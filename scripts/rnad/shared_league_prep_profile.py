@@ -18,6 +18,7 @@ from scripts.rnad.shared_league_full_gen_benchmark import (
     HISTORIC_SOURCE_SHA, _order, _run,
 )
 from scripts.rnad.shared_league_staging import stage_verified_actors
+from scripts.rnad.shared_league_numeric_parity import verify_historical_stage
 
 
 def run(bootstrap, actors, *, workers=4, codec="orjson"):
@@ -40,10 +41,16 @@ def run(bootstrap, actors, *, workers=4, codec="orjson"):
         started = time.perf_counter()
         ids, meta, roles, metrics = stage_verified_actors(
             manifest, paths, accepted, workers=workers, fast_json=True,
-            codec=codec, profile=True, return_metrics=True)
+            codec=codec, profile=True, return_metrics=True,
+            monitor_memory=True)
         prep_seconds = time.perf_counter() - started
         if len(ids) != MATCHES_PER_GENERATION or len(meta) != len(ids):
             raise ValueError("Incomplete 20/20 strict accepted Match barrier")
+        # Independent full-tree stdlib vs orjson IEEE754 comparison across
+        # all real G0 data; excluded from the measured 60s preprocessing.
+        numeric_parity = verify_historical_stage(actors, accepted)
+        if numeric_parity["actual_match_count"] != MATCHES_PER_GENERATION:
+            raise ValueError("Missing actual G0 exact float parity proof")
         ordered = _order(meta)
         if len(ordered) != 1280:
             raise ValueError("Wrong immutable 40-update ordering")
@@ -69,6 +76,8 @@ def run(bootstrap, actors, *, workers=4, codec="orjson"):
             "preparation_wall_seconds": round(prep_seconds, 3),
             "preparation_cpu_phase_sum_seconds": metrics["sum_actor_phase_seconds"],
             "peak_stage_worker_rss_kib": metrics["max_worker_rss_kib"],
+            "concurrent_stage_memory": metrics["concurrent_memory"],
+            "historical_numeric_parity": numeric_parity,
             "forty_update_wall_seconds": round(compute_seconds, 3),
             "forty_update_gradient_seconds": result["total_grad_seconds"],
             "forty_update_checkpoint_seconds": result["total_checkpoint_save_seconds"],
