@@ -12,8 +12,9 @@ const phaseOf=view=>['draft','selection'].includes(view?.phase)
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 // structuredClone of primitive allowlisted fields is a no-op. Preserve
 // structuredClone validation for objects, functions and symbols.
-const clone=x=>x!==null&&['undefined','string','number','boolean','bigint']
-  .includes(typeof x)?x:structuredClone(x);
+const clone=x=>x===null||
+  (typeof x!=='object'&&typeof x!=='function'&&typeof x!=='symbol')?
+  x:structuredClone(x);
 const fields=(src,keys)=>object(src)?Object.fromEntries(keys
   .filter(key=>Object.hasOwn(src,key))
   .map(key=>[key,clone(src[key])])):{};
