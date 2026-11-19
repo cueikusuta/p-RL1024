@@ -12,7 +12,6 @@ import os
 from collections import defaultdict
 
 import torch
-from torch.nn import functional as F
 
 from scripts.rnad.shared_league_learner import ETA, VALUE_WEIGHT
 from scripts.rnad.two_player import neurd_policy_loss, rnad_targets
@@ -21,6 +20,26 @@ PHASES = ("draft", "selection", "battle")
 # Protect hosted runner memory when one accepted draft step has huge candidate lists.
 MAX_DRAFT_CANDIDATES = 20000
 MAX_SELECTION_STATES = 32
+_COMPILED_MODULES = {}
+
+
+def _call(module, *args, **kwargs):
+    """Optional TorchInductor on *modules only*: never mutate their state_dict.
+
+    The compiled callable is cached across all 40 updates, and this is an
+    explicit experimental opt-in because CPU compilation may take minutes.
+    """
+    flag = os.environ.get("RNAD_TORCH_COMPILE", "0")
+    if flag not in ("0", "1"):
+        raise ValueError("RNAD_TORCH_COMPILE must be 0 or 1")
+    if flag == "0":
+        return module(*args, **kwargs)
+    key = id(module)
+    compiled = _COMPILED_MODULES.get(key)
+    if compiled is None:
+        compiled = torch.compile(module, backend="inductor", dynamic=True)
+        _COMPILED_MODULES[key] = compiled
+    return compiled(*args, **kwargs)
 
 
 def _chunk_by_size(rows, size_fn, capacity):
@@ -59,19 +78,19 @@ def _draft_inference(net, rows):
     pool_tensor = torch.cat(pool_parts, dim=0)
     codes_tensor = torch.cat(code_parts, dim=0)
     extra_tensor = torch.cat(extra_parts, dim=0)
-    embedded = net.draft.phi(pool_tensor)
+    embedded = _call(net.draft.phi, pool_tensor)
     selected = embedded[codes_tensor]
     features = torch.cat((selected.mean(dim=1),
                           selected.square().mean(dim=1),
                           selected.amax(dim=1), extra_tensor), dim=1)
-    all_logits = net.draft.rho(features).reshape(-1)
+    all_logits = _call(net.draft.rho, features).reshape(-1)
     out = {}
     pool_start, action_start = 0, 0
     for (match_id, event_id, _), pool_n, action_n in zip(
             rows, pool_sizes, action_sizes):
         mean_pool = embedded[pool_start:pool_start + pool_n].mean(dim=0)
         mean_extra = extra_tensor[action_start:action_start + action_n].mean(dim=0)
-        value = net.draft_value(torch.cat((mean_pool, mean_extra))).reshape(())
+        value = _call(net.draft_value, torch.cat((mean_pool, mean_extra))).reshape(())
         out[(match_id, event_id)] = (
             all_logits[action_start:action_start + action_n], value)
         pool_start += pool_n
@@ -85,7 +104,10 @@ def _selection_inference(net, rows):
     batched = {key: torch.as_tensor(
         [entry[2][key] for entry in rows], dtype=dtype)
         for key, dtype in keys}
-    logits, values = net.selection_forward_batch(batched)
+    logits, _, _, own, foe = _call(
+        net.selection, batched, return_embeddings=True)
+    inputs = torch.cat((own.mean(dim=1), foe.mean(dim=1)), dim=-1)
+    values = _call(net.selection_value, inputs).reshape(len(rows))
     return {(mi, ei): (logits[j], values[j])
             for j, (mi, ei, _) in enumerate(rows)}
 
@@ -145,12 +167,12 @@ def _battle_inference(model, target, magnet, entries):
         for name, net in (("main", model), ("target", target), ("magnet", magnet)):
             memory = torch.stack([states[name][key] for key, _ in wave], dim=0)
             if name == "main":
-                logits, values, next_memory = net.battle(
-                    state_input, candidate, memory)
+                logits, values, next_memory = _call(
+                    net.battle, state_input, candidate, memory)
             else:
                 with torch.no_grad():
-                    logits, values, next_memory = net.battle(
-                        state_input, candidate, memory)
+                    logits, values, next_memory = _call(
+                        net.battle, state_input, candidate, memory)
             by_net[name] = (logits, values)
             for j, (key, _) in enumerate(wave):
                 states[name][key] = next_memory[j].detach()
