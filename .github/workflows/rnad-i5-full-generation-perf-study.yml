@@ -1,0 +1,61 @@
+name: I5 full-generation throughput research — 1280 accepted Matches
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - scripts/rnad/shared_league_full_gen_benchmark.py
+      - .github/workflows/rnad-i5-full-generation-perf-study.yml
+  workflow_dispatch:
+permissions: {contents: read, actions: read}
+concurrency:
+  group: rnad-i5-full-generation-perf-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  historical-full-generation-study:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install original bounded CPU torch and numpy
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Download EXACT authoritative frozen G0 source artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p bootstrap actors
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-bootstrap --dir bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          for i in $(seq 0 19); do
+            mkdir -p "actors/actor-$i"
+            gh run download 44318145987 --repo cueikusuta/p-RL1024 \
+              --name "rnad-i5-shared-main-g0-actor-$i" --dir "actors/actor-$i"
+            test -s "actors/actor-$i/actor-$i.json.gz"
+          done
+          python - <<'PY'
+          import json
+          m=json.load(open("bootstrap/generation-manifest.json"))
+          assert m["source_sha"]=="0f348495dd381dbfd299e00c0346f61351212075"
+          assert m["generation"]==0 and m["actor_count"]==20
+          PY
+      - name: Strict 1280 accepted Match / 40-update reference versus CPU-vector dry-run
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_full_gen_benchmark \
+            --bootstrap bootstrap --actors actors --strict \
+            | tee full-generation-study.log
+          tail -n 85 full-generation-study.log >> "$GITHUB_STEP_SUMMARY"
+      - name: Summarize research only (NO checkpoint publication)
+        if: always()
+        run: |
+          echo "Only frozen historical G0 actor traces read. No resulting model, mutable checkpoint, champion, or training artifact published." >> "$GITHUB_STEP_SUMMARY"

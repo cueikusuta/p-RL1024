@@ -67,6 +67,7 @@ def _collect_original(root, actor_dir, verified_dir):
 
 
 def _run(bootstrap, ordering, verified_dir, backend, tempdir):
+    tempdir.mkdir(parents=True, exist_ok=False)
     ckpt_path=bootstrap/"checkpoint-g0.pt"
     ckpt_index=json.loads((bootstrap/"checkpoint-index.json").read_text())
     if digest(ckpt_path)!=ckpt_index["sha256"]:
