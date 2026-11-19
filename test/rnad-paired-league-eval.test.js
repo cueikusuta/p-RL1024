@@ -16,6 +16,8 @@ const basePlan=(evaluation_type='shared-opponent')=>({
   method:'paired-seed-block-student-t-bonferroni',
   fixed_sample_size:true,model_selection_before_holdout:true,
   automatic_champion_promotion:false,minimum_practical_gain:0,
+  model_sha256_by_id:{G10:sha('c'),G11:sha('d'),
+    ...(evaluation_type==='direct-head-to-head'?{CHAMPION:sha('e')}:{})},
   excluded_seed_ranges:[{start:6200001,count:128}],
   comparisons:[{candidate_model_id:'G11',
     baseline_model_id:evaluation_type==='direct-head-to-head'?'CHAMPION':'G10'}],
@@ -92,6 +94,7 @@ test('shared AQ benchmark compares per-seed differences, not marginal intervals'
 test('two comparisons are familywise corrected and both mandatory',()=>{
   const p=basePlan();
   p.comparisons.push({candidate_model_id:'G12',baseline_model_id:'G10'});
+  p.model_sha256_by_id.G12=sha('e');
   const report=matchReport('G12',(i,seat)=>seat===0);
   const result=evaluatePairedLeague(p,[old(),challenger(),report]);
   assert.equal(result.comparisons.length,2);
@@ -135,6 +138,10 @@ test('identical checkpoints, changed weights, duplicate or missing seat fail clo
   for(const x of corruptions)assert.throws(()=>evaluatePairedLeague(basePlan(),x));
   assert.throws(()=>evaluatePairedLeague(basePlan(),[good,newer,newer]),
     /duplicate model\/seed\/seat/);
+  const wrongPlan=basePlan();
+  wrongPlan.model_sha256_by_id.G11='f'.repeat(64);
+  assert.throws(()=>evaluatePairedLeague(wrongPlan,[good,newer]),
+    /invalid frozen model/);
 });
 test('shards may be out of order but must cover every seed and both seats',()=>{
   const oldFull=old(),newFull=challenger();
