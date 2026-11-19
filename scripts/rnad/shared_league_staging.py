@@ -95,8 +95,8 @@ def _stage_actor(args):
 
 
 def stage_verified_actors(manifest, paths, verified, *,
-                          workers=1, fast_json=False, profile=False,
-                          return_metrics=False):
+                          tensor_cache=False, workers=1, fast_json=False,
+                          profile=False, return_metrics=False):
     if type(workers) is not int or workers not in (1, 2, 4):
         raise ValueError("RNAD_PREP_WORKERS must be 1, 2 or 4")
     if type(fast_json) is not bool or type(profile) is not bool or type(tensor_cache) is not bool:
