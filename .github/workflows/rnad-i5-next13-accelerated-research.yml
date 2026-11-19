@@ -81,14 +81,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p frozen/DB frozen/A frozen/AJS frozen/old
-          gh run download 44096608535 --repo cueikusuta/p-RL1024 \
-            --name rnad-i5-draft-battle-512-frozen-trained-model-archive --dir frozen/DB
-          gh run download 44067733118 --repo cueikusuta/p-RL1024 \
-            --name rnad-i5-selection-A-4096-six-models-and-dev --dir frozen/A
-          gh run download 44085352444 --repo cueikusuta/p-RL1024 \
-            --name rnad-i5-A4096-vs-A2048-public-js-SHA-checked --dir frozen/AJS
-          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
-            --name rnad-i5-queue-models-43757054212 --dir frozen/old
+          download_frozen() {
+            local run="$1" name="$2" dir="$3" attempt
+            for attempt in 1 2 3 4 5; do
+              rm -rf "$dir"; mkdir -p "$dir"
+              if gh run download "$run" --repo cueikusuta/p-RL1024 \
+                  --name "$name" --dir "$dir"; then return 0; fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "Failed verified frozen source artifact $name" >&2
+                return 1
+              fi
+              sleep "$((attempt * 10))"
+            done
+          }
+          download_frozen 44096608535 rnad-i5-draft-battle-512-frozen-trained-model-archive frozen/DB
+          download_frozen 44067733118 rnad-i5-selection-A-4096-six-models-and-dev frozen/A
+          download_frozen 44085352444 rnad-i5-A4096-vs-A2048-public-js-SHA-checked frozen/AJS
+          download_frozen 43757054212 rnad-i5-queue-models-43757054212 frozen/old
           for path in frozen/DB/draft512/draft512-e6.json \
               frozen/DB/draft512/study.json \
               frozen/DB/battle512/trained-model.json \
