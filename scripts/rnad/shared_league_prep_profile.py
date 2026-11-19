@@ -1,17 +1,14 @@
-"""Research-only complete-Match Learner staging and 40-update wall benchmark.
+"""Single-G0 Learner CPU staging study using existing immutable 1280 Matches.
 
-Pinned historical G0 Inputs are accepted, immutable four-win Matches, not
-synthetic examples. This is an OFFLINE REPLAY using newer research code, not a
-valid source-pinned continuation or a Champion/strength evaluation. The model
-checkpoints written for comparison are deleted with their temporary folders.
+NO Actor or Match simulation is performed. Strictly accept the 20 historical
+Actor artifacts once; stage them using an opt-in bounded CPU fast path, then
+execute ONE disposable 40-update G0 Learner replay. Nothing produced here is
+a valid new-source training continuation, strength result, or Champion.
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import math
-import statistics
 import tempfile
 import time
 from pathlib import Path
@@ -23,138 +20,78 @@ from scripts.rnad.shared_league_full_gen_benchmark import (
 from scripts.rnad.shared_league_staging import stage_verified_actors
 
 
-def _digest_matches(root, meta):
-    return {entry["match_id"]: hashlib.sha256(
-        (root / (entry["match_id"] + ".json")).read_bytes()).hexdigest()
-        for entry in meta}
-
-
-def run(bootstrap, actors, *, repeats=2):
-    if type(repeats) is not int or not 1 <= repeats <= 3:
-        raise ValueError("Bounded CPU benchmark repetitions must be 1..3")
+def run(bootstrap, actors, *, workers=4):
+    if type(workers) is not int or workers not in (1, 2, 4):
+        raise ValueError("Bounded staging worker count must be 1, 2 or 4")
     bootstrap, actors = Path(bootstrap), Path(actors)
     manifest = json.loads((bootstrap / "generation-manifest.json").read_text())
-    if (manifest.get("source_sha") != HISTORIC_SOURCE_SHA or
-            manifest.get("generation") != 0):
-        raise ValueError("Historical provenance does not match pinned study")
+    if (manifest.get("source_sha") != HISTORIC_SOURCE_SHA
+            or manifest.get("generation") != 0):
+        raise ValueError("Historical G0 provenance does not match pinned study")
     paths = [actors / f"actor-{i}" / f"actor-{i}.json.gz" for i in range(20)]
-    measurements = []
-    for repetition in range(repeats):
-        original_hashes = None
-        reference_model = None
-        for label, workers, fast in (
-                ("reference", 1, False),
-                ("fast-one", 1, True),
-                ("fast-two", 2, True),
-                ("fast-four", 4, True)):
-            with tempfile.TemporaryDirectory(
-                    prefix=f"rnad-i5-{label}-") as temp:
-                scratch = Path(temp)
-                accepted = scratch / "accepted"
-                start = time.perf_counter()
-                ids, meta, roles, metrics = stage_verified_actors(
-                    manifest, paths, accepted, workers=workers, fast_json=fast,
-                    profile=True, return_metrics=True)
-                prep_seconds = time.perf_counter() - start
-                if len(ids) != MATCHES_PER_GENERATION or len(meta) != len(ids):
-                    raise ValueError("Incomplete strict 1280 Match benchmark")
-                checksums = _digest_matches(accepted, meta)
-                if original_hashes is None:
-                    original_hashes = checksums
-                elif checksums != original_hashes:
-                    raise ValueError(
-                        "JSON staging byte-for-byte mismatch on real Matches")
-                out = {
-                    "repetition": repetition + 1,
-                    "label": label,
-                    "workers": workers,
-                    "fast_json": fast,
-                    "stage_wall_seconds": round(prep_seconds, 3),
-                    "phase_cpu_seconds": metrics["sum_actor_phase_seconds"],
-                    "max_worker_rss_kib": metrics["max_worker_rss_kib"],
-                    "all_1280_sha256_equal": True,
-                    "complete_matches": len(ids),
-                    "roles": dict(roles),
-                    "not_a_strength_claim": True,
-                }
-                # Full 40-update identical-backend dry-runs for the reference
-                # and one bounded candidate; no trained artifact is published.
-                if label in ("reference", "fast-two"):
-                    ordered = _order(meta)
-                    if len(ordered) != 1280:
-                        raise ValueError("Wrong immutable 40-update ordering")
-                    compute_started = time.perf_counter()
-                    result = _run(
-                        bootstrap, ordered, accepted, "cpu-parallel-vector",
-                        scratch / "disposable-compute")
-                    out["forty_update_seconds"] = round(
-                        time.perf_counter() - compute_started, 3)
-                    out["combined_stage_and_updates_seconds"] = round(
-                        prep_seconds + out["forty_update_seconds"], 3)
-                    out["checkpoint_save_seconds"] = result[
-                        "total_checkpoint_save_seconds"]
-                    out["gradient_seconds"] = result["total_grad_seconds"]
-                    if reference_model is None:
-                        reference_model = result["model"]
-                    else:
-                        import torch
-                        largest = max(float(
-                            (reference_model[k] - v).abs().max())
-                            for k, v in result["model"].items())
-                        if not math.isfinite(largest) or largest > 1e-5:
-                            raise ValueError(
-                                "Final trained model differs after staged replay")
-                        out["max_model_parameter_delta"] = largest
-                        out["optimizer_updates"] = result["optimizer_updates"]
-                measurements.append(out)
-                print(json.dumps(out, sort_keys=True), flush=True)
-    def summary_for(label, field):
-        values = [item[field] for item in measurements
-                  if item["label"] == label and field in item]
-        return {
-            "median": round(statistics.median(values), 3),
-            "trials": [round(x, 3) for x in values],
-        } if values else None
-    baseline = summary_for("reference", "stage_wall_seconds")
-    fast2 = summary_for("fast-two", "stage_wall_seconds")
-    total0 = summary_for("reference", "combined_stage_and_updates_seconds")
-    total2 = summary_for("fast-two", "combined_stage_and_updates_seconds")
-    result = {
-        "schema": "rnad-i5-historical-g0-learner-stage-wall-v1",
-        "original_source_sha": HISTORIC_SOURCE_SHA,
-        "current_source_not_a_valid_learner_continuation": True,
-        "accepted_complete_four_win_matches": MATCHES_PER_GENERATION,
-        "one_optimizer_forty_updates_per_trial": True,
-        "trials_per_mode": repeats,
-        "stage_reference": baseline,
-        "stage_fast_one": summary_for("fast-one", "stage_wall_seconds"),
-        "stage_fast_two": fast2,
-        "stage_fast_four": summary_for("fast-four", "stage_wall_seconds"),
-        "combined_reference": total0,
-        "combined_fast_two": total2,
-        "stage_fast_two_below_60s_on_all_trials": all(
-            x <= 60.0 for x in fast2["trials"]),
-        "research_only": True,
-        "checkpoint_published": False,
-        "champion_promoted": False,
-        "strength_established": False,
-        "measurements": measurements,
-    }
-    return result
+
+    # ONE staging pass and ONE 40-update Learner replay. The historical
+    # unmodified G0 log is the external baseline; do not re-run it in CI.
+    with tempfile.TemporaryDirectory(prefix="rnad-i5-one-g0-") as temp:
+        scratch = Path(temp)
+        accepted = scratch / "accepted"
+        started = time.perf_counter()
+        ids, meta, roles, metrics = stage_verified_actors(
+            manifest, paths, accepted, workers=workers, fast_json=True,
+            profile=True, return_metrics=True)
+        prep_seconds = time.perf_counter() - started
+        if len(ids) != MATCHES_PER_GENERATION or len(meta) != len(ids):
+            raise ValueError("Incomplete 20/20 strict accepted Match barrier")
+        ordered = _order(meta)
+        if len(ordered) != 1280:
+            raise ValueError("Wrong immutable 40-update ordering")
+        compute_start = time.perf_counter()
+        result = _run(
+            bootstrap, ordered, accepted, "cpu-parallel-vector",
+            scratch / "disposable-learner")
+        compute_seconds = time.perf_counter() - compute_start
+        if result["optimizer_updates"] != 40 or (
+                result["accepted_complete_matches"] != 1280):
+            raise ValueError("Missing 40-update G0 research replay")
+        report = {
+            "schema": "rnad-i5-historical-single-g0-learner-profile-v1",
+            "original_source_sha": HISTORIC_SOURCE_SHA,
+            "generations_replayed": 1,
+            "actor_simulations_run": 0,
+            "strictly_verified_actors": 20,
+            "accepted_complete_four_win_matches": len(ids),
+            "optimizer_updates": result["optimizer_updates"],
+            "staging_workers": workers,
+            "fast_json": True,
+            "preparation_wall_seconds": round(prep_seconds, 3),
+            "preparation_cpu_phase_sum_seconds": metrics["sum_actor_phase_seconds"],
+            "peak_stage_worker_rss_kib": metrics["max_worker_rss_kib"],
+            "forty_update_wall_seconds": round(compute_seconds, 3),
+            "forty_update_gradient_seconds": result["total_grad_seconds"],
+            "forty_update_checkpoint_seconds": result["total_checkpoint_save_seconds"],
+            "combined_stage_and_40_update_seconds": round(
+                prep_seconds + compute_seconds, 3),
+            "preparation_at_most_60_seconds": prep_seconds <= 60.0,
+            "actor_role_quota": dict(roles),
+            "checkpoint_published": False,
+            "not_source_correct_continuation": True,
+            "model_strength_claimed": False,
+            "champion_promoted": False,
+        }
+    return report
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bootstrap", required=True)
     ap.add_argument("--actors", required=True)
-    ap.add_argument("--repeats", type=int, default=2)
+    ap.add_argument("--workers", type=int, default=4, choices=(1, 2, 4))
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    report = run(a.bootstrap, a.actors, repeats=a.repeats)
+    report = run(a.bootstrap, a.actors, workers=a.workers)
     Path(a.out).write_text(json.dumps(report, indent=2) + "\n",
                            encoding="utf-8")
-    print(json.dumps({k:v for k,v in report.items()
-                      if k!="measurements"}, indent=2),flush=True)
+    print(json.dumps(report, indent=2), flush=True)
 
 
 if __name__ == "__main__":
