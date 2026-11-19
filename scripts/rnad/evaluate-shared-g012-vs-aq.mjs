@@ -85,9 +85,10 @@ export function createIntegratedAQSession({modelDir,seat}){
   return {select,commit,stats,finish};
 }
 
-export function evaluatePart({modelDir,generation,part}){
+export function evaluatePart({modelDir,generation,part,pairs=SEEDS_PER_PART}){
   assert([0,1,2].includes(generation)&&
-    Number.isSafeInteger(part)&&part>=0&&part<PARTS,
+    Number.isSafeInteger(part)&&part>=0&&part<PARTS&&
+    Number.isSafeInteger(pairs)&&pairs>=1&&pairs<=SEEDS_PER_PART,
     'Invalid pre-registered G012 evaluation shard');
   const manifest=JSON.parse(readFileSync(join(modelDir,'manifest.json'),'utf8'));
   assert(manifest.schema==='rnad-integrated-policy-actor-bundle-v1'&&
@@ -107,7 +108,7 @@ export function evaluatePart({modelDir,generation,part}){
   let wins=0;
   const rows=[];
   const start=FIRST_SEED+part*SEEDS_PER_PART;
-  for(let i=0;i<SEEDS_PER_PART;i++){
+  for(let i=0;i<pairs;i++){
     const seed=start+i;
     for(const candidateSeat of [0,1]){
       const actor=createIntegratedAQSession({modelDir,seat:candidateSeat});
@@ -131,7 +132,7 @@ export function evaluatePart({modelDir,generation,part}){
         accepted_decisions:result.pureRlStats[candidateSeat].accepted_decisions});
     }
   }
-  assert(rows.length===2*SEEDS_PER_PART,'Incomplete eval shard');
+  assert(rows.length===2*pairs,'Incomplete eval shard');
   return {schema:SCHEMA,generation,checkpoint_generation:manifest.generation,part,
     evaluation_policy:'frozen-greedy-no-training',
     benchmark:'AQ-Base-001 exact integrated strategy-match',
@@ -141,7 +142,7 @@ export function evaluatePart({modelDir,generation,part}){
     sealed_model_manifest_sha256:modelManifestSHA,
     source_sha:verifiedRunningSourceSha(),
     engine_sha:provenance.sourceCommit,
-    seed_start:start,seed_clusters:SEEDS_PER_PART,matches:rows.length,
+    seed_start:start,seed_clusters:pairs,matches:rows.length,
     wins,champion_promoted:false,rows};
 }
 
