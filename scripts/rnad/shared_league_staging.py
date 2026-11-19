@@ -31,7 +31,8 @@ def _rss_kib():
 def _stage_actor(args):
     actor_id, source_path, manifest, destination, tensor_cache, fast_json = args
     source_path, destination = Path(source_path), Path(destination)
-    timings = {"decompress": 0.0, "parse": 0.0, "verify": 0.0,
+    timings = {"decompress": 0.0, "parse": 0.0, "legacy_read_parse": 0.0,
+               "verify": 0.0,
                "serialize": 0.0, "write": 0.0}
     start = time.perf_counter()
     if fast_json:
@@ -46,7 +47,7 @@ def _stage_actor(args):
         # Keep the original streaming decoder as a measurable reference.
         with gzip.open(source_path, "rt") as source:
             payload = json.load(source)
-        timings["decompress"] = time.perf_counter() - start
+        timings["legacy_read_parse"] = time.perf_counter() - start
     if payload.get("actor_id") != actor_id:
         raise ValueError("Actor artifact ID mismatch")
     verify_start = time.perf_counter()
@@ -134,7 +135,8 @@ def stage_verified_actors(manifest, paths, verified, *,
         "max_worker_rss_kib": max(item["rss_kib"] for item in results),
         "sum_actor_phase_seconds": {
             k: round(sum(item["timings"][k] for item in results), 4)
-            for k in ("decompress", "parse", "verify", "serialize", "write")
+            for k in ("decompress", "parse", "legacy_read_parse",
+                      "verify", "serialize", "write")
         },
         "research_only": True, "strength_claim": False,
     }
