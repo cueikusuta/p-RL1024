@@ -20,9 +20,11 @@ from scripts.rnad.shared_league_full_gen_benchmark import (
 from scripts.rnad.shared_league_staging import stage_verified_actors
 
 
-def run(bootstrap, actors, *, workers=4):
+def run(bootstrap, actors, *, workers=4, codec="orjson"):
     if type(workers) is not int or workers not in (1, 2, 4):
         raise ValueError("Bounded staging worker count must be 1, 2 or 4")
+    if codec not in ("stdlib", "orjson"):
+        raise ValueError("Unsupported strict JSON codec")
     bootstrap, actors = Path(bootstrap), Path(actors)
     manifest = json.loads((bootstrap / "generation-manifest.json").read_text())
     if (manifest.get("source_sha") != HISTORIC_SOURCE_SHA
@@ -38,7 +40,7 @@ def run(bootstrap, actors, *, workers=4):
         started = time.perf_counter()
         ids, meta, roles, metrics = stage_verified_actors(
             manifest, paths, accepted, workers=workers, fast_json=True,
-            profile=True, return_metrics=True)
+            codec=codec, profile=True, return_metrics=True)
         prep_seconds = time.perf_counter() - started
         if len(ids) != MATCHES_PER_GENERATION or len(meta) != len(ids):
             raise ValueError("Incomplete 20/20 strict accepted Match barrier")
@@ -63,6 +65,7 @@ def run(bootstrap, actors, *, workers=4):
             "optimizer_updates": result["optimizer_updates"],
             "staging_workers": workers,
             "fast_json": True,
+            "codec": codec,
             "preparation_wall_seconds": round(prep_seconds, 3),
             "preparation_cpu_phase_sum_seconds": metrics["sum_actor_phase_seconds"],
             "peak_stage_worker_rss_kib": metrics["max_worker_rss_kib"],
@@ -86,9 +89,10 @@ def main():
     ap.add_argument("--bootstrap", required=True)
     ap.add_argument("--actors", required=True)
     ap.add_argument("--workers", type=int, default=4, choices=(1, 2, 4))
+    ap.add_argument("--codec", choices=("stdlib", "orjson"), default="orjson")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    report = run(a.bootstrap, a.actors, workers=a.workers)
+    report = run(a.bootstrap, a.actors, workers=a.workers, codec=a.codec)
     Path(a.out).write_text(json.dumps(report, indent=2) + "\n",
                            encoding="utf-8")
     print(json.dumps(report, indent=2), flush=True)
