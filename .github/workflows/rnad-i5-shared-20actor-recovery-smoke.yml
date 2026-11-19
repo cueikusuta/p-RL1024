@@ -1,0 +1,120 @@
+name: I5 shared 20-way Artifact recovery fault-injection smoke
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/SHARED_20_ACTOR_RECOVERY_SMOKE_2026-11-19.json
+permissions: {}
+concurrency:
+  group: rnad-i5-20-actor-recovery-transport-smoke
+  cancel-in-progress: false
+
+jobs:
+  actor:
+    name: "fault test actor ${{ matrix.actor_id }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions: {contents: read, actions: read}
+    # Deliberately one actor will fail. A separate strict gate owns the result.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        actor_id: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+    steps:
+      - name: Deliberately fail precisely actor 16; preserve 19 unaffected results
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          echo "transport-smoke-g3-actor-${{ matrix.actor_id }}" > "out/actor-${{ matrix.actor_id }}.txt"
+          if [ "${{ matrix.actor_id }}" = "16" ]; then
+            echo "Intentional fault injection: no original Artifact for Actor 16" >&2
+            exit 45
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-cont-g3-actor-${{ matrix.actor_id }}
+          path: out/actor-${{ matrix.actor_id }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  inspect:
+    needs: actor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      missing: ${{ steps.plan.outputs.missing }}
+      missing_count: ${{ steps.plan.outputs.missing_count }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Plan exact missing-only matrix from immutable Artifacts
+        id: plan
+        run: |
+          set -euo pipefail
+          gh api 'repos/cueikusuta/p-RL1024/actions/runs/${{ github.run_id }}/artifacts?per_page=100' \
+            --paginate --jq '.artifacts[] | {name,expired}' | \
+            jq -s '{artifacts:.}' > listing.json
+          python -m scripts.rnad.shared_league_artifact_recovery inspect \
+            --generation 3 --artifact-json listing.json > plan.json
+          test "$(jq -c .missing plan.json)" = '[16]'
+          echo "missing=$(jq -c .missing plan.json)" >> "$GITHUB_OUTPUT"
+          echo "missing_count=$(jq -r .missing_count plan.json)" >> "$GITHUB_OUTPUT"
+
+  rescue:
+    needs: inspect
+    if: ${{ needs.inspect.outputs.missing_count != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        actor_id: ${{ fromJSON(needs.inspect.outputs.missing) }}
+    steps:
+      - name: Regenerate ONLY the missing Actor's identical logical payload
+        run: |
+          set -euo pipefail
+          test "${{ matrix.actor_id }}" = 16
+          mkdir -p out
+          echo "transport-smoke-g3-actor-${{ matrix.actor_id }}" > "out/actor-${{ matrix.actor_id }}.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-cont-g3-recovered-actor-${{ matrix.actor_id }}
+          path: out/actor-${{ matrix.actor_id }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  verifier:
+    needs: [actor, inspect, rescue]
+    if: ${{ !cancelled() && needs.inspect.result == 'success' && needs.rescue.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Resolve 19 original + exactly one recovered, download and verify all 20
+        run: |
+          set -euo pipefail
+          gh api 'repos/cueikusuta/p-RL1024/actions/runs/${{ github.run_id }}/artifacts?per_page=100' \
+            --paginate --jq '.artifacts[] | {name,expired}' | \
+            jq -s '{artifacts:.}' > listing.json
+          python -m scripts.rnad.shared_league_artifact_recovery resolve \
+            --generation 3 --artifact-json listing.json > resolved.json
+          test "$(jq -r '.source_artifacts | length' resolved.json)" -eq 20
+          test "$(jq -r '.source_artifacts[16]' resolved.json)" = 'rnad-i5-cont-g3-recovered-actor-16'
+          for n in $(seq 0 19); do
+            artifact="$(jq -r --argjson n "$n" '.source_artifacts[$n]' resolved.json)"
+            gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+              --name "$artifact" --dir "out/actor-$n"
+            test "$(cat "out/actor-$n/actor-$n.txt")" = "transport-smoke-g3-actor-$n"
+          done
+          echo 'Verified original 19 + recovered 1, without regenerated good shards; NO research Match claims' >> "$GITHUB_STEP_SUMMARY"
