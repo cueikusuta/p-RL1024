@@ -40,6 +40,22 @@ def write_gzip_once(path, data):
         json.dump(data, output, separators=(",", ":"), allow_nan=False)
 
 
+def _verified_match(path, *, seed, seat, match_id, manifest, opponent):
+    row = read_gzip(path)
+    if (row.get("match_id") != match_id or row.get("seed") != seed or
+        row.get("learner_seat") != seat or row.get("policy_id") !=
+            manifest["policy_id"] or row.get("source_sha") !=
+            manifest["source_sha"] or row.get("engine_sha") !=
+            manifest["engine_sha"] or row.get("main_sha256") !=
+            manifest["main_sha256"] or row.get("magnet_sha256") !=
+            manifest["magnet_sha256"] or row.get("opponent_sha256") !=
+            opponent["sha256"] or row.get("completed") is not True or
+        row.get("score", [0, 0])[row["winner"]] != 4):
+        raise ValueError("Stale or incomplete accepted Match on retry")
+    _verify_events(row)
+    return row
+
+
 def collect(*, bootstrap, actor_id, out, smoke=False):
     root = Path(bootstrap)
     manifest = json.loads((root / "generation-manifest.json").read_text())
@@ -92,7 +108,9 @@ def collect(*, bootstrap, actor_id, out, smoke=False):
     if hashlib.sha256((magnet_path/"manifest.json").read_bytes()).hexdigest() != manifest["magnet_sha256"]:
         raise ValueError("Frozen Magnet bytes mismatch generation manifest")
     n = 1 if smoke else SEEDS_PER_ACTOR
-    matches = []
+    # One persistent Node worker per Actor shard: fresh accepted Match and
+    # seat-local GRU memories per job, immutable verified heads reused in Node.
+    slots = []
     for seed in range(
         manifest["seed_start"] + actor_id * SEEDS_PER_ACTOR,
         manifest["seed_start"] + actor_id * SEEDS_PER_ACTOR + n
@@ -100,48 +118,58 @@ def collect(*, bootstrap, actor_id, out, smoke=False):
         for seat in (0, 1):
             match_id = f"g{manifest['generation']}-a{actor_id}-s{seed}-seat{seat}"
             path = output / "accepted" / (match_id + ".json.gz")
-            if not path.is_file():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                cmd = [
-                    "node", "scripts/rnad/shared_league_actor.mjs",
-                    "--seed", str(seed), "--seat", str(seat),
-                    "--meta", str(meta_file), "--main", str(root / "actor"),
-                    "--magnet", str(magnet_path),
-                    "--out", str(path),
-                ]
-                if opponent_path is not None:
-                    cmd.extend(["--legacy", str(opponent_path)])
-                elif historical_path is not None:
-                    cmd.extend(["--opponent", str(historical_path)])
-                # Retry only the SAME authority seed and seat after
-                # transport/process failure; never substitute a new seed.
-                # A failed subprocess cannot publish a valid accepted Match.
-                for attempt in range(3):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            slots.append((seed, seat, match_id, path))
+    cmd = [
+        "node", "scripts/rnad/shared_league_actor.mjs",
+        "--meta", str(meta_file), "--main", str(root / "actor"),
+        "--magnet", str(magnet_path),
+    ]
+    if opponent_path is not None:
+        cmd.extend(["--legacy", str(opponent_path)])
+    elif historical_path is not None:
+        cmd.extend(["--opponent", str(historical_path)])
+    batch_file = output / "actor-batch-jobs.json"
+    for attempt in range(3):
+        missing = []
+        for seed, seat, match_id, path in slots:
+            if path.is_file():
+                _verified_match(path, seed=seed, seat=seat, match_id=match_id,
+                                manifest=manifest, opponent=opponent)
+            else:
+                missing.append({"seed": seed, "seat": seat, "out": str(path)})
+        if not missing:
+            break
+        batch_file.write_text(json.dumps({
+            "schema": "rnad-shared-actor-batch-jobs-v1", "jobs": missing},
+            separators=(",", ":")), encoding="utf-8")
+        try:
+            subprocess.run(cmd + ["--batch-jobs", str(batch_file)],
+                           check=True, timeout=1800)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            # Preserve only complete verified Matches from a partially failed
+            # batch. The next attempt regenerates exactly the missing pairs.
+            for seed, seat, match_id, path in slots:
+                if path.is_file():
                     try:
-                        subprocess.run(cmd, check=True, timeout=1800)
-                        break
-                    except (subprocess.CalledProcessError,
-                            subprocess.TimeoutExpired):
-                        if path.is_file():
-                            path.unlink()
-                        if attempt == 2:
-                            raise
-            row = read_gzip(path)
-            if (row.get("match_id") != match_id or row.get("seed") != seed or
-                row.get("learner_seat") != seat or row.get("policy_id") !=
-                    manifest["policy_id"] or row.get("source_sha") !=
-                    manifest["source_sha"] or row.get("engine_sha") !=
-                    manifest["engine_sha"] or row.get("main_sha256") !=
-                    manifest["main_sha256"] or row.get("magnet_sha256") !=
-                    manifest["magnet_sha256"] or row.get("opponent_sha256") !=
-                    opponent["sha256"] or row.get("completed") is not True or
-                row.get("score", [0, 0])[row["winner"]] != 4):
-                raise ValueError("Stale or incomplete accepted Match on retry")
-            _verify_events(row)
-            matches.append(row)
-            print(json.dumps({"actor_id": actor_id, "seed": seed,
-                              "learner_seat": seat, "accepted_matches":len(matches),
-                              "accepted_decisions": len(row["events"])}), flush=True)
+                        _verified_match(path, seed=seed, seat=seat,
+                                        match_id=match_id,
+                                        manifest=manifest, opponent=opponent)
+                    except (ValueError, KeyError, IndexError, OSError,
+                            EOFError, gzip.BadGzipFile, json.JSONDecodeError):
+                        path.unlink()
+            if attempt == 2:
+                raise
+    matches = []
+    for seed, seat, match_id, path in slots:
+        if not path.is_file():
+            raise ValueError("Actor batch did not finish required seed/seat")
+        row = _verified_match(path, seed=seed, seat=seat, match_id=match_id,
+                              manifest=manifest, opponent=opponent)
+        matches.append(row)
+        print(json.dumps({"actor_id": actor_id, "seed": seed,
+                          "learner_seat": seat, "accepted_matches":len(matches),
+                          "accepted_decisions": len(row["events"])}), flush=True)
     if smoke:
         return {"smoke_complete_matches": len(matches), "actor_id": actor_id,
                 "winner_scores": [r["score"] for r in matches],
