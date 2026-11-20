@@ -169,14 +169,21 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
       }else if(observation.phase==='draft'){
         const a=encodeOwnDraftPool(observation,legalActions);
         logits=main.draft.scoreEncoded(a);
-        ref=magnet.draft.scoreEncoded(a);
+        // Draft head is stateless: identical SHA-verified frozen weights
+        // yield exactly the same logits. Avoid an expensive duplicate
+        // Deep Sets forward when Main and Magnet point to the same head.
+        ref=main.p.files.draft===magnet.p.files.draft?
+          logits:magnet.draft.scoreEncoded(a);
         value=valueFromLayers(draftFeatures(main.draft,a),
           main.values.tensors,'draft_value',64);
         phaseInput=encodeForLearner(observation,legalActions,a);
       }else if(observation.phase==='selection'){
         const a=encodeRichSelectionActor(observation,legalActions);
         logits=scoreFrozenASelection(main.selection,a);
-        ref=scoreFrozenASelection(magnet.selection,a);
+        // Selection head is also stateless; never apply this shortcut to
+        // battle GRU, which must advance each recurrent seat memory.
+        ref=main.p.files.selection===magnet.p.files.selection?
+          logits:scoreFrozenASelection(magnet.selection,a);
         value=valueFromLayers(
           selectionValueFeatures(main.selection,a),
           main.values.tensors,'selection_value',64);
