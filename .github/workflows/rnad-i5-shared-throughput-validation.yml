@@ -27,12 +27,13 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/rnad/shared_league_actor.mjs
-          python -m py_compile scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py scripts/rnad/shared_league_batched.py scripts/rnad/shared_league_parallel.py scripts/rnad/shared_league_parallel_parity.py scripts/rnad/shared_league_pipelined.py scripts/rnad/shared_league_onnx_cpu_export.py scripts/rnad/shared_league_compiler_repeat.py
+          python -m py_compile scripts/rnad/shared_league_parallel_download.py scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py scripts/rnad/shared_league_batched.py scripts/rnad/shared_league_parallel.py scripts/rnad/shared_league_parallel_parity.py scripts/rnad/shared_league_pipelined.py scripts/rnad/shared_league_onnx_cpu_export.py scripts/rnad/shared_league_compiler_repeat.py
           node scripts/verify-snapshot.mjs
       - name: Check bitwise GRU and legal support / bounded worker contracts
         run: |
           set -euo pipefail
           node --test test/rnad-infer-allocation-parity.test.js test/rnad-draft-fastpath-parity.test.js test/rnad-draft-deepsets-inference.test.js test/rnad-stage0-contract.test.js test/phase-pipeline-contract.test.js
+          python -m unittest discover -s test -p rnad_shared_league_parallel_download_test.py -v
       - name: Install pinned CPU PyTorch
         run: |
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
