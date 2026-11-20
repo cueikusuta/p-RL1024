@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/rnad/shared_league_actor.mjs
-          python -m py_compile scripts/rnad/shared_league_parallel_download.py scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py scripts/rnad/shared_league_batched.py scripts/rnad/shared_league_parallel.py scripts/rnad/shared_league_parallel_parity.py scripts/rnad/shared_league_pipelined.py scripts/rnad/shared_league_onnx_cpu_export.py scripts/rnad/shared_league_compiler_repeat.py
+          python -m py_compile scripts/rnad/shared_league_fast_targets.py scripts/rnad/shared_league_parallel_download.py scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py scripts/rnad/shared_league_batched.py scripts/rnad/shared_league_parallel.py scripts/rnad/shared_league_parallel_parity.py scripts/rnad/shared_league_pipelined.py scripts/rnad/shared_league_onnx_cpu_export.py scripts/rnad/shared_league_compiler_repeat.py
           node scripts/verify-snapshot.mjs
       - name: Check bitwise GRU and legal support / bounded worker contracts
         run: |
@@ -41,6 +41,7 @@ jobs:
       - name: Independent phase batching, data decode and checkpoint contracts
         run: |
           python -m unittest discover -s test -p rnad_shared_actor_match_parallel_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_fast_targets_test.py -v
           python -m unittest discover -s test -p rnad_shared_league_perf_test.py -v
           python -m unittest discover -s test -p rnad_shared_learner_checkpoint_test.py -v
           python -m unittest discover -s test -p rnad_shared_league_advanced_perf_test.py -v
