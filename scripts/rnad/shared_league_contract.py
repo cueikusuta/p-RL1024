@@ -118,11 +118,29 @@ def verify_manifest(manifest):
 
 
 def _matrix(rows, count, width, *, integer=False):
-    return (isinstance(rows, list) and len(rows) == count and
-            all(isinstance(row, list) and len(row) == width and
-                all(type(x) is int if integer else
-                    type(x) in (int, float) and math.isfinite(x)
-                    for x in row) for row in rows))
+    """Strict JSON matrix contract without nested generator allocations.
+
+    Keep exact type checks: bool must never pass for int, and all real
+    entries must be finite. A short-circuit explicit loop is measurably
+    cheaper for thousands of authoritative draft candidates per Match.
+    """
+    if not isinstance(rows, list) or len(rows) != count:
+        return False
+    if integer:
+        for row in rows:
+            if not isinstance(row, list) or len(row) != width:
+                return False
+            for value in row:
+                if type(value) is not int:
+                    return False
+    else:
+        for row in rows:
+            if not isinstance(row, list) or len(row) != width:
+                return False
+            for value in row:
+                if type(value) not in (int, float) or not math.isfinite(value):
+                    return False
+    return True
 
 
 def _verify_events(record):
