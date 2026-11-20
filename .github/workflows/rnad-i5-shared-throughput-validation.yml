@@ -33,13 +33,13 @@ jobs:
         run: |
           set -euo pipefail
           node --test test/rnad-infer-allocation-parity.test.js test/rnad-draft-fastpath-parity.test.js test/rnad-draft-deepsets-inference.test.js test/rnad-stage0-contract.test.js test/phase-pipeline-contract.test.js
-          python -m unittest discover -s test -p rnad_shared_actor_match_parallel_test.py -v
       - name: Install pinned CPU PyTorch
         run: |
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4 orjson==3.13.0
       - name: Independent phase batching, data decode and checkpoint contracts
         run: |
+          python -m unittest discover -s test -p rnad_shared_actor_match_parallel_test.py -v
           python -m unittest discover -s test -p rnad_shared_league_perf_test.py -v
           python -m unittest discover -s test -p rnad_shared_learner_checkpoint_test.py -v
           python -m unittest discover -s test -p rnad_shared_league_advanced_perf_test.py -v
