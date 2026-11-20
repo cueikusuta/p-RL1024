@@ -1,6 +1,8 @@
 """Numerical and fail-closed reference parity for CPU NumPy R-NaD target candidate."""
 import math
+import os
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -48,6 +50,43 @@ class RnadFastTargetsParity(unittest.TestCase):
                     self.assertFalse(b["q_targets"].requires_grad)
                     torch.testing.assert_close(a["q_targets"], b["q_targets"],
                                                rtol=1e-5, atol=1e-6)
+
+    def test_model_target_audit_is_never_silently_enabled_without_numpy(self):
+        from scripts.rnad.shared_league_batched import batched_match_losses
+        # The check must happen before touching models or any trajectories.
+        with patch.dict(os.environ, {"RNAD_AUDIT_NUMERIC_TARGETS": "1",
+                                      "RNAD_FAST_RNAD_TARGETS": "0"}):
+            with self.assertRaisesRegex(ValueError, "requires NumPy"):
+                batched_match_losses(None, None, None,
+                                     [(object(), "self")])
+        with patch.dict(os.environ, {"RNAD_AUDIT_NUMERIC_TARGETS": "invalid",
+                                      "RNAD_FAST_RNAD_TARGETS": "1"}):
+            with self.assertRaisesRegex(ValueError, "must be 0 or 1"):
+                batched_match_losses(None, None, None,
+                                     [(object(), "self")])
+
+    def test_adam_moment_audit_detects_drift_not_masked_by_model_weights(self):
+        from scripts.rnad.shared_league_parallel_parity import (
+            _audit_adam_optimizer_state,
+        )
+        left = torch.nn.Linear(3, 2)
+        right = torch.nn.Linear(3, 2)
+        right.load_state_dict(left.state_dict())
+        reference = torch.optim.Adam(left.parameters(), lr=3e-5)
+        candidate = torch.optim.Adam(right.parameters(), lr=3e-5)
+        sample = torch.ones(2, 3)
+        for model, optimizer in ((left, reference), (right, candidate)):
+            model(sample).square().sum().backward()
+            optimizer.step()
+        report = _audit_adam_optimizer_state(reference, candidate)
+        self.assertGreater(report["checked_state_tensors"], 0)
+        self.assertEqual(report["max_exp_avg_abs"], 0.0)
+        # Identical weights don't prove that Adam moments were preserved.
+        with torch.no_grad():
+            first = next(iter(candidate.state.values()))
+            first["exp_avg"].add_(0.01)
+        with self.assertRaises(AssertionError):
+            _audit_adam_optimizer_state(reference, candidate)
 
     def test_illegal_inputs_remain_fail_closed(self):
         valid = self._accepted_like_steps(2)
