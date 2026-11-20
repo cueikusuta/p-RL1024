@@ -13,8 +13,8 @@ import sys
 from collections import Counter
 
 ACTORS = 20
-# The active research continuation covers G49..G61; reject later unknown generations.
-MAX_RECOVERY_GENERATION = 61
+# The G62 continuation is bounded to G160; reject future unapproved generations.
+MAX_RECOVERY_GENERATION = 160
 PREFIX = "rnad-i5-cont-g"
 FULL_NAME = re.compile(
     r"rnad-i5-cont-g(\d+)-(recovered-)?actor-(\d+)\Z"
