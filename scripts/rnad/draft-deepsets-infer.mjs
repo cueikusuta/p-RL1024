@@ -92,18 +92,26 @@ export function encodeOwnDraftPool(observation,legalActions){
       throw new Error('Invalid draft model features');
     return f;
   });
+  const carries=pool.map(p=>Number(isCarry.has(p.instanceId)));
+  const megas=pool.map(p=>Number(Boolean(p.mega)));
+  const extras=[];
   const codes=legalActions.map(action=>{
     if(!Array.isArray(action)||action.length!==6||
       new Set(action).size!==6||action.some(id=>!byId.has(id)))
       throw new TypeError('Malformed authoritative six-Pokemon draft action');
     const code=action.map(id=>byId.get(id));
-    if(code.reduce((n,i)=>n+prices[i],0)>observation.self.credits)
+    const spent=code.reduce((n,i)=>n+prices[i],0);
+    if(spent>observation.self.credits)
       throw new TypeError('Nonlegal over-budget draft action');
+    // Exactly the four published own-only inputs also used by the
+    // draft value head and accepted Learner trajectory. Compute once.
+    extras.push([spent/100,(observation.self.credits-spent)/100,
+      code.reduce((n,i)=>n+carries[i],0)/6,
+      code.reduce((n,i)=>n+megas[i],0)/6]);
     return code;
   });
   return {features,codes,prices,credits:observation.self.credits,
-    carries:pool.map(p=>Number(isCarry.has(p.instanceId))),
-    megas:pool.map(p=>Number(Boolean(p.mega)))};
+    carries,megas,extras};
 }
 function linear(values,weight,bias,outputs){
   const inputs=values.length, out=new Float64Array(outputs);
