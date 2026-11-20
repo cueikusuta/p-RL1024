@@ -62,7 +62,8 @@ def _historical_opponent_path(root, manifest, opponent):
     return path
 
 
-def _verified_match(path, *, seed, seat, match_id, manifest, opponent):
+def _verified_match(path, *, seed, seat, match_id, manifest, opponent,
+                    verify_events=True):
     row = read_gzip(path)
     if (row.get("match_id") != match_id or row.get("seed") != seed or
         row.get("learner_seat") != seat or row.get("policy_id") !=
@@ -74,7 +75,8 @@ def _verified_match(path, *, seed, seat, match_id, manifest, opponent):
             opponent["sha256"] or row.get("completed") is not True or
         row.get("score", [0, 0])[row["winner"]] != 4):
         raise ValueError("Stale or incomplete accepted Match on retry")
-    _verify_events(row)
+    if verify_events:
+        _verify_events(row)
     return row
 
 
@@ -217,8 +219,12 @@ def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1):
     for seed, seat, match_id, path in slots:
         if not path.is_file():
             raise ValueError("Actor batch did not finish required seed/seat")
+        # Full-shard verify_actor below performs the strict event validation
+        # once for all 64 Matches before any bundle is accepted or published.
+        # Smoke lacks that full-shard barrier and therefore always validates.
         row = _verified_match(path, seed=seed, seat=seat, match_id=match_id,
-                              manifest=manifest, opponent=opponent)
+                              manifest=manifest, opponent=opponent,
+                              verify_events=smoke)
         matches.append(row)
         print(json.dumps({"actor_id": actor_id, "seed": seed,
                           "learner_seat": seat, "accepted_matches":len(matches),
