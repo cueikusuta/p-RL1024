@@ -115,13 +115,29 @@ function linear(values,weight,bias,outputs){
   return out;
 }
 function linearInto(values,weight,bias,out){
-  // Same left-to-right dot products as linear(), without per-candidate
-  // Float64Array allocations. Scratch remains private to scoreEncoded().
+  // The frozen rho widths are 148/64/32 (all multiples of four).
+  // Unroll the innermost dot product without re-associating additions:
+  // preserve EXACT left-to-right IEEE-754 order, including bias addition.
+  // This is a CPU hot path called once per legal six-Pokemon candidate.
   const inputs=values.length;
-  for(let j=0;j<out.length;j++){
-    let sum=bias[j],offset=j*inputs;
-    for(let k=0;k<inputs;k++)sum+=values[k]*weight[offset+k];
-    out[j]=sum;
+  if((inputs&3)===0){
+    for(let j=0;j<out.length;j++){
+      let sum=bias[j],offset=j*inputs;
+      for(let k=0;k<inputs;k+=4){
+        sum+=values[k]*weight[offset+k];
+        sum+=values[k+1]*weight[offset+k+1];
+        sum+=values[k+2]*weight[offset+k+2];
+        sum+=values[k+3]*weight[offset+k+3];
+      }
+      out[j]=sum;
+    }
+  }else{
+    // Retain the original scalar behavior for any future odd-width caller.
+    for(let j=0;j<out.length;j++){
+      let sum=bias[j],offset=j*inputs;
+      for(let k=0;k<inputs;k++)sum+=values[k]*weight[offset+k];
+      out[j]=sum;
+    }
   }
   return out;
 }
