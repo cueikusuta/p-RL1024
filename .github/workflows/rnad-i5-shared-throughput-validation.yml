@@ -326,7 +326,7 @@ jobs:
               (0,'parallel-four/accepted',4),
               (16,'fixed-64-parity/actor16/control_two/accepted',2),
           ]
-          report={'schema':'rnad-i5-optin-policy-prefix-rho-parity-v1',
+          report={'schema':'rnad-i5-optin-policy-prefix-rho-snapshot-parity-v1',
                   'head_sha':subprocess.check_output(
                       ['git','rev-parse','HEAD'],text=True).strip(),
                   'experimental_only':True,'same_sha_accepted_trajectory_identity':False,
@@ -336,6 +336,7 @@ jobs:
           try:
               os.environ['RNAD_POLICY_HIDDEN_PREFIX_REUSE']='1'
               os.environ['RNAD_DRAFT_RHO_ROW_BLOCK4']='1'
+              os.environ['RNAD_PIPELINE_SNAPSHOT_CACHE']='1'
               os.environ['RNAD_REUSE_LEGACY_FROZEN_LOGITS']='0'
               for actor,baseline,workers in cases:
                   reference=accepted(baseline)
@@ -348,7 +349,7 @@ jobs:
                   actual=accepted(Path(path,'accepted'))
                   assert reference==actual, (
                       f'Actor {actor} seed/seat accepted trajectory changed '
-                      'with opt-in policy prefix or four-output Deep Sets rho')
+                      'with opt-in policy prefix, rho and snapshot cache')
                   report['cases'].append({
                       'actor':actor,'worker_count':workers,
                       'accepted_matches':len(actual),
@@ -357,6 +358,7 @@ jobs:
           finally:
               os.environ.pop('RNAD_POLICY_HIDDEN_PREFIX_REUSE',None)
               os.environ.pop('RNAD_DRAFT_RHO_ROW_BLOCK4',None)
+              os.environ.pop('RNAD_PIPELINE_SNAPSHOT_CACHE',None)
               os.environ.pop('RNAD_REUSE_LEGACY_FROZEN_LOGITS',None)
           report['same_sha_accepted_trajectory_identity']=True
           print(json.dumps(report,indent=2),flush=True)
