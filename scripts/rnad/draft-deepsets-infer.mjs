@@ -243,6 +243,13 @@ export class DeepSetsDraftPolicy{
         throw new TypeError('Malformed encoded own-set features');
       return relu(mlp(f,this.layers,'phi',[48,48]));
     });
+    // Every legal six-Pokemon candidate reuses each pool member hundreds of
+    // times. Hoist EXACT per-member IEEE-754 divisions/multiplications outside
+    // the candidate loop; leave the additions in their original selection
+    // order. This avoids 576 arithmetic operations per legal candidate
+    // without changing logits, RNG draw order or accepted action support.
+    const meanPart=hidden.map(row=>Float64Array.from(row,v=>v/6));
+    const secondPart=hidden.map(row=>Float64Array.from(row,v=>v*v/6));
     // A legal pool may contain thousands of six-Pokemon combinations.
     // Reuse rho aggregation/hidden buffers across candidates. No buffers
     // escape to the caller; logits and public authority checks are unchanged.
@@ -268,10 +275,11 @@ export class DeepSetsDraftPolicy{
       avg.fill(0);second.fill(0);high.fill(-Infinity);
       let spent=0,carry=0,mega=0;
       for(const i of code){
-        const v=hidden[i];spent+=prices[i];carry+=carries[i];mega+=megas[i];
+        const v=hidden[i],m=meanPart[i],s=secondPart[i];
+        spent+=prices[i];carry+=carries[i];mega+=megas[i];
         for(let k=0;k<48;k++){
-          avg[k]+=v[k]/6;
-          second[k]+=v[k]*v[k]/6;
+          avg[k]+=m[k];
+          second[k]+=s[k];
           high[k]=Math.max(high[k],v[k]);
         }
       }
