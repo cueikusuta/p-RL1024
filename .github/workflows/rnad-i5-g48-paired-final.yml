@@ -1,0 +1,338 @@
+name: I5 G48 post-training fixed-N paired AQ and direct H2H
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - docs/research/rnad/G48_PAIRED_EVAL_START_2026-11-20.json
+permissions: {}
+concurrency:
+  group: rnad-i5-g48-paired-final-20261120
+  cancel-in-progress: false
+# G48 means the state AFTER learner generation g48, internally generation=49.
+# Immutable source, untouched prior learner chain. All runs use frozen greedy
+# accepted four-win matches, both seats, independent held-out seed blocks.
+# AQ comparisons and direct H2H are separate predeclared inference families.
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 2, persist-credentials: false}
+      - name: Confirm immutable preregistration before any Match
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          path='docs/research/rnad/G48_PAIRED_EVAL_START_2026-11-20.json'
+          x=json.loads(Path(path).read_text())
+          parent=subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()
+          assert x=={
+            'schema':'rnad-i5-g48-preregistered-95pct-paired-v1',
+            'reviewed_workflow_sha':parent,
+            'training_source_sha':'01501f3a1e12511140bf772d435d39c0c07319bc',
+            'engine_sha':'ea81165993110ee9fb3a09dcb97c6708c0d7397b',
+            'G48_checkpoint_generation':49,
+            'model_artifacts':{'G48':14572586905,'G12':14541007309,'G11':14540081530},
+            'analysis_families':{
+              'aq':{'candidate':'G48','baselines':['G12','G11'],'seed_start':10710001,
+                    'independent_seed_blocks':4096,'expected_complete_matches':24576},
+              'direct':{'candidate':'G48','baseline':'G12','seed_start':10720001,
+                        'independent_seed_blocks':4096,'expected_complete_matches':8192}},
+            'familywise_alpha_per_family':0.05,
+            'minimum_practical_gain':0.02,
+            'both_seats':True,
+            'fixed_N_no_intermediate_peeking':True,
+            'no_automatic_champion_or_merge':True
+          },'Unapproved G48 paired study; do not evaluate'
+          diff=subprocess.check_output(['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()
+          assert diff==[path],'Launch commit must only register fixed N and comparisons'
+          print('Preregistration and fixed separate statistical families accepted')
+          PY
+          for id in 14572586905 14541007309 14540081530; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" --jq '{id,name,expired,workflow_run}' > "artifact-$id.json"
+            test "$(jq -r .expired "artifact-$id.json")" = false
+          done
+          test "$(jq -r '.workflow_run.id' artifact-14572586905.json)" = 44554626133
+          test "$(jq -r '.workflow_run.id' artifact-14541007309.json)" = 44529850050
+          test "$(jq -r '.workflow_run.id' artifact-14540081530.json)" = 44529850050
+
+  prepare:
+    needs: preflight
+    name: "Freeze ${{ matrix.model_id }} immutable model"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: true
+      max-parallel: 3
+      matrix:
+        model_id: [G48, G12, G11]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false, ref: 01501f3a1e12511140bf772d435d39c0c07319bc}
+      - name: Verify source-pinned full-state handoff and actor bundle
+        env:
+          MODEL_ID: ${{ matrix.model_id }}
+        run: |
+          set -euo pipefail
+          case "$MODEL_ID" in
+            G48) run=44554626133; archive=rnad-i5-cont-next-bootstrap-after-g48 ;;
+            G12) run=44529850050; archive=rnad-i5-cont-next-bootstrap-after-g11 ;;
+            G11) run=44529850050; archive=rnad-i5-cont-next-bootstrap-after-g10 ;;
+            *) exit 1 ;;
+          esac
+          for attempt in 1 2 3 4 5; do
+            if gh run download "$run" --repo cueikusuta/p-RL1024 --name "$archive" --dir original; then break; fi
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep "$((12*attempt))"
+          done
+          (cd original && sha256sum -c file-pins.sha256)
+          mkdir -p prepared/actor
+          cp original/actor/*.json prepared/actor/
+          python - <<'PY'
+          import json,hashlib,os
+          from pathlib import Path
+          model=os.environ['MODEL_ID']
+          m=json.loads(Path('prepared/actor/manifest.json').read_text())
+          assert m['schema']=='rnad-integrated-policy-actor-bundle-v1'
+          assert m['generation']=={'G48':49,'G12':12,'G11':11}[model]
+          assert m['source_sha']=='01501f3a1e12511140bf772d435d39c0c07319bc'
+          assert m['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'
+          assert set(m['files'])=={'draft','selection','battle','values'}
+          for head,h in m['files'].items():
+              assert hashlib.sha256(Path('prepared/actor',head+'.json').read_bytes()).hexdigest()==h
+          pin={'id':model,'generation':m['generation'],
+               'manifest_sha256':hashlib.sha256(Path('prepared/actor/manifest.json').read_bytes()).hexdigest(),
+               'frozen':True,'training_during_evaluation':False}
+          Path('prepared/model-pin.json').write_text(json.dumps(pin,indent=2)+'\n')
+          print(json.dumps(pin))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-g48-frozen-${{ matrix.model_id }}
+          path: prepared/
+          retention-days: 90
+          if-no-files-found: error
+
+  preregister:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false, ref: 01501f3a1e12511140bf772d435d39c0c07319bc}
+      - name: Pre-freeze manifest SHAs and both 95pct comparison families
+        run: |
+          set -euo pipefail
+          mkdir -p pinned aq direct
+          for model in G48 G12 G11; do
+            gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 --name "rnad-i5-g48-frozen-$model" --dir "pinned/$model"
+          done
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          sha={}
+          for id,gen in [('G48',49),('G12',12),('G11',11)]:
+              folder=Path('pinned')/id
+              pin=json.loads((folder/'model-pin.json').read_text())
+              assert pin['generation']==gen and pin['frozen']
+              d=hashlib.sha256((folder/'actor'/'manifest.json').read_bytes()).hexdigest()
+              assert d==pin['manifest_sha256']
+              sha[id]=d
+          def plan(study,ids,seed,comparison,opponent):
+              return {
+                'schema':'rnad-i5-prospective-paired-league-plan-v1',
+                'stage':'final','evaluation_type':study,
+                'source_sha':'01501f3a1e12511140bf772d435d39c0c07319bc',
+                'engine_sha':'ea81165993110ee9fb3a09dcb97c6708c0d7397b',
+                'opponent_id':opponent,'seed_start':seed,'seed_blocks':4096,
+                'familywise_alpha':0.05,'confidence_level':0.95,
+                'method':'paired-seed-block-student-t-bonferroni',
+                'fixed_sample_size':True,'model_selection_before_holdout':True,
+                'automatic_champion_promotion':False,'minimum_practical_gain':0.02,
+                'model_sha256_by_id':{i:sha[i] for i in ids},
+                'excluded_seed_ranges':[
+                   {'start':9500001,'count':4096},
+                   {'start':9900001,'count':31360},
+                   {'start':10700001,'count':2048}],
+                'independent_holdout_precommitted':True,
+                'no_intermediate_result_peeking':True,
+                'comparisons':comparison,'research_only':True,
+                'checkpoint_generation_by_id':{'G48':49,'G12':12,'G11':11},
+                'analysis_family':('AQ paired shared benchmark' if study=='shared-opponent' else 'direct seat-swapped H2H')
+              }
+          aq=plan('shared-opponent',['G48','G12','G11'],10710001,
+             [{'candidate_model_id':'G48','baseline_model_id':'G12'},
+              {'candidate_model_id':'G48','baseline_model_id':'G11'}], 'AQ-Base-001')
+          direct=plan('direct-head-to-head',['G48','G12'],10720001,
+             [{'candidate_model_id':'G48','baseline_model_id':'G12'}],'G12')
+          Path('aq/plan.json').write_text(json.dumps(aq,indent=2)+'\n')
+          Path('direct/plan.json').write_text(json.dumps(direct,indent=2)+'\n')
+          print(json.dumps({'sha':sha,'AQ_seed_blocks':4096,'H2H_seed_blocks':4096,
+                            'total_full_matches':32768},indent=2))
+          PY
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {verifyPlan} from './scripts/rnad/paired-league-eval.mjs';
+          for(const f of ['aq/plan.json','direct/plan.json'])
+            verifyPlan(JSON.parse(fs.readFileSync(f,'utf8')));
+          console.log('Both independent prospective plans verified before Matches');
+          JS
+          sha256sum aq/plan.json direct/plan.json > plan-pins.sha256
+          cat aq/plan.json direct/plan.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-g48-immutable-plans
+          path: |
+            aq/plan.json
+            direct/plan.json
+            plan-pins.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  evaluate:
+    needs: preregister
+    name: "Frozen paired ${{ matrix.spec }} part ${{ matrix.part }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        spec: [aq_G48, aq_G12, aq_G11, direct_G48]
+        part: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false, ref: 01501f3a1e12511140bf772d435d39c0c07319bc}
+      - name: Use pinned Node22 for exact frozen Match runtime
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Retrieve source-locked plan and frozen model
+        run: |
+          set -euo pipefail
+          spec="${{ matrix.spec }}"
+          study="$(printf '%s' "$spec" | cut -d_ -f1)"
+          model="$(printf '%s' "$spec" | cut -d_ -f2)"
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 --name rnad-i5-g48-immutable-plans --dir plans
+          (cd plans && sha256sum -c plan-pins.sha256)
+          for attempt in 1 2 3 4 5; do
+            if gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 --name "rnad-i5-g48-frozen-$model" --dir model; then break; fi
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep "$((12*attempt))"
+          done
+          if [ "$study" = direct ]; then
+            gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 --name rnad-i5-g48-frozen-G12 --dir baseline
+          fi
+          MODEL_ID="$model" STUDY="$study" python - <<'PY'
+          import json,hashlib,os
+          from pathlib import Path
+          p=json.loads(Path('plans',os.environ['STUDY'],'plan.json').read_text())
+          model=os.environ['MODEL_ID']
+          h=hashlib.sha256(Path('model/actor/manifest.json').read_bytes()).hexdigest()
+          assert h==p['model_sha256_by_id'][model]
+          assert p['seed_blocks']==4096 and p['familywise_alpha']==.05
+          if os.environ['STUDY']=='direct':
+              b=hashlib.sha256(Path('baseline/actor/manifest.json').read_bytes()).hexdigest()
+              assert b==p['model_sha256_by_id']['G12']
+          PY
+      - name: Execute fixed 256 two-seat seed blocks without training
+        run: |
+          set -euo pipefail
+          spec="${{ matrix.spec }}"
+          study="$(printf '%s' "$spec" | cut -d_ -f1)"
+          model="$(printf '%s' "$spec" | cut -d_ -f2)"
+          mkdir -p result
+          if [ "$study" = direct ]; then
+            node scripts/rnad/paired-league-run.mjs --plan "plans/$study/plan.json" \
+              --model-dir model/actor --model-id "$model" --baseline-dir baseline/actor \
+              --part "${{ matrix.part }}" --parts 16 --out result/result.json
+          else
+            node scripts/rnad/paired-league-run.mjs --plan "plans/$study/plan.json" \
+              --model-dir model/actor --model-id "$model" \
+              --part "${{ matrix.part }}" --parts 16 --out result/result.json
+          fi
+          test -s result/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rnad-i5-g48-evidence-${{ matrix.spec }}-part${{ matrix.part }}
+          path: result/result.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  summarize:
+    needs: [preregister, evaluate]
+    if: always() && needs.preregister.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false, ref: 01501f3a1e12511140bf772d435d39c0c07319bc}
+      - name: Evaluate only all 32768 authenticated complete four-win Matches
+        run: |
+          set -euo pipefail
+          test "${{ needs.evaluate.result }}" = success
+          mkdir -p plans evidence final
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 --name rnad-i5-g48-immutable-plans --dir plans
+          (cd plans && sha256sum -c plan-pins.sha256)
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 --pattern 'rnad-i5-g48-evidence-*' --dir evidence
+          mapfile -t aq < <(find evidence -type f -path '*evidence-aq_*/result.json' | sort)
+          mapfile -t direct < <(find evidence -type f -path '*evidence-direct_*/result.json' | sort)
+          test "${#aq[@]}" -eq 48
+          test "${#direct[@]}" -eq 16
+          node scripts/rnad/paired-league-eval.mjs plans/aq/plan.json final/aq-report.json "${aq[@]}"
+          node scripts/rnad/paired-league-eval.mjs plans/direct/plan.json final/direct-report.json "${direct[@]}"
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const aq=JSON.parse(fs.readFileSync('final/aq-report.json','utf8'));
+          const h2h=JSON.parse(fs.readFileSync('final/direct-report.json','utf8'));
+          if(aq.independent_seed_blocks!==4096 || aq.complete_four_win_matches!==24576 ||
+             aq.comparisons.length!==2 || aq.champion_promoted ||
+             h2h.independent_seed_blocks!==4096 || h2h.complete_four_win_matches!==8192 ||
+             h2h.comparisons.length!==1 || h2h.champion_promoted)
+            throw Error('Incomplete preregistered independent G48 comparison');
+          for(const [name,r] of [['AQ',aq],['direct H2H',h2h]])
+            console.log(JSON.stringify({study:name,seed_blocks:r.independent_seed_blocks,
+              complete_matches:r.complete_four_win_matches,
+              comparisons:r.comparisons.map(c=>({candidate:c.candidate_model_id,
+                baseline:c.baseline_model_id,estimate:c.estimate,ci:c.confidence_interval,
+                adjusted_p:c.bonferroni_adjusted_two_sided_p,
+                supported:c.statistically_supported_gain})),
+              statistical_gate_passed:r.statistical_gate_passed,champion_promoted:false},null,2));
+          JS
+          cp plans/aq/plan.json final/aq-plan.json
+          cp plans/direct/plan.json final/direct-plan.json
+          (cd final && sha256sum *json > evidence-sha256.txt)
+          cat final/aq-report.json final/direct-report.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rnad-i5-g48-paired-final-95pct-reports
+          path: final/
+          retention-days: 90
+          if-no-files-found: warn
