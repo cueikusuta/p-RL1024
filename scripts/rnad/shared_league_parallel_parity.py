@@ -23,6 +23,52 @@ from scripts.rnad.shared_league_parallel import ParallelGradientPool
 from scripts.rnad.shared_league_batched import batched_match_losses
 
 
+def _audit_adam_optimizer_state(reference, candidate):
+    """Verify the actual Adam moment buffers and step after one real update.
+
+    Comparing final model parameters alone can hide errors from a first
+    optimizer step, because a different gradient may give the same sign and
+    nearly the same Adam update. This audits *all* numbered moment tensors.
+    """
+    expected, actual = reference.state_dict(), candidate.state_dict()
+    if expected["param_groups"] != actual["param_groups"]:
+        raise AssertionError("Adam optimizer hyperparameter or parameter ordering drift")
+    if set(expected["state"]) != set(actual["state"]):
+        raise AssertionError("Adam optimizer state key drift")
+    report = {"checked_state_tensors": 0, "max_exp_avg_abs": 0.0,
+              "max_exp_avg_sq_abs": 0.0, "steps_exact": True}
+    for parameter_id, ref_state in expected["state"].items():
+        other_state = actual["state"][parameter_id]
+        if set(ref_state) != set(other_state):
+            raise AssertionError("Adam moment field mismatch")
+        for key, a in ref_state.items():
+            b = other_state[key]
+            if not isinstance(a, torch.Tensor) or not isinstance(b, torch.Tensor):
+                if a != b:
+                    raise AssertionError("Adam non-tensor state mismatch")
+                continue
+            if a.shape != b.shape or a.dtype != b.dtype or not (
+                    torch.isfinite(a).all() and torch.isfinite(b).all()):
+                raise AssertionError("Adam state shape/dtype/finite mismatch")
+            if key == "step":
+                if not torch.equal(a, b):
+                    raise AssertionError("Adam step counter mismatch")
+                continue
+            difference = (a-b).abs().max().item() if a.numel() else 0.0
+            if key not in ("exp_avg", "exp_avg_sq"):
+                raise AssertionError("Unrecognized Adam moment field: " + key)
+            # First moments scale with gradients; second moments are much
+            # smaller. Do not mask second-moment drift using first-moment atol.
+            atol = 4e-6 if key == "exp_avg" else 4e-10
+            torch.testing.assert_close(a, b, rtol=4e-3, atol=atol)
+            report["max_" + key + "_abs"] = max(
+                report["max_" + key + "_abs"], difference)
+            report["checked_state_tensors"] += 1
+    if not report["checked_state_tensors"]:
+        raise AssertionError("No actual Adam moment buffers checked")
+    return report
+
+
 def benchmark(bootstrap, actor_bundle, *, processes=4):
     torch.set_num_threads(1)
     root = Path(bootstrap)
@@ -151,7 +197,8 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         # but all 32 full-Match gradients and the single optimizer step
         # must still match the unchanged scalar Torch V-trace reference.
         fast, ft, fm, fo, fs = _models(root, checkpoint)
-        with patch.dict(os.environ, {"RNAD_FAST_RNAD_TARGETS": "1"}):
+        with patch.dict(os.environ, {"RNAD_FAST_RNAD_TARGETS": "1",
+                                     "RNAD_AUDIT_NUMERIC_TARGETS": "1"}):
             with ParallelGradientPool(fast, ft, fm, workers=processes,
                                       vector=True) as workers:
                 begun=time.perf_counter()
@@ -189,6 +236,8 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
     if abs(sum(losses)-sum(fast_losses)) > 1e-3 or (
             abs(max(ratios)-max(fast_ratios)) > 1e-5):
         raise AssertionError("NumPy CPU all-action R-NaD target objective changed")
+    fast_adam_report = _audit_adam_optimizer_state(opt, fo)
+    fused_adam_report = _audit_adam_optimizer_state(opt, fopt)
     torch.nn.utils.clip_grad_norm_(vector8.parameters(),10.,
                                    error_if_nonfinite=True)
     o8.step()
@@ -251,6 +300,12 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         "single_trial_speed_ratio_not_established":
             round(scalar_seconds / parallel_seconds, 4),
         "gradients_and_optimizer_step_numerically_equivalent":True,
+        "actual_target_magnet_all_action_parity_checked":True,
+        "numpy_target_audited_authority_matches":len(rows),
+        "numpy_target_audited_authority_decisions":
+            sum(len(row["events"]) for row in rows),
+        "numpy_adam_moments_after_step":fast_adam_report,
+        "linearized_neurd_adam_moments_after_step":fused_adam_report,
         "strength_evaluated":False,"generation_completed":False,
     }
 
