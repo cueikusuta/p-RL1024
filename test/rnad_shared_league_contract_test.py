@@ -6,7 +6,8 @@ import unittest
 from scripts.rnad.shared_league_contract import (
     ACTORS, MATCHES_PER_GENERATION, OPTIMIZER_STEPS, SEEDS_PER_ACTOR,
     ACTOR_SCHEMA, MATCH_SCHEMA, POLICY_SCHEMA, SCHEMA, _opponent,
-    _matrix, actor_role, canonical_hash, verify_actor, verify_generation,
+    _matrix, _valid_draft_codes, _SELECTION_TRIPLES,
+    actor_role, canonical_hash, verify_actor, verify_generation,
     verify_manifest,
 )
 
@@ -111,6 +112,21 @@ class SharedLeagueContractTest(unittest.TestCase):
     def setUp(self):
         self.manifest = manifest()
         self.payloads = [payload(self.manifest, i) for i in range(ACTORS)]
+
+    def test_draft_candidate_single_pass_rejects_all_invalid_shapes(self):
+        self.assertEqual(len(_SELECTION_TRIPLES), 60)
+        self.assertEqual(_SELECTION_TRIPLES[0], [0, 1, 2])
+        self.assertTrue(_valid_draft_codes([[0, 1, 2, 3, 4, 5]], 6))
+        self.assertTrue(_valid_draft_codes([[5, 4, 3, 2, 1, 0]], 6))
+        for values in ([], None, (), "not-a-list", [[0, 1, 2, 3, 4]],
+                       [[0, 1, 2, 3, 4, 4]],
+                       [[0, 1, 2, 3, 4, 6]],
+                       [[0, 1, 2, 3, 4, -1]],
+                       [[0, 1, 2, 3, 4, 5.0]],
+                       [[0, 1, 2, 3, 4, True]],
+                       [[0, 1, 2, 3, 4, float("nan")]],
+                       [[0, 1, 2, 3, 4, []]]):
+            self.assertFalse(_valid_draft_codes(values, 6), repr(values))
 
     def test_numeric_matrix_fastpath_preserves_strict_boundary(self):
         self.assertTrue(_matrix([[0, 1], [-2, 3]], 2, 2, integer=True))
