@@ -30,6 +30,10 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Validate 40-step full-state negative regression fixtures
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s test -p rnad_shared_league_full_gen_benchmark_test.py -v
       - name: Download EXACT authoritative frozen G0 source artifacts
         run: |
           set -euo pipefail

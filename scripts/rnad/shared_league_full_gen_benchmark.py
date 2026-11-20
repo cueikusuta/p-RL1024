@@ -217,8 +217,9 @@ def _audit_full_state(reference, candidate):
         for field, first in old_slot.items():
             second = new_slot[field]
             if field == "step":
-                if not torch.equal(first, second):
-                    raise AssertionError("Adam step counter changed")
+                if (not torch.equal(first, second) or first.numel() != 1
+                        or int(first.item()) != 40):
+                    raise AssertionError("Adam step counter changed or incomplete")
             elif field in moment_maxima:
                 if first.shape != second.shape or first.dtype != second.dtype:
                     raise AssertionError("Adam moment shape/dtype changed")
