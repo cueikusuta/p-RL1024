@@ -72,13 +72,14 @@ function draftFeatures(deep,encoded){
   // but avoid materializing one transient four-number array per legal pick
   // and rescanning that entire array four times.
   const extrasSum=[0,0,0,0];
-  for(const code of encoded.codes){
+  const extras=encoded.extras??encoded.codes.map(code=>{
     const spent=code.reduce((n,i)=>n+encoded.prices[i],0);
-    const row=[spent/100,(encoded.credits-spent)/100,
+    return [spent/100,(encoded.credits-spent)/100,
       code.reduce((n,i)=>n+encoded.carries[i],0)/6,
       code.reduce((n,i)=>n+encoded.megas[i],0)/6];
+  });
+  for(const row of extras)
     for(let k=0;k<4;k++)extrasSum[k]+=row[k];
-  }
   return [...mean,...extrasSum.map(sum=>sum/encoded.codes.length)];
 }
 const verifiedBundleCache=new Map();
@@ -223,7 +224,9 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
 function encodeForLearner(obs,legal,precomputed){
   if(obs.phase==='draft'){
     const a=precomputed??encodeOwnDraftPool(obs,legal);
-    const extras=a.codes.map(code=>{
+    // Reuse exactly the same own-only public candidate extras validated
+    // before inference; no change to the accepted trajectory schema.
+    const extras=a.extras??a.codes.map(code=>{
       const spent=code.reduce((sum,i)=>sum+a.prices[i],0);
       return [spent/100,(a.credits-spent)/100,
         code.reduce((sum,i)=>sum+a.carries[i],0)/6,
