@@ -44,9 +44,9 @@ class ParallelArtifactDownloadTest(unittest.TestCase):
                 self.assertTrue(
                     (Path(directory)/f"actor-{i}"/f"actor-{i}.json.gz").is_file())
 
-    def test_g49_g61_transport_rejects_mixed_source(self):
-        # New training uses the same strict 20/20 naming contract past G48.
-        for generation in (49, 61):
+    def test_g49_g160_transport_rejects_mixed_source(self):
+        # New training uses the same strict 20/20 naming contract through G160.
+        for generation in (49, 61, 62, 63, 159, 160):
             with self.subTest(generation=generation):
                 names = [artifact_name(generation, i) for i in range(20)]
                 seen = []
