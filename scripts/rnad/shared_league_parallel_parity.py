@@ -159,6 +159,27 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
                 fast_seconds=time.perf_counter()-begun
         for left,right in zip(serial_grads, fast.parameters()):
             torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+        # Candidate: stop-gradient NeuRD coefficients are flattened into one
+        # differentiable dot per Match/phase. Preserve the same 32 real
+        # accepted Match decisions and compare all model gradients.
+        fused, ftarget, fmagnet, fopt, fschedule = _models(root, checkpoint)
+        with patch.dict(os.environ, {"RNAD_LINEARIZED_NEURD": "1"}):
+            with ParallelGradientPool(fused, ftarget, fmagnet,
+                                      workers=processes, vector=True) as workers:
+                begun=time.perf_counter()
+                fused_losses,fused_ratios=workers.step_gradients(tasks)
+                fused_seconds=time.perf_counter()-begun
+        for left,right in zip(serial_grads, fused.parameters()):
+            torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+    torch.nn.utils.clip_grad_norm_(fused.parameters(),10.,
+                                   error_if_nonfinite=True)
+    fopt.step()
+    fschedule.step()
+    for p,q in zip(serial.parameters(),fused.parameters()):
+        torch.testing.assert_close(p,q,rtol=4e-3,atol=4e-5)
+    if abs(sum(losses)-sum(fused_losses)) > 1e-3 or (
+            abs(max(ratios)-max(fused_ratios)) > 1e-5):
+        raise AssertionError("Linearized NeuRD force changed 32-Match objective")
     torch.nn.utils.clip_grad_norm_(fast.parameters(),10.,
                                    error_if_nonfinite=True)
     fo.step()
@@ -214,6 +235,10 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         "parallel_vector_numpy_targets_seconds": round(fast_seconds, 4),
         "single_trial_ratio_torch_over_numpy_targets":
             round(vector_parallel_seconds / fast_seconds, 4),
+        "parallel_vector_linearized_neurd_seconds":
+            round(fused_seconds, 4),
+        "single_trial_ratio_original_over_linearized_neurd":
+            round(vector_parallel_seconds / fused_seconds, 4),
         "dynamic_task_matches":4,
         "parallel_dynamic_microbatch4_gradient_seconds":
             round(dynamic_seconds, 4),
