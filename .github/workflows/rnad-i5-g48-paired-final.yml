@@ -34,7 +34,7 @@ jobs:
           parent=subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()
           assert x=={
             'schema':'rnad-i5-g48-preregistered-95pct-paired-v1',
-            'reviewed_workflow_sha':parent,
+            'workflow_commit_sha':parent,
             'training_source_sha':'01501f3a1e12511140bf772d435d39c0c07319bc',
             'engine_sha':'ea81165993110ee9fb3a09dcb97c6708c0d7397b',
             'G48_checkpoint_generation':49,
