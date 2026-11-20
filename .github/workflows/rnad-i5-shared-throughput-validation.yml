@@ -419,6 +419,22 @@ jobs:
           set -euo pipefail
           python -m scripts.rnad.shared_league_parallel_parity --bootstrap bootstrap --actor real-actor/actor-0.json.gz --workers 4 | tee cpu-parallel-report.json
           cat cpu-parallel-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Diagnose real Match 32-gradient CPU hotspots (research only)
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_grad_profile \
+            --bootstrap bootstrap --actor real-actor/actor-0.json.gz \
+            | tee grad-profile.json
+          python - <<'PY'
+          import json
+          p=json.load(open('grad-profile.json'))
+          assert p['full_verified_actor_matches']==64
+          assert p['examined_matches']==32 and p['all_gradients_finite']
+          assert p['single_optimizer_updates']==0
+          assert p['phase_wall_seconds']['backward_total']>0
+          assert p['phase_wall_seconds']['forward_total']>0
+          PY
+          cat grad-profile.json >> "$GITHUB_STEP_SUMMARY"
   compiled-candidate:
     needs: verify
     continue-on-error: true
