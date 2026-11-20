@@ -30,13 +30,13 @@ class SharedArtifactRecoveryTests(unittest.TestCase):
             rescued)
         with self.assertRaisesRegex(ValueError, "Ambiguous"):
             missing_actor_ids(0, rows(names + [rescued]))
-        for bad in (-1, 62):
+        for bad in (-1, 161):
             with self.assertRaisesRegex(ValueError, "Invalid"):
                 artifact_name(bad, 0)
 
-    def test_g49_to_g61_strict_recovery_and_resolution(self):
-        # G48 handoff starts G49; research workflow may reach G61.
-        for generation in (48, 49, 50, 60, 61):
+    def test_g49_to_g160_strict_recovery_and_resolution(self):
+        # G48 handoff starts G49; later approved 10-hour continuation may reach G160.
+        for generation in (48, 49, 50, 60, 61, 62, 63, 159, 160):
             with self.subTest(generation=generation):
                 full = [artifact_name(generation, i) for i in range(ACTORS)]
                 self.assertEqual(missing_actor_ids(generation, rows(full)), [])
