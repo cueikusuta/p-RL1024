@@ -93,7 +93,7 @@ jobs:
             --battle-report frozen/DB/battle512/teacher-report.json \
             --old-pool frozen/old --out bootstrap
           test -s bootstrap/generation-manifest.json
-      - name: Compare 64 authoritative Matches byte-for-byte as decoded JSON
+      - name: Compare 64 authoritative Matches across 1, 2 and 4 persistent Node processes
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -110,6 +110,11 @@ jobs:
                            out="parallel",match_workers=2)
           parallel_elapsed=time.monotonic()-start
           assert parallel["accepted_matches"]==64
+          start=time.monotonic()
+          parallel_four=collect(bootstrap="bootstrap",actor_id=0,
+                                out="parallel-four",match_workers=4)
+          parallel_four_elapsed=time.monotonic()-start
+          assert parallel_four["accepted_matches"]==64
           Path("serial").mkdir(exist_ok=True)
           meta="batched/actor-meta.json"
           magnet="bootstrap/magnet" if Path("bootstrap/magnet").exists() else "bootstrap/actor"
@@ -130,7 +135,9 @@ jobs:
                       batch=json.load(f)
                   with gzip.open(Path("parallel/accepted")/(ident+".json.gz"),"rt") as f:
                       concurrent=json.load(f)
-                  assert serial==batch==concurrent, f"Actor seed/seat parity failed: {ident}"
+                  with gzip.open(Path("parallel-four/accepted")/(ident+".json.gz"),"rt") as f:
+                      concurrent_four=json.load(f)
+                  assert serial==batch==concurrent==concurrent_four, f"Actor seed/seat parity failed: {ident}"
           serial_elapsed=time.monotonic()-start
           report={
               "schema":"rnad-i5-actor-batch-parity-timing-research-v1",
@@ -140,11 +147,19 @@ jobs:
               "decoded_accepted_trajectory_identical":True,
               "persistent_actor_seconds":round(fast_elapsed,3),
               "two_node_process_actor_seconds":round(parallel_elapsed,3),
+              "four_node_process_actor_seconds":round(parallel_four_elapsed,3),
               "single_match_process_seconds":round(serial_elapsed,3),
               "speed_ratio_old_over_new":round(serial_elapsed/fast_elapsed,3),
               "speed_ratio_persistent_over_two_process":round(
                   fast_elapsed/parallel_elapsed,3),
               "two_process_authoritative_trajectories_identical":True,
+              "four_process_authoritative_trajectories_identical":True,
+              "speed_ratio_persistent_over_four_process":round(
+                  fast_elapsed/parallel_four_elapsed,3),
+              "speed_ratio_old_over_four_process":round(
+                  serial_elapsed/parallel_four_elapsed,3),
+              "speed_ratio_two_process_over_four_process":round(
+                  parallel_elapsed/parallel_four_elapsed,3),
               "strength_or_champion_claim":False,
           }
           print(json.dumps(report,indent=2),flush=True)
