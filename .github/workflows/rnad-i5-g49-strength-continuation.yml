@@ -52,6 +52,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m pip install --disable-pip-version-check onnx==1.17.0
           python -m unittest discover -s test -p rnad_strength_learner_test.py -v
           python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
           python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
