@@ -34,7 +34,7 @@ jobs:
           assert x == {
               'schema':'rnad-i5-g62-source-pinned-ten-hour-v1',
               'workflow_prelaunch_sha':prelaunch,
-              'training_source_sha':'3486890f5ba3e4858540857c4fde3c3493efe66a',
+              'training_source_sha':'26bcb35e6a1e7e74daa7e05c74c4b381c751188b',
               'previous_completed_run_id':44733372530,
               'previous_completed_run_sha':'b1a2d350f5344ca0555db0bf7d15169943600f5e',
               'g62_bootstrap_artifact_id':14633376773,
@@ -48,7 +48,27 @@ jobs:
           }, 'Wrong verified run, artifact, source, or training scope'
           workflow = Path('.github/workflows/rnad-i5-next13-fast-generation-reusable.yml').read_text()
           assert 'last_generation:' in workflow and 'again=remaining>1200 and g<int(' in workflow, 'Budget and generation gate missing'
-          print('Approved G62 10h continuation; immutable training source 3486890f5ba3e4858540857c4fde3c3493efe66a')
+          print('Approved G62 10h continuation; immutable training source 26bcb35e6a1e7e74daa7e05c74c4b381c751188b')
+          PY
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.11'}
+      - name: Verify G62-G160 recovery ceiling with negative and mixed-generation tests
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/rnad/shared_league_artifact_recovery.py scripts/rnad/shared_league_parallel_download.py scripts/rnad/g62_strength_resume_migration.py
+          python -m unittest discover -s test -p rnad_shared_league_artifact_recovery_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_parallel_download_test.py -v
+          python - <<'PY'
+          from scripts.rnad.shared_league_artifact_recovery import artifact_name,MAX_RECOVERY_GENERATION
+          assert MAX_RECOVERY_GENERATION == 160
+          assert artifact_name(62,19) == 'rnad-i5-cont-g62-actor-19'
+          assert artifact_name(160,0) == 'rnad-i5-cont-g160-actor-0'
+          try:
+              artifact_name(161,0)
+          except ValueError:
+              pass
+          else:
+              raise AssertionError('Unapproved G161 must be rejected')
           PY
           gh api repos/cueikusuta/p-RL1024/actions/runs/44733372530 \
             --jq '{id,head_sha,status,conclusion}' > prior-run.json
@@ -75,15 +95,15 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+          ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with: {python-version: '3.11'}
-      - name: Download immutable G62 bootstrap and G61 Learner result with bounded retry
+      - name: Verify immutable G61 handoff and re-seal exact full state to repaired source
         run: |
           set -euo pipefail
-          for record in "rnad-i5-cont-next-bootstrap-after-g61 bootstrap" "rnad-i5-cont-g61-full-learner-result prior-result"; do
+          for record in "rnad-i5-cont-next-bootstrap-after-g61 previous-g62" "rnad-i5-cont-g61-full-learner-result prior-result"; do
             set -- $record
             for attempt in 1 2 3 4 5 6 7; do
               rm -rf "$2"; mkdir -p "$2"
@@ -93,72 +113,68 @@ jobs:
               sleep "$((attempt * 10))"
             done
           done
-          (cd bootstrap && sha256sum -c file-pins.sha256)
-      - name: Verify full G61 outcome and refresh only the user-approved 10-hour context
-        run: |
-          set -euo pipefail
+          (cd previous-g62 && sha256sum -c file-pins.sha256)
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m scripts.rnad.g62_strength_resume_migration --source previous-g62 --out bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+      - name: Validate source migration and G61->G62 10-hour handoff provenance
+        run: |
+          set -euo pipefail
           python - <<'PY'
-          import hashlib,json,subprocess,time
+          import hashlib,json,subprocess
           from pathlib import Path
           import torch
-          b=Path('bootstrap')
-          src='3486890f5ba3e4858540857c4fde3c3493efe66a'
-          def read(p):return json.loads(p.read_text())
-          def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+          b,o,p=Path('bootstrap'),Path('previous-g62'),Path('prior-result')
+          rd=lambda x:json.loads(x.read_text())
+          sha=lambda x:hashlib.sha256(x.read_bytes()).hexdigest()
+          m,idx,mig,ctx=(rd(b/x) for x in (
+              'generation-manifest.json','checkpoint-index.json',
+              'migration-report.json','continuation-context.json'))
+          prior_m,prior_i,prior_r=(rd(o/x) for x in (
+              'generation-manifest.json','checkpoint-index.json','handoff-report.json'))
+          result,result_i=(rd(p/x) for x in ('generation62-report.json','generation62-index.json'))
+          src='26bcb35e6a1e7e74daa7e05c74c4b381c751188b'
+          oldsrc='3486890f5ba3e4858540857c4fde3c3493efe66a'
           assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==src
-          m=read(b/'generation-manifest.json')
-          idx=read(b/'checkpoint-index.json')
-          r=read(b/'handoff-report.json')
-          c=read(b/'continuation-context.json')
-          prev=read(Path('prior-result/generation62-report.json'))
-          previous_index=read(Path('prior-result/generation62-index.json'))
-          assert m['generation']==idx['generation']==r['generation']==62
+          assert prior_m['generation']==m['generation']==idx['generation']==62
+          assert prior_m['source_sha']==oldsrc and m['source_sha']==src
           assert m['seed_start']==9900001+62*640
-          assert m['source_sha']==r['source_sha']==src
           assert m['actor_count']==20 and m['seeds_per_actor']==32
           assert m['optimizer_steps']==40 and m['optimizer_batch_matches']==32
-          assert r['previous_generation']==prev['generation']==61
-          assert r['prior_optimizer_updates']==prev['optimizer_updates_completed']==40
-          assert r['exact_previous_complete_matches']==prev['accepted_complete_four_win_matches']==1280
-          assert prev['cumulative_complete_matches']==1280*62
-          assert prev['cumulative_optimizer_updates']==40*62
-          assert prev['champion_promoted'] is False
-          assert previous_index['full_checkpoint_sha256']==r['prior_checkpoint_sha256']
-          assert idx['prior_generation_checkpoint_sha256']==r['prior_checkpoint_sha256']
-          assert all(r[k] is True for k in ('optimizer_full_state_preserved','target_full_state_preserved','magnet_full_state_preserved','rng_full_state_preserved'))
-          assert idx['sha256']==sha(b/'checkpoint-g0.pt')
-          chk=torch.load(b/'checkpoint-g0.pt',map_location='cpu',weights_only=True)
-          assert chk['generation']==62 and chk['source_sha']==src and chk['is_champion'] is False
-          assert chk['cumulative_complete_matches']==1280*62
-          assert chk['cumulative_optimizer_updates']==40*62
-          for key in ('model','target','magnet','optimizer','scheduler','torch_rng','python_rng'):
-              assert key in chk, 'Missing full-state component: '+key
-          assert [p['id'] for p in m['opponents']['historical']]==['past-g59','past-g60','past-g61']
-          assert c['schema']=='rnad-i5-shared-league-handoff-v1'
-          assert c['source_run_id']==44318145987 and c['new_continuation_source_sha']==src
-          assert c['budget_seconds']==36000 and c['deadline_epoch']==c['start_epoch']+36000
-          old_sha=sha(b/'checkpoint-g0.pt')
-          actor_sha=sha(b/'actor/manifest.json')
-          old_ctx=b/'continuation-context.json'
-          old_ctx_bytes=old_ctx.read_bytes()
+          assert prior_r['previous_generation']==result['generation']==61
+          assert prior_r['prior_optimizer_updates']==result['optimizer_updates_completed']==40
+          assert prior_r['exact_previous_complete_matches']==result['accepted_complete_four_win_matches']==1280
+          assert result['cumulative_complete_matches']==1280*62
+          assert result['cumulative_optimizer_updates']==40*62
+          assert result['champion_promoted'] is False
+          assert result_i['full_checkpoint_sha256']==prior_r['prior_checkpoint_sha256']==prior_i['prior_generation_checkpoint_sha256']
+          assert all(prior_r[k] is True for k in ('optimizer_full_state_preserved','target_full_state_preserved','magnet_full_state_preserved','rng_full_state_preserved'))
+          assert mig['previous_source_sha']==oldsrc and mig['source_sha']==src
+          assert mig['old_checkpoint_sha256']==prior_i['sha256']==sha(o/'checkpoint-g0.pt')
+          assert mig['new_checkpoint_sha256']==idx['sha256']==sha(b/'checkpoint-g0.pt')
+          assert idx['prior_generation_checkpoint_sha256']==prior_i['sha256']
+          assert mig['verified_model_target_magnet_optimizer_scheduler_rng'] is True
+          assert [r['id'] for r in m['opponents']['historical']]==['past-g59','past-g60','past-g61']
+          cp=torch.load(b/'checkpoint-g0.pt',map_location='cpu',weights_only=True)
+          assert cp['generation']==62 and cp['source_sha']==src and cp['is_champion'] is False
+          assert cp['cumulative_complete_matches']==1280*62 and cp['cumulative_optimizer_updates']==40*62
+          assert all(k in cp for k in ('model','target','magnet','optimizer','scheduler','torch_rng','python_rng'))
+          assert ctx['schema']=='rnad-i5-shared-league-handoff-v1'
+          assert ctx['source_run_id']==44318145987 and ctx['new_continuation_source_sha']==src
+          assert ctx['budget_seconds']==36000 and ctx['deadline_epoch']==ctx['start_epoch']+36000
+          assert ctx['new_budget_phase']=='g62-user-approved-ten-hour-continuation'
+          assert ctx['previous_budget_context_sha256']==sha(o/'continuation-context.json')
+          assert ctx['original_generation']==62
           assert not (b/'previous-budget-context.json').exists()
-          (b/'previous-budget-context.json').write_bytes(old_ctx_bytes)
-          start=int(time.time())
-          c.update(start_epoch=start,deadline_epoch=start+36000,
-                   original_generation=62,
-                   new_budget_phase='g62-user-approved-10h-2026-11-21',
-                   previous_budget_source_run=44733372530,
-                   previous_budget_context_sha256=hashlib.sha256(old_ctx_bytes).hexdigest())
-          old_ctx.write_text(json.dumps(c,indent=2)+'\n')
-          paths=sorted(p for p in b.rglob('*') if p.is_file() and p.name!='file-pins.sha256')
-          (b/'file-pins.sha256').write_text(''.join(f'{sha(p)}  {p.relative_to(b)}\n' for p in paths))
-          assert sha(b/'checkpoint-g0.pt')==old_sha and sha(b/'actor/manifest.json')==actor_sha
-          print(json.dumps({'generation':62,'previous_matches':1280*62,
-                            'previous_updates':40*62,'budget_seconds':36000,
-                            'start_epoch':start,'deadline_epoch':start+36000,
-                            'full_state_unchanged':True,'champion_promoted':False},indent=2))
+          (b/'previous-budget-context.json').write_bytes((o/'continuation-context.json').read_bytes())
+          files=sorted(x for x in b.rglob('*') if x.is_file() and x.name!='file-pins.sha256')
+          (b/'file-pins.sha256').write_text(''.join(
+              f'{sha(x)}  {x.relative_to(b)}\n' for x in files))
+          print(json.dumps({'start_generation':62,'prior_accepted_matches':1280*62,
+            'prior_optimizer_steps':40*62,'source_sha':src,
+            'budget_seconds':36000,'deadline_epoch':ctx['deadline_epoch'],
+            'tensor_optimizer_rng_preserved':True,'champion_promoted':False},indent=2))
           PY
           (cd bootstrap && sha256sum -c file-pins.sha256)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -175,7 +191,7 @@ jobs:
     with:
       generation: 62
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g61
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -188,7 +204,7 @@ jobs:
     with:
       generation: 63
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g62
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -201,7 +217,7 @@ jobs:
     with:
       generation: 64
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g63
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -214,7 +230,7 @@ jobs:
     with:
       generation: 65
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g64
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -227,7 +243,7 @@ jobs:
     with:
       generation: 66
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g65
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -240,7 +256,7 @@ jobs:
     with:
       generation: 67
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g66
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -253,7 +269,7 @@ jobs:
     with:
       generation: 68
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g67
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -266,7 +282,7 @@ jobs:
     with:
       generation: 69
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g68
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -279,7 +295,7 @@ jobs:
     with:
       generation: 70
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g69
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -292,7 +308,7 @@ jobs:
     with:
       generation: 71
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g70
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -305,7 +321,7 @@ jobs:
     with:
       generation: 72
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g71
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -318,7 +334,7 @@ jobs:
     with:
       generation: 73
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g72
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -331,7 +347,7 @@ jobs:
     with:
       generation: 74
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g73
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -344,7 +360,7 @@ jobs:
     with:
       generation: 75
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g74
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -357,7 +373,7 @@ jobs:
     with:
       generation: 76
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g75
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -370,7 +386,7 @@ jobs:
     with:
       generation: 77
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g76
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -383,7 +399,7 @@ jobs:
     with:
       generation: 78
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g77
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -396,7 +412,7 @@ jobs:
     with:
       generation: 79
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g78
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -409,7 +425,7 @@ jobs:
     with:
       generation: 80
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g79
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -422,7 +438,7 @@ jobs:
     with:
       generation: 81
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g80
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -435,7 +451,7 @@ jobs:
     with:
       generation: 82
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g81
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -448,7 +464,7 @@ jobs:
     with:
       generation: 83
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g82
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -461,7 +477,7 @@ jobs:
     with:
       generation: 84
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g83
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -474,7 +490,7 @@ jobs:
     with:
       generation: 85
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g84
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -487,7 +503,7 @@ jobs:
     with:
       generation: 86
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g85
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -500,7 +516,7 @@ jobs:
     with:
       generation: 87
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g86
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -513,7 +529,7 @@ jobs:
     with:
       generation: 88
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g87
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -526,7 +542,7 @@ jobs:
     with:
       generation: 89
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g88
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -539,7 +555,7 @@ jobs:
     with:
       generation: 90
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g89
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -552,7 +568,7 @@ jobs:
     with:
       generation: 91
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g90
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -565,7 +581,7 @@ jobs:
     with:
       generation: 92
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g91
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -578,7 +594,7 @@ jobs:
     with:
       generation: 93
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g92
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -591,7 +607,7 @@ jobs:
     with:
       generation: 94
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g93
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -604,7 +620,7 @@ jobs:
     with:
       generation: 95
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g94
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -617,7 +633,7 @@ jobs:
     with:
       generation: 96
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g95
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -630,7 +646,7 @@ jobs:
     with:
       generation: 97
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g96
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -643,7 +659,7 @@ jobs:
     with:
       generation: 98
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g97
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -656,7 +672,7 @@ jobs:
     with:
       generation: 99
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g98
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -669,7 +685,7 @@ jobs:
     with:
       generation: 100
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g99
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -682,7 +698,7 @@ jobs:
     with:
       generation: 101
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g100
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -695,7 +711,7 @@ jobs:
     with:
       generation: 102
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g101
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -708,7 +724,7 @@ jobs:
     with:
       generation: 103
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g102
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -721,7 +737,7 @@ jobs:
     with:
       generation: 104
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g103
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -734,7 +750,7 @@ jobs:
     with:
       generation: 105
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g104
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -747,7 +763,7 @@ jobs:
     with:
       generation: 106
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g105
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -760,7 +776,7 @@ jobs:
     with:
       generation: 107
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g106
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -773,7 +789,7 @@ jobs:
     with:
       generation: 108
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g107
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -786,7 +802,7 @@ jobs:
     with:
       generation: 109
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g108
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -799,7 +815,7 @@ jobs:
     with:
       generation: 110
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g109
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -812,7 +828,7 @@ jobs:
     with:
       generation: 111
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g110
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -825,7 +841,7 @@ jobs:
     with:
       generation: 112
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g111
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -838,7 +854,7 @@ jobs:
     with:
       generation: 113
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g112
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -851,7 +867,7 @@ jobs:
     with:
       generation: 114
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g113
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -864,7 +880,7 @@ jobs:
     with:
       generation: 115
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g114
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -877,7 +893,7 @@ jobs:
     with:
       generation: 116
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g115
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -890,7 +906,7 @@ jobs:
     with:
       generation: 117
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g116
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -903,7 +919,7 @@ jobs:
     with:
       generation: 118
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g117
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -916,7 +932,7 @@ jobs:
     with:
       generation: 119
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g118
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -929,7 +945,7 @@ jobs:
     with:
       generation: 120
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g119
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -942,7 +958,7 @@ jobs:
     with:
       generation: 121
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g120
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -955,7 +971,7 @@ jobs:
     with:
       generation: 122
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g121
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -968,7 +984,7 @@ jobs:
     with:
       generation: 123
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g122
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -981,7 +997,7 @@ jobs:
     with:
       generation: 124
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g123
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -994,7 +1010,7 @@ jobs:
     with:
       generation: 125
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g124
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1007,7 +1023,7 @@ jobs:
     with:
       generation: 126
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g125
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1020,7 +1036,7 @@ jobs:
     with:
       generation: 127
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g126
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1033,7 +1049,7 @@ jobs:
     with:
       generation: 128
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g127
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1046,7 +1062,7 @@ jobs:
     with:
       generation: 129
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g128
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1059,7 +1075,7 @@ jobs:
     with:
       generation: 130
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g129
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1072,7 +1088,7 @@ jobs:
     with:
       generation: 131
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g130
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1085,7 +1101,7 @@ jobs:
     with:
       generation: 132
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g131
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1098,7 +1114,7 @@ jobs:
     with:
       generation: 133
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g132
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1111,7 +1127,7 @@ jobs:
     with:
       generation: 134
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g133
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1124,7 +1140,7 @@ jobs:
     with:
       generation: 135
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g134
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1137,7 +1153,7 @@ jobs:
     with:
       generation: 136
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g135
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1150,7 +1166,7 @@ jobs:
     with:
       generation: 137
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g136
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1163,7 +1179,7 @@ jobs:
     with:
       generation: 138
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g137
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1176,7 +1192,7 @@ jobs:
     with:
       generation: 139
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g138
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1189,7 +1205,7 @@ jobs:
     with:
       generation: 140
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g139
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1202,7 +1218,7 @@ jobs:
     with:
       generation: 141
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g140
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1215,7 +1231,7 @@ jobs:
     with:
       generation: 142
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g141
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1228,7 +1244,7 @@ jobs:
     with:
       generation: 143
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g142
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1241,7 +1257,7 @@ jobs:
     with:
       generation: 144
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g143
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1254,7 +1270,7 @@ jobs:
     with:
       generation: 145
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g144
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1267,7 +1283,7 @@ jobs:
     with:
       generation: 146
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g145
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1280,7 +1296,7 @@ jobs:
     with:
       generation: 147
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g146
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1293,7 +1309,7 @@ jobs:
     with:
       generation: 148
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g147
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1306,7 +1322,7 @@ jobs:
     with:
       generation: 149
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g148
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1319,7 +1335,7 @@ jobs:
     with:
       generation: 150
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g149
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1332,7 +1348,7 @@ jobs:
     with:
       generation: 151
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g150
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1345,7 +1361,7 @@ jobs:
     with:
       generation: 152
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g151
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1358,7 +1374,7 @@ jobs:
     with:
       generation: 153
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g152
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1371,7 +1387,7 @@ jobs:
     with:
       generation: 154
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g153
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1384,7 +1400,7 @@ jobs:
     with:
       generation: 155
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g154
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1397,7 +1413,7 @@ jobs:
     with:
       generation: 156
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g155
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1410,7 +1426,7 @@ jobs:
     with:
       generation: 157
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g156
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1423,7 +1439,7 @@ jobs:
     with:
       generation: 158
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g157
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1436,7 +1452,7 @@ jobs:
     with:
       generation: 159
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g158
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
@@ -1449,7 +1465,7 @@ jobs:
     with:
       generation: 160
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g159
-      source_ref: 3486890f5ba3e4858540857c4fde3c3493efe66a
+      source_ref: 26bcb35e6a1e7e74daa7e05c74c4b381c751188b
       last_generation: 160
     permissions:
       contents: read
