@@ -212,6 +212,11 @@ def batched_match_losses(model, target, magnet, records_with_roles,
         target_function = rnad_targets_numpy
     else:
         target_function = rnad_targets
+    audit_targets = os.environ.get("RNAD_AUDIT_NUMERIC_TARGETS", "0")
+    if audit_targets not in ("0", "1"):
+        raise ValueError("RNAD_AUDIT_NUMERIC_TARGETS must be 0 or 1")
+    if audit_targets == "1" and fast_targets != "1":
+        raise ValueError("Numerical target audit requires NumPy candidate")
     linear_neurd = os.environ.get("RNAD_LINEARIZED_NEURD", "0")
     if linear_neurd not in ("0", "1"):
         raise ValueError("RNAD_LINEARIZED_NEURD must be 0 or 1")
@@ -285,6 +290,29 @@ def batched_match_losses(model, target, magnet, records_with_roles,
             })
             inputs.append((logits, value, phase))
         targets = target_function(terms, eta=ETA, rho_bar=1.0, c_bar=1.0)
+        if audit_targets == "1":
+            # The reference sees the *same live frozen Target/Magnet outputs*,
+            # including opponent public receipts, not proxy or synthetic
+            # actions. Audit every accepted event and every legal action.
+            reference = rnad_targets(terms, eta=ETA, rho_bar=1.0, c_bar=1.0)
+            if len(reference) != len(targets):
+                raise AssertionError("R-NaD target event-count drift")
+            for event_id, (expected, found) in enumerate(zip(reference, targets)):
+                if expected["actor"] != found["actor"]:
+                    raise AssertionError("R-NaD target seat drift")
+                for field in ("rho", "c", "ratio", "value_target"):
+                    if abs(expected[field] - found[field]) > (
+                            2e-8 + 1e-9*abs(expected[field])):
+                        raise AssertionError(
+                            f"R-NaD target {field} drift at event {event_id}: "
+                            f"{expected[field]} vs {found[field]}")
+                for seat in (0, 1):
+                    if abs(expected["regularized_reward"][seat] -
+                           found["regularized_reward"][seat]) > 2e-8:
+                        raise AssertionError("R-NaD regularizer sign drift")
+                torch.testing.assert_close(
+                    found["q_targets"], expected["q_targets"],
+                    rtol=1e-5, atol=1e-6)
         phase_loss, phase_value = defaultdict(list), defaultdict(list)
         phase_policy = defaultdict(list)
         ratios = []
