@@ -204,6 +204,14 @@ def batched_match_losses(model, target, magnet, records_with_roles,
     """
     if not records_with_roles:
         raise ValueError("Cannot train on an empty accepted Match microbatch")
+    fast_targets = os.environ.get("RNAD_FAST_RNAD_TARGETS", "0")
+    if fast_targets not in ("0", "1"):
+        raise ValueError("RNAD_FAST_RNAD_TARGETS must be 0 or 1")
+    if fast_targets == "1":
+        from scripts.rnad.shared_league_fast_targets import rnad_targets_numpy
+        target_function = rnad_targets_numpy
+    else:
+        target_function = rnad_targets
     draft_rows, selection_rows, battle_rows = [], [], []
     seats_by_match = []
     for mi, (record, role) in enumerate(records_with_roles):
@@ -269,7 +277,7 @@ def batched_match_losses(model, target, magnet, records_with_roles,
                 "action_index": row["action_index"],
             })
             inputs.append((logits, value, phase))
-        targets = rnad_targets(terms, eta=ETA, rho_bar=1.0, c_bar=1.0)
+        targets = target_function(terms, eta=ETA, rho_bar=1.0, c_bar=1.0)
         phase_loss, phase_value = defaultdict(list), defaultdict(list)
         ratios = []
         for (logits, value, phase), target_row in zip(inputs, targets):
