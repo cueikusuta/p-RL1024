@@ -143,12 +143,20 @@ test('rho fast path retains IEEE-754 edge behavior and rejects nonfinite results
     for(const mutate of variants){
       const model=new DeepSetsDraftPolicy(file);
       mutate(model.layers);
-      const reference=oldScore(input,model.layers);
-      const actual=model.scoreEncoded(input);
-      assert.equal(actual.length,reference.length);
-      for(let i=0;i<actual.length;i++){
-        // Object.is distinguishes +0 from -0, unlike numeric equality.
-        assert.ok(Object.is(actual[i],reference[i]),'IEEE-754 score bit pattern drift');
+      const outcome=fn=>{
+        try{return {scores:fn()};}
+        catch(error){return {error:error.message};}
+      };
+      const reference=outcome(()=>oldScore(input,model.layers));
+      const actual=outcome(()=>model.scoreEncoded(input));
+      assert.equal(actual.error,reference.error);
+      if(reference.scores){
+        assert.equal(actual.scores.length,reference.scores.length);
+        for(let i=0;i<actual.scores.length;i++){
+          // Object.is distinguishes +0 from -0, unlike numeric equality.
+          assert.ok(Object.is(actual.scores[i],reference.scores[i]),
+            'IEEE-754 score bit pattern drift');
+        }
       }
     }
     for(const nonfinite of [NaN,Infinity,-Infinity]){
