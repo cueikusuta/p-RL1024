@@ -212,6 +212,13 @@ def batched_match_losses(model, target, magnet, records_with_roles,
         target_function = rnad_targets_numpy
     else:
         target_function = rnad_targets
+    linear_neurd = os.environ.get("RNAD_LINEARIZED_NEURD", "0")
+    if linear_neurd not in ("0", "1"):
+        raise ValueError("RNAD_LINEARIZED_NEURD must be 0 or 1")
+    if linear_neurd == "1":
+        from scripts.rnad.shared_league_linearized_neurd import (
+            linearized_neurd_loss_batch,
+        )
     draft_rows, selection_rows, battle_rows = [], [], []
     seats_by_match = []
     for mi, (record, role) in enumerate(records_with_roles):
@@ -279,24 +286,38 @@ def batched_match_losses(model, target, magnet, records_with_roles,
             inputs.append((logits, value, phase))
         targets = target_function(terms, eta=ETA, rho_bar=1.0, c_bar=1.0)
         phase_loss, phase_value = defaultdict(list), defaultdict(list)
+        phase_policy = defaultdict(list)
         ratios = []
         for (logits, value, phase), target_row in zip(inputs, targets):
             ratios.append(target_row["ratio"])
             if logits is None:
                 continue
-            phase_loss[phase].append(neurd_policy_loss(
-                logits, target_row["q_targets"], beta=2.0,
-                q_clip=10.0, is_c=target_row["c"]))
+            if linear_neurd == "1":
+                phase_policy[phase].append((
+                    logits, target_row["q_targets"], target_row["c"]))
+            else:
+                phase_loss[phase].append(neurd_policy_loss(
+                    logits, target_row["q_targets"], beta=2.0,
+                    q_clip=10.0, is_c=target_row["c"]))
             phase_value[phase].append(
                 (value - torch.tensor(
                     target_row["value_target"], dtype=value.dtype)) ** 2)
-        if set(phase_loss) != set(PHASES):
-            raise ValueError("Cannot skip a phase when training integrated Main")
-        balanced = sum(
-            sum(phase_loss[p]) / len(phase_loss[p]) +
-            VALUE_WEIGHT * sum(phase_value[p]) / len(phase_value[p])
-            for p in PHASES
-        ) / len(PHASES)
+        if linear_neurd == "1":
+            if set(phase_policy) != set(PHASES):
+                raise ValueError("Cannot skip a phase when training integrated Main")
+            balanced = sum(
+                linearized_neurd_loss_batch(phase_policy[p]) +
+                VALUE_WEIGHT * sum(phase_value[p]) / len(phase_value[p])
+                for p in PHASES
+            ) / len(PHASES)
+        else:
+            if set(phase_loss) != set(PHASES):
+                raise ValueError("Cannot skip a phase when training integrated Main")
+            balanced = sum(
+                sum(phase_loss[p]) / len(phase_loss[p]) +
+                VALUE_WEIGHT * sum(phase_value[p]) / len(phase_value[p])
+                for p in PHASES
+            ) / len(PHASES)
         if not torch.isfinite(balanced):
             raise ValueError("Nonfinite shared NeuRD/V-trace objective")
         result.append((balanced, max(ratios)))
