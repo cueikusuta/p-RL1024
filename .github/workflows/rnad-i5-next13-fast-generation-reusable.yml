@@ -15,6 +15,11 @@ on:
         required: false
         default: ''
         type: string
+      last_generation:
+        description: Maximum completed generation for this caller (inclusive)
+        required: false
+        default: 61
+        type: number
     outputs:
       should_continue:
         description: Whether current 10-hour wall-clock deadline permits another complete generation
@@ -373,7 +378,7 @@ jobs:
           # Do not begin another 1280-Match generation when insufficient
           # time for a normal complete generation. Finish current generation
           # and keep fully reproducible output instead.
-          again=remaining>1200 and g<61
+          again=remaining>1200 and g<int("${{ inputs.last_generation }}")
           with open(os.environ["GITHUB_OUTPUT"],"a") as f:
               f.write("should_continue="+str(again).lower()+"\n")
           with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
