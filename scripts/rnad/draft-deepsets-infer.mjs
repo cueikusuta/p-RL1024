@@ -149,6 +149,33 @@ function linearInto(values,weight,bias,out){
   }
   return out;
 }
+function linearIntoFourRows(values,weight,bias,out){
+  // Optional four-output blocking: every neuron retains its own exact
+  // left-to-right IEEE-754 accumulation order. This is NOT a reduction
+  // across neurons and never reorders the input feature sequence.
+  const inputs=values.length;
+  if((inputs&3)!==0||(out.length&3)!==0)
+    return linearInto(values,weight,bias,out);
+  for(let j=0;j<out.length;j+=4){
+    const a0=j*inputs,a1=(j+1)*inputs,
+      a2=(j+2)*inputs,a3=(j+3)*inputs;
+    let s0=bias[j],s1=bias[j+1],s2=bias[j+2],s3=bias[j+3];
+    for(let k=0;k<inputs;k+=4){
+      const x0=values[k],x1=values[k+1],
+        x2=values[k+2],x3=values[k+3];
+      s0+=x0*weight[a0+k];s0+=x1*weight[a0+k+1];
+      s0+=x2*weight[a0+k+2];s0+=x3*weight[a0+k+3];
+      s1+=x0*weight[a1+k];s1+=x1*weight[a1+k+1];
+      s1+=x2*weight[a1+k+2];s1+=x3*weight[a1+k+3];
+      s2+=x0*weight[a2+k];s2+=x1*weight[a2+k+1];
+      s2+=x2*weight[a2+k+2];s2+=x3*weight[a2+k+3];
+      s3+=x0*weight[a3+k];s3+=x1*weight[a3+k+1];
+      s3+=x2*weight[a3+k+2];s3+=x3*weight[a3+k+3];
+    }
+    out[j]=s0;out[j+1]=s1;out[j+2]=s2;out[j+3]=s3;
+  }
+  return out;
+}
 function relu(v){
   for(let i=0;i<v.length;i++)v[i]=Math.max(0,v[i]);
   return v;
@@ -235,6 +262,10 @@ export class DeepSetsDraftPolicy{
     this.trainingSourceSha=m.source;
     this.layers=m.layers;
     this.schema=DRAFT_DEEPSETS_ACTOR_SCHEMA;
+    const rowBlock=process.env.RNAD_DRAFT_RHO_ROW_BLOCK4??'0';
+    if(rowBlock!=='0'&&rowBlock!=='1')
+      throw new TypeError('RNAD_DRAFT_RHO_ROW_BLOCK4 must be 0 or 1');
+    this._rhoRowBlock4=rowBlock==='1';
   }
   // Pure input contract permits a Python/PyTorch parity check on fixed examples.
   scoreEncoded(encoding){
@@ -269,6 +300,7 @@ export class DeepSetsDraftPolicy{
     const rho0W=this.layers['rho.0.weight'],rho0B=this.layers['rho.0.bias'];
     const rho2W=this.layers['rho.2.weight'],rho2B=this.layers['rho.2.bias'];
     const rho4W=this.layers['rho.4.weight'],rho4B=this.layers['rho.4.bias'];
+    const rhoLinear=this._rhoRowBlock4?linearIntoFourRows:linearInto;
     for(const code of codes){
       if(!Array.isArray(code)||code.length!==6)
         throw new TypeError('Malformed draft candidate indices');
@@ -295,8 +327,8 @@ export class DeepSetsDraftPolicy{
       x.set(avg,0);x.set(second,48);x.set(high,96);
       x[144]=spent/100;x[145]=(credits-spent)/100;
       x[146]=carry/6;x[147]=mega/6;
-      relu(linearInto(x,rho0W,rho0B,h0));
-      relu(linearInto(h0,rho2W,rho2B,h2));
+      relu(rhoLinear(x,rho0W,rho0B,h0));
+      relu(rhoLinear(h0,rho2W,rho2B,h2));
       const score=linearInto(h2,rho4W,rho4B,scalar)[0];
       if(!Number.isFinite(score))throw new Error('Nonfinite model draft score');
       result.push(score);

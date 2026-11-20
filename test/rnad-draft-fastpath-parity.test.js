@@ -176,3 +176,47 @@ test('rho fast path retains IEEE-754 edge behavior and rejects nonfinite results
     }
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+test('opt-in rho four-output blocking preserves scalar bits for all legal picks',()=>{
+  const {dir,file}=fixture();
+  const before=process.env.RNAD_DRAFT_RHO_ROW_BLOCK4;
+  try{
+    process.env.RNAD_DRAFT_RHO_ROW_BLOCK4='1';
+    const model=new DeepSetsDraftPolicy(file);
+    const subsets=combinations(11);
+    for(const input of [
+      encoding(11,subsets),
+      encoding(11,subsets.slice(0,70).map(v=>[...v].reverse())),
+      encoding(11,[subsets.at(-1)])
+    ]){
+      const expected=oldScore(input,model.layers);
+      const actual=model.scoreEncoded(input);
+      assert.equal(actual.length,expected.length);
+      for(let i=0;i<actual.length;i++)
+        assert.ok(Object.is(actual[i],expected[i]),
+          'Rho blocked sum changed IEEE-754 scalar output');
+    }
+    const nearZero=encoding(7,[[0,1,2,3,4,5],[1,2,3,4,5,6]]);
+    model.layers['rho.0.weight'].fill(Number.MIN_VALUE);
+    model.layers['rho.0.bias'].fill(-Number.MIN_VALUE);
+    assert.deepStrictEqual(model.scoreEncoded(nearZero),
+      oldScore(nearZero,model.layers));
+  }finally{
+    if(before===undefined)delete process.env.RNAD_DRAFT_RHO_ROW_BLOCK4;
+    else process.env.RNAD_DRAFT_RHO_ROW_BLOCK4=before;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
+test('invalid draft rho row blocking flag fails closed',()=>{
+  const {dir,file}=fixture();
+  const before=process.env.RNAD_DRAFT_RHO_ROW_BLOCK4;
+  try{
+    process.env.RNAD_DRAFT_RHO_ROW_BLOCK4='yes';
+    assert.throws(()=>new DeepSetsDraftPolicy(file),
+      /RNAD_DRAFT_RHO_ROW_BLOCK4 must be 0 or 1/);
+  }finally{
+    if(before===undefined)delete process.env.RNAD_DRAFT_RHO_ROW_BLOCK4;
+    else process.env.RNAD_DRAFT_RHO_ROW_BLOCK4=before;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
