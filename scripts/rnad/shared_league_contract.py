@@ -143,10 +143,29 @@ def _matrix(rows, count, width, *, integer=False):
     return True
 
 
+# Immutable canonical ordered selection support; construct once rather than
+# thousands of times during strict 1280-Match actor verification.
+_SELECTION_TRIPLES = [[i, j, k] for i in range(6)
+                      for j in range(6) for k in range(j+1, 6)
+                      if i != j and i != k]
+
+
+def _valid_draft_codes(codes, pool_size):
+    """Check every authority candidate exactly once, without bypassing types."""
+    if not isinstance(codes, list) or not codes:
+        return False
+    for code in codes:
+        if not isinstance(code, list) or len(code) != 6:
+            return False
+        for idx in code:
+            if type(idx) is not int or idx < 0 or idx >= pool_size:
+                return False
+        if len(set(code)) != 6:
+            return False
+    return True
+
+
 def _verify_events(record):
-    TRIPLES = [(i,j,k) for i in range(6)
-               for j in range(6) for k in range(j+1,6)
-               if i != j and i != k]
     events = record.get("events")
     rounds = record.get("rounds")
     action_counts = record.get("action_counts")
@@ -175,13 +194,8 @@ def _verify_events(record):
                   isinstance(p["pool"], list) and
                   6 <= len(p["pool"]) <= 100 and
                   _matrix(p["pool"], len(p["pool"]), 44) and
-                  isinstance(p["codes"], list) and
-                  len(p["codes"]) > 0 and
-                  _matrix(p["codes"], len(p["codes"]), 6, integer=True) and
-                  _matrix(p["extra"], len(p["codes"]), 4) and
-                  all(len(set(code)) == 6 and
-                      all(0 <= index < len(p["pool"]) for index in code)
-                      for code in p["codes"]),
+                  _valid_draft_codes(p["codes"], len(p["pool"])) and
+                  _matrix(p["extra"], len(p["codes"]), 4),
                   "Invalid authoritative draft public candidate tensor")
             n = len(p["codes"])
         elif phase == "selection":
@@ -191,7 +205,7 @@ def _verify_events(record):
                   _matrix(p["foe_cat"], 6, 3, integer=True) and
                   _matrix(p["own_num"], 6, 16) and
                   _matrix(p["foe_num"], 6, 6) and
-                  p["legal"] == [list(t) for t in TRIPLES],
+                  p["legal"] == _SELECTION_TRIPLES,
                   "Invalid canonical public selection 60 candidate contract")
             n = 60
         else:
@@ -211,7 +225,7 @@ def _verify_events(record):
               isinstance(pi, list) and isinstance(magnet, list) and
               len(pi) == len(magnet) == n and
               all(type(x) in (int,float) and math.isfinite(x) and x > 0
-                  for x in pi + magnet) and
+                  for x in __import__("itertools").chain(pi, magnet)) and
               abs(sum(pi)-1) < 1e-5 and abs(sum(magnet)-1) < 1e-5 and
               type(behavior) in (int, float) and math.isfinite(behavior) and
               0 < behavior <= 1 and
