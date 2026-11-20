@@ -126,6 +126,14 @@ jobs:
               subprocess.run(["git","show",reference_source+
                   ":scripts/rnad/shared_league_actor.mjs"],
                   check=True,stdout=out)
+          # The archived actor's entrypoint guard checks its exact filename.
+          # Adapt ONLY that guard for the isolated control copy, leaving
+          # inference math, immutable weights and accepted Match logic intact.
+          source=Path(original_script).read_text()
+          guard="endsWith('/shared_league_actor.mjs')"
+          assert source.count(guard)==1
+          Path(original_script).write_text(source.replace(guard,
+              "endsWith('/shared_league_actor_before_ref_reuse.mjs')"))
           baseline=Path("before-ref-reuse")
           (baseline/"accepted").mkdir(parents=True)
           prior=json.loads(Path("batched/actor-batch-jobs.json").read_text())
