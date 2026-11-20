@@ -126,3 +126,45 @@ test('nonzero frozen Deep Sets scores are bitwise-identical to original scalar r
     assert.throws(()=>model.scoreEncoded(distinct),/Over-budget legal draft pick/);
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+test('rho fast path retains IEEE-754 edge behavior and rejects nonfinite results',()=>{
+  const {dir,file}=fixture();
+  try{
+    const input=encoding(7,[[0,1,2,3,4,5],[1,2,3,4,5,6]]);
+    const variants=[
+      layers=>{ layers['rho.4.weight'].fill(-0);layers['rho.4.bias'][0]=-0; },
+      layers=>{ layers['rho.0.weight'].fill(Number.MIN_VALUE);
+        layers['rho.0.bias'].fill(-Number.MIN_VALUE); },
+      layers=>{ layers['rho.2.weight'].fill(-Number.MIN_VALUE);
+        layers['rho.2.bias'].fill(Number.MIN_VALUE); },
+      layers=>{ layers['rho.4.weight'].fill(Number.MAX_VALUE);
+        layers['rho.4.bias'][0]=Number.MAX_VALUE; }
+    ];
+    for(const mutate of variants){
+      const model=new DeepSetsDraftPolicy(file);
+      mutate(model.layers);
+      const reference=oldScore(input,model.layers);
+      const actual=model.scoreEncoded(input);
+      assert.equal(actual.length,reference.length);
+      for(let i=0;i<actual.length;i++){
+        // Object.is distinguishes +0 from -0, unlike numeric equality.
+        assert.ok(Object.is(actual[i],reference[i]),'IEEE-754 score bit pattern drift');
+      }
+    }
+    for(const nonfinite of [NaN,Infinity,-Infinity]){
+      const model=new DeepSetsDraftPolicy(file);
+      model.layers['rho.0.weight'][0]=nonfinite;
+      const reference=()=>oldScore(input,model.layers);
+      const optimized=()=>model.scoreEncoded(input);
+      const referenceOutcome=(()=>{try{return reference();}catch(e){return e.message;}})();
+      const optimizedOutcome=(()=>{try{return optimized();}catch(e){return e.message;}})();
+      assert.deepStrictEqual(optimizedOutcome,referenceOutcome);
+    }
+    for(const invalid of [NaN,Infinity,-Infinity]){
+      const model=new DeepSetsDraftPolicy(file);
+      const bad=encoding(7,[[0,1,2,3,4,5]]);
+      bad.features[0][0]=invalid;
+      assert.throws(()=>model.scoreEncoded(bad),/Malformed encoded own-set features/);
+    }
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
