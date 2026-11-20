@@ -135,6 +135,25 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
             dynamic_seconds=time.perf_counter()-begun
         for left,right in zip(serial_grads, dynamic.parameters()):
             torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+        # Candidate: one 8-Match vector microbatch per worker, on the
+        # SAME authoritative 32 rows, with the same frozen Main/Target/Magnet.
+        vector8, t8, m8, o8, s8 = _models(root, checkpoint)
+        with ParallelGradientPool(vector8, t8, m8, workers=processes,
+                                  vector=True, vector_batch=8) as workers:
+            begun=time.perf_counter()
+            eight_losses,eight_ratios=workers.step_gradients(tasks)
+            eight_seconds=time.perf_counter()-begun
+        for left,right in zip(serial_grads, vector8.parameters()):
+            torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+    torch.nn.utils.clip_grad_norm_(vector8.parameters(),10.,
+                                   error_if_nonfinite=True)
+    o8.step()
+    s8.step()
+    for p,q in zip(serial.parameters(),vector8.parameters()):
+        torch.testing.assert_close(p,q,rtol=4e-3,atol=4e-5)
+    if abs(sum(losses)-sum(eight_losses)) > 1e-3 or (
+            abs(max(ratios)-max(eight_ratios)) > 1e-5):
+        raise AssertionError("8-Match vector gradient objective changed")
     torch.nn.utils.clip_grad_norm_(dynamic.parameters(),10.,
                                    error_if_nonfinite=True)
     do.step()
@@ -165,6 +184,10 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         "vector_microbatch4_gradient_seconds":round(vector_seconds, 4),
         "parallel_vector_microbatch4_gradient_seconds":
             round(vector_parallel_seconds, 4),
+        "parallel_vector_microbatch8_gradient_seconds":
+            round(eight_seconds, 4),
+        "single_trial_ratio_microbatch4_over_8":
+            round(vector_parallel_seconds / eight_seconds, 4),
         "dynamic_task_matches":4,
         "parallel_dynamic_microbatch4_gradient_seconds":
             round(dynamic_seconds, 4),
