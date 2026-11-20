@@ -6,6 +6,8 @@ on:
       - scripts/rnad/shared_league_staging.py
       - scripts/rnad/shared_league_prep_profile.py
       - scripts/rnad/shared_league_learner.py
+      - scripts/rnad/shared_league_contract.py
+      - scripts/rnad/shared_league_collect.py
       - scripts/rnad/shared_league_memory_probe.py
       - scripts/rnad/shared_league_numeric_parity.py
       - test/rnad_shared_league_staging_test.py
@@ -44,6 +46,7 @@ jobs:
     timeout-minutes: 100
     env:
       GH_TOKEN: ${{ github.token }}
+      RNAD_LEARNER_JSON_CODEC: orjson
       OMP_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
@@ -70,7 +73,7 @@ jobs:
               --name "rnad-i5-shared-main-g0-actor-$i" --dir "actors/actor-$i"
             test -s "actors/actor-$i/actor-$i.json.gz"
           done
-      - name: ONE historical G0 Learner replay (no Actor simulation or repeated 40-update trials)
+      - name: ONE historical G0 Learner replay with fast verified JSON decode (no Actor simulation)
         run: |
           set -euo pipefail
           python -m scripts.rnad.shared_league_prep_profile \
