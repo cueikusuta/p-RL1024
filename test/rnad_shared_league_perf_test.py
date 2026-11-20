@@ -1,6 +1,8 @@
 """CPU fast-path regression: no authoritative Match or strength claim."""
 import gzip
 import json
+import math
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -96,6 +98,40 @@ class SharedLeagueThroughputTest(unittest.TestCase):
             self.assertFalse(t.requires_grad)
             self.assertFalse(mag.requires_grad)
             self.assertFalse(tv.requires_grad)
+
+    def test_orjson_fast_loader_matches_stdlib_numeric_bits(self):
+        try:
+            import orjson
+        except ImportError:
+            self.fail("Pinned orjson must be installed in fast-Learner CI")
+        row = {"match_id": "unit-only-not-authority",
+               "float_values": [0.0, -0.0, -1.5, 1e-300,
+                                2.2250738585072014e-308,
+                                1.7976931348623157e308],
+               "nested": [{"codes": [1, 2, 3, 4, 5, 6],
+                           "probability": .1234567890123456}],
+               "int_values": [0, 1, 0xffffffff, -7]}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plain, zipped = root / "row.json", root / "row.json.gz"
+            serialized = json.dumps(row, allow_nan=False)
+            plain.write_text(serialized, encoding="utf-8")
+            with gzip.open(zipped, "wt") as source:
+                source.write(serialized)
+            with patch.dict(os.environ, {"RNAD_LEARNER_JSON_CODEC": "stdlib"}):
+                reference = [_load(plain), _load(zipped)]
+            with patch.dict(os.environ, {"RNAD_LEARNER_JSON_CODEC": "orjson"}):
+                optimized = [_load(plain), _load(zipped)]
+            for a, b in zip(reference, optimized):
+                self.assertEqual(a, b)
+                for old, new in zip(a["float_values"], b["float_values"]):
+                    self.assertEqual(old.hex(), new.hex())
+                self.assertEqual(
+                    a["nested"][0]["probability"].hex(),
+                    b["nested"][0]["probability"].hex())
+            with patch.dict(os.environ, {"RNAD_LEARNER_JSON_CODEC": "invalid"}):
+                with self.assertRaisesRegex(ValueError, "must be stdlib or orjson"):
+                    _load(plain)
 
     def test_strict_verified_plain_json_and_original_actor_gzip_load_same(self):
         row = {"match_id": "unit-only-not-authority", "events": [
