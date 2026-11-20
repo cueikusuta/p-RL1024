@@ -8,8 +8,10 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import tempfile
 import time
+from unittest.mock import patch
 from pathlib import Path
 
 import torch
@@ -145,6 +147,27 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
             eight_seconds=time.perf_counter()-begun
         for left,right in zip(serial_grads, vector8.parameters()):
             torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+        # Separate NumPy CPU target hypothesis: all-action Q is detached,
+        # but all 32 full-Match gradients and the single optimizer step
+        # must still match the unchanged scalar Torch V-trace reference.
+        fast, ft, fm, fo, fs = _models(root, checkpoint)
+        with patch.dict(os.environ, {"RNAD_FAST_RNAD_TARGETS": "1"}):
+            with ParallelGradientPool(fast, ft, fm, workers=processes,
+                                      vector=True) as workers:
+                begun=time.perf_counter()
+                fast_losses,fast_ratios=workers.step_gradients(tasks)
+                fast_seconds=time.perf_counter()-begun
+        for left,right in zip(serial_grads, fast.parameters()):
+            torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+    torch.nn.utils.clip_grad_norm_(fast.parameters(),10.,
+                                   error_if_nonfinite=True)
+    fo.step()
+    fs.step()
+    for p,q in zip(serial.parameters(),fast.parameters()):
+        torch.testing.assert_close(p,q,rtol=4e-3,atol=4e-5)
+    if abs(sum(losses)-sum(fast_losses)) > 1e-3 or (
+            abs(max(ratios)-max(fast_ratios)) > 1e-5):
+        raise AssertionError("NumPy CPU all-action R-NaD target objective changed")
     torch.nn.utils.clip_grad_norm_(vector8.parameters(),10.,
                                    error_if_nonfinite=True)
     o8.step()
@@ -188,6 +211,9 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
             round(eight_seconds, 4),
         "single_trial_ratio_microbatch4_over_8":
             round(vector_parallel_seconds / eight_seconds, 4),
+        "parallel_vector_numpy_targets_seconds": round(fast_seconds, 4),
+        "single_trial_ratio_torch_over_numpy_targets":
+            round(vector_parallel_seconds / fast_seconds, 4),
         "dynamic_task_matches":4,
         "parallel_dynamic_microbatch4_gradient_seconds":
             round(dynamic_seconds, 4),
