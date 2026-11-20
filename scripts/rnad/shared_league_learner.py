@@ -42,8 +42,25 @@ SHUFFLE_SEED = 11520261118
 
 
 def _load(path):
-    """Decode immutable actor gzip or strict-verified plain JSON without recompression."""
+    """Decode immutable actor gzip or strict-verified plain JSON.
+
+    The opt-in orjson path is only used after the strict 20/20 receipt/manifest
+    barrier. It preserves Python JSON numbers and never skips verification.
+    The reference stdlib parser remains the default and comparison baseline.
+    """
     path = Path(path)
+    codec = os.environ.get("RNAD_LEARNER_JSON_CODEC", "stdlib")
+    if codec == "orjson":
+        try:
+            import orjson
+        except ImportError as exc:
+            raise RuntimeError("Pinned orjson required by learner codec") from exc
+        if path.suffix == ".gz":
+            with gzip.open(path, "rb") as source:
+                return orjson.loads(source.read())
+        return orjson.loads(path.read_bytes())
+    if codec != "stdlib":
+        raise ValueError("RNAD_LEARNER_JSON_CODEC must be stdlib or orjson")
     with (gzip.open(path, "rt") if path.suffix == ".gz"
           else path.open("r", encoding="utf-8")) as source:
         return json.load(source)
