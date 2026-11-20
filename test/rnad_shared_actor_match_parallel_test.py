@@ -1,12 +1,15 @@
 """Isolated Actor shard scheduling contracts; no AI strength assertion."""
 import json
+import gzip
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.rnad.shared_league_collect import _batch_chunks, _run_actor_jobs
+from scripts.rnad.shared_league_collect import _batch_chunks, _run_actor_jobs, _verified_match
+from scripts.rnad.shared_league_contract import _opponent, verify_actor
+from rnad_shared_league_contract_test import manifest, payload
 
 
 class ActorMatchParallelContracts(unittest.TestCase):
@@ -68,6 +71,30 @@ class ActorMatchParallelContracts(unittest.TestCase):
                     _run_actor_jobs(["node", "actor.mjs"], Path(tmp),
                                     self.jobs, 2)
             self.assertEqual(len(calls), 2)
+
+    def test_full_shard_gate_still_rejects_tampered_event(self):
+        m = manifest()
+        actor = payload(m, 0)
+        row = actor["matches"][0]
+        row["events"][0]["behavior_prob"] = 0.0
+        role, opponent = _opponent(m, 0)
+        self.assertEqual(role, "self")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "accepted.json.gz"
+            with gzip.open(p, "wt") as f:
+                json.dump(row, f)
+            with self.assertRaisesRegex(ValueError, "probability"):
+                _verified_match(p, seed=row["seed"],
+                    seat=row["learner_seat"], match_id=row["match_id"],
+                    manifest=m, opponent=opponent)
+            # A full-Actor collector can defer this check only because
+            # verify_actor rejects the corrupted 64-Match bundle before upload.
+            read = _verified_match(p, seed=row["seed"],
+                seat=row["learner_seat"], match_id=row["match_id"],
+                manifest=m, opponent=opponent, verify_events=False)
+            self.assertEqual(read["match_id"], row["match_id"])
+            with self.assertRaisesRegex(ValueError, "probability"):
+                verify_actor(m, actor)
 
     def test_default_single_worker_retains_original_batch_file(self):
         with tempfile.TemporaryDirectory() as tmp, (
