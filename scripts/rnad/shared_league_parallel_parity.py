@@ -218,6 +218,30 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
                 fused_seconds=time.perf_counter()-begun
         for left,right in zip(serial_grads, fused.parameters()):
             torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+        # Combined opt-in CPU hypothesis: compare its gradients and full
+        # optimizer state on the exact same 32 authentic, held-fixed Matches.
+        combined, ct, cm, co, cs = _models(root, checkpoint)
+        with patch.dict(os.environ, {
+                "RNAD_FAST_RNAD_TARGETS": "1",
+                "RNAD_LINEARIZED_NEURD": "1",
+                "RNAD_AUDIT_NUMERIC_TARGETS": "1"}):
+            with ParallelGradientPool(combined, ct, cm, workers=processes,
+                                      vector=True) as workers:
+                begun = time.perf_counter()
+                combined_losses, combined_ratios = workers.step_gradients(tasks)
+                combined_seconds = time.perf_counter()-begun
+        for left, right in zip(serial_grads, combined.parameters()):
+            torch.testing.assert_close(left, right.grad, rtol=4e-3, atol=4e-5)
+    torch.nn.utils.clip_grad_norm_(combined.parameters(),10.,
+                                   error_if_nonfinite=True)
+    co.step()
+    cs.step()
+    for p, q in zip(serial.parameters(), combined.parameters()):
+        torch.testing.assert_close(p, q, rtol=4e-3, atol=4e-5)
+    if abs(sum(losses)-sum(combined_losses)) > 1e-3 or (
+            abs(max(ratios)-max(combined_ratios)) > 1e-5):
+        raise AssertionError("Combined R-NaD/NeuRD target objective changed")
+    combined_adam_report = _audit_adam_optimizer_state(opt, co)
     torch.nn.utils.clip_grad_norm_(fused.parameters(),10.,
                                    error_if_nonfinite=True)
     fopt.step()
@@ -286,6 +310,10 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
             round(vector_parallel_seconds / fast_seconds, 4),
         "parallel_vector_linearized_neurd_seconds":
             round(fused_seconds, 4),
+        "parallel_vector_combined_numpy_neurd_seconds":
+            round(combined_seconds, 4),
+        "single_trial_ratio_original_over_combined":
+            round(vector_parallel_seconds / combined_seconds, 4),
         "single_trial_ratio_original_over_linearized_neurd":
             round(vector_parallel_seconds / fused_seconds, 4),
         "dynamic_task_matches":4,
@@ -306,6 +334,7 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
             sum(len(row["events"]) for row in rows),
         "numpy_adam_moments_after_step":fast_adam_report,
         "linearized_neurd_adam_moments_after_step":fused_adam_report,
+        "combined_adam_moments_after_step":combined_adam_report,
         "strength_evaluated":False,"generation_completed":False,
     }
 
