@@ -1,11 +1,13 @@
 """Contract tests only: synthetic rows are NEVER authority training traces."""
 import copy
+import math
 import unittest
 
 from scripts.rnad.shared_league_contract import (
     ACTORS, MATCHES_PER_GENERATION, OPTIMIZER_STEPS, SEEDS_PER_ACTOR,
     ACTOR_SCHEMA, MATCH_SCHEMA, POLICY_SCHEMA, SCHEMA, _opponent,
-    actor_role, canonical_hash, verify_actor, verify_generation, verify_manifest,
+    _matrix, actor_role, canonical_hash, verify_actor, verify_generation,
+    verify_manifest,
 )
 
 
@@ -109,6 +111,21 @@ class SharedLeagueContractTest(unittest.TestCase):
     def setUp(self):
         self.manifest = manifest()
         self.payloads = [payload(self.manifest, i) for i in range(ACTORS)]
+
+    def test_numeric_matrix_fastpath_preserves_strict_boundary(self):
+        self.assertTrue(_matrix([[0, 1], [-2, 3]], 2, 2, integer=True))
+        self.assertTrue(_matrix([[0.5, -1], [1.0, 2.0]], 2, 2))
+        for bad in (True, False, 1.0, float("nan"), float("inf"),
+                    -float("inf"), "1", None, [], {}):
+            self.assertFalse(_matrix([[0, bad]], 1, 2, integer=True))
+        for bad in (True, False, float("nan"), float("inf"),
+                    -float("inf"), "1", None, [], {}):
+            self.assertFalse(_matrix([[0, bad]], 1, 2))
+        for bad_rows in (None, (), [[1, 2]], [[1], [1, 2]],
+                         [[1, 2], (3, 4)]):
+            self.assertFalse(_matrix(bad_rows, 2, 2))
+        self.assertFalse(_matrix([[0, 1.0]], 1, 2, integer=True))
+        self.assertTrue(_matrix([], 0, 2))
 
     def test_exact_1280_match_one_shared_learner_contract(self):
         report = verify_generation(self.manifest, self.payloads)
