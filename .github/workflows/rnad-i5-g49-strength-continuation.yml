@@ -1,0 +1,284 @@
+name: I5 G49 strength continuation (13 generations, no extra strength evaluation)
+on:
+  push:
+    branches: [research/5-g49-strength-continuation]
+    paths:
+      - docs/research/rnad/G49_STRENGTH_TRAINING_LAUNCH_2026-11-20.json
+permissions: {}
+concurrency:
+  group: rnad-i5-g49-strength-single-writer
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read}
+    outputs:
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - id: verify
+        name: Verify one-shot launch is a pure control-plane commit
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          path='docs/research/rnad/G49_STRENGTH_TRAINING_LAUNCH_2026-11-20.json'
+          x=json.load(open(path))
+          code_sha=subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()
+          changed=subprocess.check_output(['git','diff','--name-only','HEAD^','HEAD'],text=True).strip()
+          assert changed==path, 'Launch must not edit code or weights'
+          assert x=={
+             'schema':'rnad-i5-g49-strength-continuation-launch-v1',
+             'source_sha':code_sha,
+             'previous_source_sha':'01501f3a1e12511140bf772d435d39c0c07319bc',
+             'g49_source_run_id':44554626133,
+             'g49_bootstrap_artifact':'rnad-i5-cont-next-bootstrap-after-g48',
+             'first_generation':49,'last_generation':61,
+             'matches_per_generation':1280,'updates_per_generation':40,
+             'github_hosted_cpu_only':True,
+             'no_extra_strength_evaluation':True,
+             'no_champion_promotion':True
+          },'Unapproved launch configuration'
+          print('Approved research code SHA:',code_sha)
+          PY
+          echo "source_sha=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.11'}
+      - name: Mandatory legal/accepted-trace, NeuRD and provenance contract checks
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m unittest discover -s test -p rnad_strength_learner_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
+          python -m unittest discover -s test -p rnad_neural_test.py -v
+          python -m py_compile scripts/rnad/g49_strength_migration.py
+          node scripts/verify-snapshot.mjs
+  bootstrap:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.preflight.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.11'}
+      - name: Restore strictly pinned completed G48 full-state handoff
+        run: |
+          set -euo pipefail
+          mkdir -p previous-g49
+          for attempt in 1 2 3 4 5; do
+            rm -rf previous-g49; mkdir previous-g49
+            if gh run download 44554626133 --repo cueikusuta/p-RL1024 \
+                --name rnad-i5-cont-next-bootstrap-after-g48 \
+                --dir previous-g49; then break; fi
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep "$((10*attempt))"
+          done
+          (cd previous-g49 && sha256sum -c file-pins.sha256)
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          python -m scripts.rnad.g49_strength_migration --source previous-g49 --out bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import torch,json
+          cp=torch.load('bootstrap/checkpoint-g0.pt',map_location='cpu',weights_only=True)
+          m=json.load(open('bootstrap/generation-manifest.json'))
+          assert cp['generation']==m['generation']==49
+          assert cp['cumulative_complete_matches']==62720
+          assert cp['cumulative_optimizer_updates']==1960
+          assert set(cp['optimizer'])=={'state','param_groups'}
+          assert len(cp['optimizer']['state'])>0
+          assert m['source_sha']==cp['source_sha']
+          assert len(m['opponents']['historical'])==2
+          PY
+          node scripts/verify-snapshot.mjs
+      - name: Minimal actual accepted Match smoke (not a strength evaluation)
+        run: |
+          set -euo pipefail
+          for actor in 0 8 16; do
+            python -m scripts.rnad.shared_league_collect \
+              --bootstrap bootstrap --actor-id "$actor" --smoke --out "smoke/$actor"
+          done
+          test "$(find smoke -name '*.json.gz' | wc -l)" -eq 6
+          python - <<'PY'
+          import gzip,json
+          from pathlib import Path
+          for p in Path('smoke').rglob('*.json.gz'):
+              with gzip.open(p,'rt') as f:r=json.load(f)
+              assert r['completed'] is True
+              assert r['score'][r['winner']]==4
+              assert r['source_sha']==json.load(open('bootstrap/generation-manifest.json'))['source_sha']
+          PY
+          echo 'G49 source migration and authority-smoke completed' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-strength-g49-bootstrap
+          path: bootstrap/
+          retention-days: 90
+          if-no-files-found: error
+
+  g49:
+    needs: [preflight, bootstrap]
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 49
+      bootstrap_artifact: rnad-i5-strength-g49-bootstrap
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g50:
+    needs: [preflight, g49]
+    if: ${{ needs.g49.result == 'success' && needs.g49.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 50
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g49
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g51:
+    needs: [preflight, g50]
+    if: ${{ needs.g50.result == 'success' && needs.g50.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 51
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g50
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g52:
+    needs: [preflight, g51]
+    if: ${{ needs.g51.result == 'success' && needs.g51.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 52
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g51
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g53:
+    needs: [preflight, g52]
+    if: ${{ needs.g52.result == 'success' && needs.g52.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 53
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g52
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g54:
+    needs: [preflight, g53]
+    if: ${{ needs.g53.result == 'success' && needs.g53.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 54
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g53
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g55:
+    needs: [preflight, g54]
+    if: ${{ needs.g54.result == 'success' && needs.g54.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 55
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g54
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g56:
+    needs: [preflight, g55]
+    if: ${{ needs.g55.result == 'success' && needs.g55.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 56
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g55
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g57:
+    needs: [preflight, g56]
+    if: ${{ needs.g56.result == 'success' && needs.g56.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 57
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g56
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g58:
+    needs: [preflight, g57]
+    if: ${{ needs.g57.result == 'success' && needs.g57.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 58
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g57
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g59:
+    needs: [preflight, g58]
+    if: ${{ needs.g58.result == 'success' && needs.g58.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 59
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g58
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g60:
+    needs: [preflight, g59]
+    if: ${{ needs.g59.result == 'success' && needs.g59.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 60
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g59
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read
+
+  g61:
+    needs: [preflight, g60]
+    if: ${{ needs.g60.result == 'success' && needs.g60.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 61
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g60
+      source_ref: ${{ needs.preflight.outputs.source_sha }}
+    permissions:
+      contents: read
+      actions: read

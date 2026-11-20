@@ -373,7 +373,7 @@ jobs:
           # Do not begin another 1280-Match generation when insufficient
           # time for a normal complete generation. Finish current generation
           # and keep fully reproducible output instead.
-          again=remaining>1200 and g<48
+          again=remaining>1200 and g<61
           with open(os.environ["GITHUB_OUTPUT"],"a") as f:
               f.write("should_continue="+str(again).lower()+"\n")
           with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
