@@ -247,6 +247,62 @@ jobs:
               'timings_are_smoke_only_not_generation_speed':True,
               'timings':timings},indent=2))
           PY
+      - name: Fixed-v3 full-shard two/four-worker throughput and parity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip,json,os,subprocess,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_collect import collect
+          manifest=json.loads(Path('bootstrap/generation-manifest.json').read_text())
+          cases=(('control_two','0',2),('reuse_two','1',2),('reuse_four','1',4))
+          report={'schema':'rnad-i5-fixed-v3-full-actor-parity-timing-v1',
+                  'source_sha':subprocess.check_output(
+                      ['git','rev-parse','HEAD'],text=True).strip(),
+                  'complete_accepted_matches_per_actor_case':64,
+                  'actors':[16,17],'cases':[],'all_decoded_trajectories_equal':False,
+                  'single_trial_not_a_generation_speedup_claim':True,
+                  'optimizer_updates_run':0}
+          try:
+              for actor in (16,17):
+                  reference=None
+                  for label,mode,workers in cases:
+                      os.environ['RNAD_REUSE_LEGACY_FROZEN_LOGITS']=mode
+                      folder=Path('fixed-64-parity')/f'actor{actor}'/label
+                      started=time.perf_counter()
+                      result=collect(bootstrap='bootstrap',actor_id=actor,
+                                     out=str(folder),match_workers=workers)
+                      elapsed=time.perf_counter()-started
+                      assert result['actor_id']==actor and result['accepted_matches']==64
+                      rows={}
+                      for source in (folder/'accepted').glob('*.json.gz'):
+                          with gzip.open(source,'rt') as stream:
+                              row=json.load(stream)
+                          assert row['completed'] is True
+                          assert row['score'][row['winner']]==4
+                          assert row['learner_seat'] in (0,1)
+                          key=(row['seed'],row['learner_seat'])
+                          assert key not in rows
+                          rows[key]=row
+                      assert len(rows)==64
+                      if reference is None:
+                          reference=rows
+                      else:
+                          assert rows==reference, (
+                              f'Fixed Actor {actor}: immutable accepted trajectories '
+                              f'differ for {label}')
+                      report['cases'].append({
+                          'actor_id':actor,'mode':label,'reuse_flag':mode,
+                          'match_workers':workers,'matches':len(rows),
+                          'elapsed_seconds':round(elapsed,4)})
+          finally:
+              os.environ.pop('RNAD_REUSE_LEGACY_FROZEN_LOGITS',None)
+          report['all_decoded_trajectories_equal']=True
+          Path('fixed-64-parity-report.json').write_text(
+              json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2),flush=True)
+          PY
+          cat fixed-64-parity-report.json >> "$GITHUB_STEP_SUMMARY"
       - name: Profile actual accepted Actor CPU hotspots (8 Matches)
         run: |
           set -euo pipefail
