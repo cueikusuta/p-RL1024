@@ -1,0 +1,12 @@
+{
+  "schema": "rnad-i5-g0-one-shot-authorized-v1",
+  "reviewed_prelaunch_sha": "1c1b35055db1aef969a85ec82e0f568ed58a254d",
+  "generation": 0,
+  "actor_count": 20,
+  "complete_matches": 1280,
+  "optimizer_updates": 40,
+  "github_hosted_cpu_only": true,
+  "run_g1_or_later": false,
+  "champion_promotion": false,
+  "artifact_is_research_only": true
+}

@@ -1,0 +1,16 @@
+name: I5 cancel superseded G48 paired evaluation
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - .github/workflows/rnad-i5-cancel-obsolete-g48-eval.yml
+permissions: {}
+concurrency:
+  group: rnad-i5-g48-paired-final-20261120
+  cancel-in-progress: true
+jobs:
+  cancel-obsolete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "G48 formal 32768-Match study superseded by user's request for training-log diagnostics only."

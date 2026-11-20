@@ -1,0 +1,15 @@
+{
+  "schema": "rnad-i5-g1-through-g12-pinned-resume-v1",
+  "reviewed_prelaunch_workflow_sha": "31904c73bf3a8ef85b56426a5a016aa384ebd06e",
+  "source_sha": "01501f3a1e12511140bf772d435d39c0c07319bc",
+  "source_g0_run_id": 44517879214,
+  "same_source_ci_run_id": 44517879019,
+  "start_generation": 1,
+  "last_generation": 12,
+  "complete_matches_per_generation": 1280,
+  "optimizer_updates_per_generation": 40,
+  "github_hosted_cpu_only": true,
+  "initial_checkpoint_must_be_preserved": true,
+  "no_champion_promotion": true,
+  "no_main_merge": true
+}

@@ -67,17 +67,31 @@ function draftFeatures(deep,encoded){
   assert(h.length>0,'Empty own roster');
   const mean=Array(48).fill(0);
   for(const row of h)for(let i=0;i<48;i++)mean[i]+=row[i]/h.length;
-  const extras=encoded.codes.map(code=>{
+  // Only four per-candidate aggregates are needed by the value head.
+  // Keep the original nested reduce and left-to-right summation order,
+  // but avoid materializing one transient four-number array per legal pick
+  // and rescanning that entire array four times.
+  const extrasSum=[0,0,0,0];
+  const extras=encoded.extras??encoded.codes.map(code=>{
     const spent=code.reduce((n,i)=>n+encoded.prices[i],0);
     return [spent/100,(encoded.credits-spent)/100,
       code.reduce((n,i)=>n+encoded.carries[i],0)/6,
       code.reduce((n,i)=>n+encoded.megas[i],0)/6];
   });
-  return [...mean,...Array.from({length:4},(_,k)=>
-    extras.reduce((n,row)=>n+row[k],0)/extras.length)];
+  for(const row of extras)
+    for(let k=0;k<4;k++)extrasSum[k]+=row[k];
+  return [...mean,...extrasSum.map(sum=>sum/encoded.codes.length)];
 }
+const verifiedBundleCache=new Map();
+const verifiedLegacyCache=new Map();
 function readBundle(directory){
-  const root=resolve(directory), p=JSON.parse(readFileSync(join(root,'manifest.json')));
+  const root=resolve(directory);
+  const cached=verifiedBundleCache.get(root);
+  // Reuse SHA-verified immutable head data, but always allocate a NEW GRU
+  // inference object: recurrent state must never leak between Matches/seats.
+  if(cached)return {...cached,
+    battle:new PersistentRNADInference(cached.battlePayload)};
+  const p=JSON.parse(readFileSync(join(root,'manifest.json')));
   assert(p.schema===BUNDLE_SCHEMA&&
     /^[0-9a-f]{40}$/.test(p.source_sha)&&
     p.source_sha===verifiedRunningSourceSha()&&
@@ -98,20 +112,30 @@ function readBundle(directory){
   const selection=loadVerifiedASelection(
     readFileSync(verified.selection),p.files.selection);
   checkASelectionParity(selection);
-  const battle=new PersistentRNADInference(verified.battle);
+  const battlePayload=JSON.parse(readFileSync(verified.battle));
+  const battle=new PersistentRNADInference(battlePayload);
   assert(battle.featureSchema==='rnad-three-phase-features-v5',
     'Only v5 battle expert is supported');
   const values=JSON.parse(readFileSync(verified.values));
   assert(values.schema==='rnad-integrated-value-heads-v1'&&
     values.policy_id===p.policy_id&&values.generation===p.generation,
     'Incorrect value/head generation');
-  return {p,draft,selection,battle,values};
+  const cache={p,draft,selection,values,battlePayload};
+  verifiedBundleCache.set(root,cache);
+  return {...cache,battle};
 }
 function readLegacy(path,expectedSha){
+  const key=resolve(path),cached=verifiedLegacyCache.get(key);
+  if(cached){
+    assert(cached.sha===expectedSha,'Frozen legacy opponent SHA drift');
+    return new PersistentRNADInference(cached.payload);
+  }
   assert(expectedSha===fileSha(path),'Frozen legacy opponent SHA mismatch');
-  const nn=new PersistentRNADInference(path);
+  const payload=JSON.parse(readFileSync(path));
+  const nn=new PersistentRNADInference(payload);
   assert(nn.featureSchema==='rnad-three-phase-features-v3',
     'Only frozen v3 historical opponent in legacy adapter');
+  verifiedLegacyCache.set(key,{sha:expectedSha,payload});
   return nn;
 }
 function sample(p,rng){
@@ -125,8 +149,17 @@ function sample(p,rng){
 export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false}){
   assert(finite(epsilon)&&epsilon>0&&epsilon<=.1,'Invalid behavior epsilon');
   const legacy=legacyPath!==null;
+  // Opt-in research: a frozen v3 opponent has identical Main/Magnet bytes
+  // and identical seat-local GRU histories. Its reference logits can be
+  // reused from Main instead of running the same GRU a second time.
+  // Keep the original dual-inference path as the default parity baseline.
+  const legacyReuse=process.env.RNAD_REUSE_LEGACY_FROZEN_LOGITS??'0';
+  assert(legacyReuse==='0'||legacyReuse==='1',
+    'RNAD_REUSE_LEGACY_FROZEN_LOGITS must be 0 or 1');
+  const sharedLegacy=legacy&&legacyReuse==='1';
   const main=legacy?readLegacy(legacyPath,legacySha):readBundle(modelDir);
-  const magnet=legacy?readLegacy(legacyPath,legacySha):readBundle(magnetDir);
+  const magnet=sharedLegacy?null:
+    legacy?readLegacy(legacyPath,legacySha):readBundle(magnetDir);
   if(!legacy)assert(main.p.policy_id===magnet.p.policy_id&&
     main.p.generation===magnet.p.generation,'Main/Magnet generation mismatch');
   const saved=[];
@@ -139,21 +172,31 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
       let logits,ref,value,phaseInput;
       if(legacy){
         const x=main.inferProjected(observation,legalActions,seat);
-        const m=magnet.inferProjected(observation,legalActions,seat);
+        // Both old frozen v3 networks start from the same zero memory and
+        // see the same authoritative observation/seat on every decision.
+        // No reference-memory state is observable; reuse only identical logits.
+        const m=sharedLegacy?x:magnet.inferProjected(observation,legalActions,seat);
         logits=x.logits;ref=m.logits;value=x.value;
         // Stored MAIN-visible accepted tensor, even for frozen v3 opponents.
         phaseInput=encodeForLearner(observation,legalActions);
       }else if(observation.phase==='draft'){
         const a=encodeOwnDraftPool(observation,legalActions);
         logits=main.draft.scoreEncoded(a);
-        ref=magnet.draft.scoreEncoded(a);
+        // Draft head is stateless: identical SHA-verified frozen weights
+        // yield exactly the same logits. Avoid an expensive duplicate
+        // Deep Sets forward when Main and Magnet point to the same head.
+        ref=main.p.files.draft===magnet.p.files.draft?
+          logits:magnet.draft.scoreEncoded(a);
         value=valueFromLayers(draftFeatures(main.draft,a),
           main.values.tensors,'draft_value',64);
         phaseInput=encodeForLearner(observation,legalActions,a);
       }else if(observation.phase==='selection'){
         const a=encodeRichSelectionActor(observation,legalActions);
         logits=scoreFrozenASelection(main.selection,a);
-        ref=scoreFrozenASelection(magnet.selection,a);
+        // Selection head is also stateless; never apply this shortcut to
+        // battle GRU, which must advance each recurrent seat memory.
+        ref=main.p.files.selection===magnet.p.files.selection?
+          logits:scoreFrozenASelection(magnet.selection,a);
         value=valueFromLayers(
           selectionValueFeatures(main.selection,a),
           main.values.tensors,'selection_value',64);
@@ -193,7 +236,9 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
 function encodeForLearner(obs,legal,precomputed){
   if(obs.phase==='draft'){
     const a=precomputed??encodeOwnDraftPool(obs,legal);
-    const extras=a.codes.map(code=>{
+    // Reuse exactly the same own-only public candidate extras validated
+    // before inference; no change to the accepted trajectory schema.
+    const extras=a.extras??a.codes.map(code=>{
       const spent=code.reduce((sum,i)=>sum+a.prices[i],0);
       return [spent/100,(a.credits-spent)/100,
         code.reduce((sum,i)=>sum+a.carries[i],0)/6,
@@ -289,16 +334,41 @@ if(process.argv[1]?.endsWith('/shared_league_actor.mjs')){
     a[k.slice(2)]=v;
   }
   const meta=JSON.parse(readFileSync(a.meta));
-  const match=createIntegratedAcceptedMatch({
-    seed:Number(a.seed),learnerSeat:Number(a.seat),
-    generation:meta.generation,actorId:meta.actor_id,
-    policyId:meta.policy_id,mainDir:a.main,magnetDir:a.magnet,
-    opponentDir:a.opponent??null,legacyOpponent:a.legacy??null,
-    legacyOpponentSha:meta.legacy_sha256??null,role:meta.role,
-    mainSha:meta.main_sha256,magnetSha:meta.magnet_sha256,
-    opponentSha:meta.opponent_sha256});
-  writeFileSync(a.out,gzipSync(JSON.stringify(match)),{flag:'wx'});
-  process.stderr.write(JSON.stringify({
-    seed:match.seed,seat:match.learner_seat,rounds:match.rounds,
-    accepted:match.events.length,winner:match.winner})+'\n');
+  const runOne=(seed,seat,out)=>{
+    assert(Number.isSafeInteger(seed)&&[0,1].includes(seat)&&
+      typeof out==='string'&&out.endsWith('.json.gz'),
+      'Invalid independent seed/seat/output in actor batch');
+    const match=createIntegratedAcceptedMatch({
+      seed,learnerSeat:seat,
+      generation:meta.generation,actorId:meta.actor_id,
+      policyId:meta.policy_id,mainDir:a.main,magnetDir:a.magnet,
+      opponentDir:a.opponent??null,legacyOpponent:a.legacy??null,
+      legacyOpponentSha:meta.legacy_sha256??null,role:meta.role,
+      mainSha:meta.main_sha256,magnetSha:meta.magnet_sha256,
+      opponentSha:meta.opponent_sha256});
+    writeFileSync(out,gzipSync(JSON.stringify(match)),{flag:'wx'});
+    process.stderr.write(JSON.stringify({
+      seed:match.seed,seat:match.learner_seat,rounds:match.rounds,
+      accepted:match.events.length,winner:match.winner})+'\n');
+  };
+  if(a['batch-jobs']){
+    assert(a.seed===undefined&&a.seat===undefined&&a.out===undefined,
+      'Batch and single Match CLI inputs cannot be combined');
+    const manifest=JSON.parse(readFileSync(a['batch-jobs']));
+    assert(manifest?.schema==='rnad-shared-actor-batch-jobs-v1'&&
+      Array.isArray(manifest.jobs)&&manifest.jobs.length>=1&&
+      manifest.jobs.length<=64,'Invalid bounded actor batch');
+    const unique=new Set();
+    for(const job of manifest.jobs){
+      assert(job&&Object.keys(job).sort().join(',')==='out,seat,seed'&&
+        Number.isSafeInteger(job.seed)&&
+        Number.isSafeInteger(job.seat),'Invalid batch job');
+      const id=job.seed+':'+job.seat;
+      assert(!unique.has(id),'Duplicate actor batch seed/seat');
+      unique.add(id);
+      runOne(job.seed,job.seat,job.out);
+    }
+  }else{
+    runOne(Number(a.seed),Number(a.seat),a.out);
+  }
 }

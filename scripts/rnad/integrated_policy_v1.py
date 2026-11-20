@@ -86,6 +86,35 @@ class IntegratedPolicyV1(nn.Module):
     def initial_memory(self):
         return self.battle.initial_memory()
 
+    def selection_forward_batch(self, seat_scoped):
+        """Evaluate independent selection states together with one embedding pass.
+
+        The authoritative single-seat forward() contract remains unchanged.
+        Draft and recurrent Battle are intentionally excluded from this batch.
+        """
+        _no_privileged_keys(seat_scoped,
+                            ("own_cat", "foe_cat", "own_num", "foe_num"))
+        _fail(all(isinstance(seat_scoped[k], torch.Tensor)
+                  for k in ("own_cat", "foe_cat", "own_num", "foe_num")),
+              "Invalid public/own selection actor")
+        batch = seat_scoped["own_cat"].shape[0]
+        _fail(batch > 0 and
+              tuple(seat_scoped["own_cat"].shape) == (batch, 6, 9) and
+              tuple(seat_scoped["foe_cat"].shape) == (batch, 6, 3) and
+              tuple(seat_scoped["own_num"].shape) == (batch, 6, 16) and
+              tuple(seat_scoped["foe_num"].shape) == (batch, 6, 6),
+              "Invalid batch of public/own selection actors")
+        logits, _, _, own, opponent_public = self.selection(
+            seat_scoped, return_embeddings=True)
+        critic_input = torch.cat(
+            (own.mean(dim=1), opponent_public.mean(dim=1)), dim=-1)
+        value = self.selection_value(critic_input).reshape(batch)
+        _fail(logits.shape == (batch, len(TRIPLES)) and
+              bool(torch.isfinite(logits).all()) and
+              bool(torch.isfinite(value).all()),
+              "Invalid finite selection batch")
+        return logits, value
+
     def forward(self, phase, seat_scoped, legal_actions, per_seat_memory=None):
         _fail(phase in PHASES, "Unknown phase")
         if phase == "draft":
@@ -109,28 +138,12 @@ class IntegratedPolicyV1(nn.Module):
             value = self.draft_value(critic_input).reshape(())
             next_memory = per_seat_memory
         elif phase == "selection":
-            _no_privileged_keys(seat_scoped,
-                                ("own_cat", "foe_cat", "own_num", "foe_num"))
             _fail(legal_actions == TRIPLES,
                   "Selection must use canonical authoritative 60 actions")
-            _fail(all(isinstance(seat_scoped[k], torch.Tensor)
-                      for k in ("own_cat", "foe_cat", "own_num", "foe_num")),
-                  "Invalid public/own selection actor")
-            _fail(tuple(seat_scoped["own_cat"].shape[1:]) == (6, 9) and
-                  tuple(seat_scoped["foe_cat"].shape[1:]) == (6, 3) and
-                  tuple(seat_scoped["own_num"].shape[1:]) == (6, 16) and
-                  tuple(seat_scoped["foe_num"].shape[1:]) == (6, 6) and
-                  seat_scoped["own_cat"].shape[0] == 1 and
-                  seat_scoped["foe_cat"].shape[0] == 1 and
-                  seat_scoped["own_num"].shape[0] == 1 and
-                  seat_scoped["foe_num"].shape[0] == 1,
+            logits_batch, value_batch = self.selection_forward_batch(seat_scoped)
+            _fail(logits_batch.shape[0] == 1,
                   "Selection inputs must be a single public/self seat")
-            logits, _, _ = self.selection(seat_scoped)
-            own, opponent_public = self.selection.embed(seat_scoped)
-            critic_input = torch.cat(
-                (own.mean(dim=1), opponent_public.mean(dim=1)), dim=-1)
-            value = self.selection_value(critic_input).reshape(())
-            logits = logits[0]
+            logits, value = logits_batch[0], value_batch[0]
             next_memory = per_seat_memory
         else:
             _no_privileged_keys(seat_scoped, ("state",))

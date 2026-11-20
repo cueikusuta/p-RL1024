@@ -1,0 +1,302 @@
+name: I5 ONE-G0 1280 complete Match trial (no G1 / no Champion)
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - docs/research/rnad/G0_SINGLE_GENERATION_START_2026-11-19.json
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-one-g0-trial
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Reject unreviewed code change and authorize only single G0
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          launch_path='docs/research/rnad/G0_SINGLE_GENERATION_START_2026-11-19.json'
+          data=json.loads(Path(launch_path).read_text())
+          parent=subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()
+          assert data == {
+            'schema':'rnad-i5-g0-one-shot-authorized-v1',
+            'reviewed_prelaunch_sha':parent,
+            'generation':0,
+            'actor_count':20,
+            'complete_matches':1280,
+            'optimizer_updates':40,
+            'github_hosted_cpu_only':True,
+            'run_g1_or_later':False,
+            'champion_promotion':False,
+            'artifact_is_research_only':True,
+          }, 'Wrong bounded single-G0 launch declaration'
+          files=subprocess.check_output(
+              ['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()
+          assert files == [launch_path],f'Unreviewed code changes: {files}'
+          assert Path('.github/workflows/rnad-i5-next13-fast-generation-reusable.yml').is_file()
+          src=Path('.github/workflows/rnad-i5-next13-fast-generation-reusable.yml').read_text()
+          for value in ("RNAD_PREP_WORKERS: '4'", "RNAD_PREP_FAST_JSON: '1'",
+                        'RNAD_PREP_CODEC: orjson', 'orjson==3.13.0'):
+              assert value in src,'Learner strict fast staging not configured: '+value
+          print('One G0 only; source correctness will be verified by bootstrap/Actors.')
+          PY
+          node scripts/verify-snapshot.mjs
+          python -m py_compile scripts/rnad/shared_league_bootstrap.py scripts/rnad/shared_league_learner.py scripts/rnad/shared_league_staging.py scripts/rnad/shared_league_handoff.py
+
+  bootstrap:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned torch CPU
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Download and pin only previously trained specialist/model artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/DB frozen/A frozen/AJS frozen/old
+          download_frozen() {
+            local run="$1" name="$2" dir="$3" attempt
+            for attempt in 1 2 3 4 5; do
+              rm -rf "$dir"; mkdir -p "$dir"
+              if gh run download "$run" --repo cueikusuta/p-RL1024 \
+                  --name "$name" --dir "$dir"; then return 0; fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "Failed verified frozen source artifact $name" >&2
+                return 1
+              fi
+              sleep "$((attempt * 10))"
+            done
+          }
+          download_frozen 44096608535 rnad-i5-draft-battle-512-frozen-trained-model-archive frozen/DB
+          download_frozen 44067733118 rnad-i5-selection-A-4096-six-models-and-dev frozen/A
+          download_frozen 44085352444 rnad-i5-A4096-vs-A2048-public-js-SHA-checked frozen/AJS
+          download_frozen 43757054212 rnad-i5-queue-models-43757054212 frozen/old
+          for path in frozen/DB/draft512/draft512-e6.json \
+              frozen/DB/draft512/study.json \
+              frozen/DB/battle512/trained-model.json \
+              frozen/DB/battle512/teacher-report.json \
+              frozen/A/selection-A-4096-e60-s90252.pt \
+              frozen/A/selection-A-4096-development.json \
+              frozen/AJS/A4096.json frozen/old/manifest.json; do
+            test -s "$path"
+          done
+          python -m scripts.rnad.shared_league_bootstrap \
+            --draft frozen/DB/draft512/draft512-e6.json \
+            --draft-report frozen/DB/draft512/study.json \
+            --selection frozen/A/selection-A-4096-e60-s90252.pt \
+            --selection-study frozen/A/selection-A-4096-development.json \
+            --selection-js frozen/AJS/A4096.json \
+            --battle frozen/DB/battle512/trained-model.json \
+            --battle-report frozen/DB/battle512/teacher-report.json \
+            --old-pool frozen/old --out bootstrap
+          python - <<'PY'
+          import json
+          m=json.load(open('bootstrap/generation-manifest.json'))
+          assert len(m['opponents']['fixed'])==3
+          assert m['actor_count']==20 and m['optimizer_steps']==40
+          assert m['seed_start']==9900001
+          PY
+          cp frozen/DB/draft512/draft512-e6.json bootstrap/original-draft.json
+          cp frozen/AJS/A4096.json bootstrap/original-selection-js.json
+          (cd bootstrap && sha256sum actor/*.json fixed/*.json \
+            checkpoint-g0.pt > file-pins.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-oneshot-g0-bootstrap
+          path: bootstrap/
+          retention-days: 90
+          if-no-files-found: error
+
+  authority_smoke:
+    needs: bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Real complete four-win Match acceptance with self and frozen opponent
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-oneshot-g0-bootstrap --dir bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          node scripts/verify-snapshot.mjs
+          python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
+            --actor-id 0 --smoke --out smoke/self
+          python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
+            --actor-id 8 --smoke --out smoke/historical
+          python -m scripts.rnad.shared_league_collect --bootstrap bootstrap \
+            --actor-id 14 --smoke --out smoke/frozen
+          test "$(find smoke -name '*.json.gz' | wc -l)" -eq 6
+          # Validate ALL 20 logical Actor IDs on real authority Matches before
+          # allocating 1,280 Matches and running any shared optimizer generation.
+          # The smoke population is 40 distinct full Matches and is diagnostic;
+          # it is NOT a full training generation or a strength comparison.
+          python - <<'PY'
+          import gzip, json
+          from concurrent.futures import ThreadPoolExecutor
+          from pathlib import Path
+          from scripts.rnad.shared_league_collect import collect
+          root = Path("smoke")
+          directories = {0:"self", 8:"historical", 14:"frozen"}
+          missing = [i for i in range(20) if i not in directories]
+          def run(i):
+              result = collect(bootstrap="bootstrap", actor_id=i,
+                  out=str(root/f"actor-{i}"), smoke=True)
+              assert result["smoke_complete_matches"] == 2
+              return i
+          with ThreadPoolExecutor(max_workers=4) as pool:
+              completed = sorted(pool.map(run, missing))
+          assert completed == missing
+          records = {}
+          for i in range(20):
+              directory = root/directories.get(i, f"actor-{i}")/"accepted"
+              paths = sorted(directory.glob("*.json.gz"))
+              assert len(paths) == 2, f"Actor {i} incomplete smoke"
+              rows = []
+              for path in paths:
+                  with gzip.open(path,"rt") as source:
+                      row = json.load(source)
+                  assert row["completed"] is True
+                  assert row["score"][row["winner"]] == 4
+                  assert row["learner_seat"] in (0,1)
+                  assert row["source_sha"] == json.load(
+                      open("bootstrap/generation-manifest.json"))["source_sha"]
+                  assert row["events"]
+                  rows.append(row)
+              assert sorted(x["learner_seat"] for x in rows) == [0,1]
+              for row in rows:
+                  assert row["match_id"] not in records
+                  records[row["match_id"]] = row
+          assert len(records) == 40
+          (root/"twenty-actor-real-smoke-report.json").write_text(json.dumps({
+              "schema":"rnad-i5-20actor-two-matches-per-actor-smoke-v1",
+              "actors_checked":20,"complete_matches":40,
+              "all_seats_verified":True,"not_a_full_generation":True,
+              "not_a_strength_claim":True
+          },indent=2)+"\n")
+          PY
+          # This is a functional optimizer/checkpoint smoke only, never a strength estimate.
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          python - <<'PY'
+          import gzip, hashlib, json, math
+          from pathlib import Path
+          import torch
+          from scripts.rnad.shared_league_learner import _models, _match_loss
+          torch.set_num_threads(1)
+          root=Path("bootstrap")
+          cp=torch.load(root/"checkpoint-g0.pt",map_location="cpu",weights_only=True)
+          model,target,magnet,optimizer,scheduler=_models(root,cp)
+          losses=[]
+          for directory,role in (("self","self"),("historical","historical"),("frozen","fixed")):
+              matches=sorted((Path("smoke")/directory/"accepted").glob("*.json.gz"))
+              assert len(matches)==2, f"Expected 2 accepted Matches from {directory}"
+              with gzip.open(matches[0],"rt") as src: record=json.load(src)
+              assert record["completed"] is True
+              loss,ratio=_match_loss(model,target,magnet,record,role=role)
+              assert math.isfinite(float(loss.detach())) and math.isfinite(float(ratio))
+              (loss/3).backward()
+              losses.append(float(loss.detach()))
+          norm=torch.nn.utils.clip_grad_norm_(model.parameters(),10.0,error_if_nonfinite=True)
+          assert math.isfinite(float(norm))
+          optimizer.step()
+          scheduler.step()
+          assert all(torch.isfinite(p).all() for p in model.parameters())
+          cp["model"]={k:v.clone() for k,v in model.state_dict().items()}
+          cp["optimizer"]=optimizer.state_dict()
+          cp["scheduler"]=scheduler.state_dict()
+          cp["torch_rng"]=torch.get_rng_state()
+          torch.save(cp,"smoke/checkpoint-smoke.pt")
+          restored=torch.load("smoke/checkpoint-smoke.pt",map_location="cpu",weights_only=True)
+          model2,_,_,optimizer2,scheduler2=_models(root,restored)
+          assert all(torch.equal(a,b) for a,b in zip(model.parameters(),model2.parameters()))
+          assert optimizer2.state_dict()["state"]
+          assert scheduler2.last_epoch == scheduler.last_epoch
+          report={"schema":"rnad-i5-next13-two-match-optimizer-smoke-v1",
+                  "complete_real_matches_generated":6,
+                  "matches_used_in_smoke_optimizer":3,
+                  "finite_losses":True,"optimizer_step":1,
+                  "checkpoint_restored":True,
+                  "not_a_full_generation":True,"not_a_strength_claim":True}
+          (Path("smoke")/"small-optimizer-report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print(json.dumps(report))
+          PY
+          rm -f smoke/checkpoint-smoke.pt
+          echo "Current-source G0 functional smoke only; no shared generation started" >> "$GITHUB_STEP_SUMMARY"
+          cat smoke/twenty-actor-real-smoke-report.json >> "$GITHUB_STEP_SUMMARY"
+          cat smoke/small-optimizer-report.json >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-oneshot-g0-smoke
+          path: smoke/
+          retention-days: 30
+          if-no-files-found: warn
+
+  source_ci_gate:
+    name: Verify SAME-SHA five-job throughput CI before G0 Actors
+    needs: authority_smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Wait only for exact source code CI; forbid unsafe independent assumptions
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in $(seq 1 18); do
+            conclusion="$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=${GITHUB_SHA}&per_page=100" \
+              --jq '[.workflow_runs[] | select(.name == "I5 shared R-NaD throughput isolated regression")] | sort_by(.created_at) | reverse | .[0].conclusion // "pending"')"
+            echo "Source CI verdict on SHA ${GITHUB_SHA}: ${conclusion}"
+            if [ "${conclusion}" = success ]; then ok=1; break; fi
+            case "${conclusion}" in
+              failure|cancelled|timed_out|action_required) echo "Source CI failed"; exit 1 ;;
+            esac
+            sleep 60
+          done
+          test "${ok}" -eq 1 || { echo "Same SHA source CI unavailable/timeout"; exit 1; }
+          echo "No G0 unless same-SHA regression CI is fully successful" >> "$GITHUB_STEP_SUMMARY"
+
+  g0:
+    name: G0 only — 1280 complete Match / 40 updates
+    needs: [authority_smoke, source_ci_gate]
+    if: ${{ needs.authority_smoke.result == 'success' && needs.source_ci_gate.result == 'success' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 0
+      bootstrap_artifact: rnad-i5-oneshot-g0-bootstrap
+    permissions:
+      contents: read
+      actions: read

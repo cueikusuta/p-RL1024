@@ -177,7 +177,7 @@ class DecomposedTeacher(nn.Module):
         self.register_buffer("lead_index", LEAD_INDEX)
         self.register_buffer("trio_rows", TRIO_ROWS)
 
-    def forward(self, a):
+    def forward(self, a, *, return_embeddings=False):
         own, foes = self.embed(a)
         pair = F.relu(self.pair(own)[:, :, None, :] +
                       self.opponent(foes)[:, None, :, :])
@@ -195,7 +195,10 @@ class DecomposedTeacher(nn.Module):
             enriched,
             global_team[:, None, :].expand(-1, 6, -1),
             opponents[:, None, :].expand(-1, 6, -1)], dim=-1)).squeeze(-1)
-        return core[:, self.trio_index] + lead[:, self.lead_index], core, lead
+        scores = core[:, self.trio_index] + lead[:, self.lead_index]
+        if return_embeddings:
+            return scores, core, lead, own, foes
+        return scores, core, lead
 
 
 class DetailedAttention(nn.Module):

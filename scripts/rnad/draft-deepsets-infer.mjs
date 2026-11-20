@@ -92,18 +92,26 @@ export function encodeOwnDraftPool(observation,legalActions){
       throw new Error('Invalid draft model features');
     return f;
   });
+  const carries=pool.map(p=>Number(isCarry.has(p.instanceId)));
+  const megas=pool.map(p=>Number(Boolean(p.mega)));
+  const extras=[];
   const codes=legalActions.map(action=>{
     if(!Array.isArray(action)||action.length!==6||
       new Set(action).size!==6||action.some(id=>!byId.has(id)))
       throw new TypeError('Malformed authoritative six-Pokemon draft action');
     const code=action.map(id=>byId.get(id));
-    if(code.reduce((n,i)=>n+prices[i],0)>observation.self.credits)
+    const spent=code.reduce((n,i)=>n+prices[i],0);
+    if(spent>observation.self.credits)
       throw new TypeError('Nonlegal over-budget draft action');
+    // Exactly the four published own-only inputs also used by the
+    // draft value head and accepted Learner trajectory. Compute once.
+    extras.push([spent/100,(observation.self.credits-spent)/100,
+      code.reduce((n,i)=>n+carries[i],0)/6,
+      code.reduce((n,i)=>n+megas[i],0)/6]);
     return code;
   });
   return {features,codes,prices,credits:observation.self.credits,
-    carries:pool.map(p=>Number(isCarry.has(p.instanceId))),
-    megas:pool.map(p=>Number(Boolean(p.mega)))};
+    carries,megas,extras};
 }
 function linear(values,weight,bias,outputs){
   const inputs=values.length, out=new Float64Array(outputs);
@@ -111,6 +119,60 @@ function linear(values,weight,bias,outputs){
     let sum=bias[j],offset=j*inputs;
     for(let k=0;k<inputs;k++)sum+=values[k]*weight[offset+k];
     out[j]=sum;
+  }
+  return out;
+}
+function linearInto(values,weight,bias,out){
+  // The frozen rho widths are 148/64/32 (all multiples of four).
+  // Unroll the innermost dot product without re-associating additions:
+  // preserve EXACT left-to-right IEEE-754 order, including bias addition.
+  // This is a CPU hot path called once per legal six-Pokemon candidate.
+  const inputs=values.length;
+  if((inputs&3)===0){
+    for(let j=0;j<out.length;j++){
+      let sum=bias[j],offset=j*inputs;
+      for(let k=0;k<inputs;k+=4){
+        sum+=values[k]*weight[offset+k];
+        sum+=values[k+1]*weight[offset+k+1];
+        sum+=values[k+2]*weight[offset+k+2];
+        sum+=values[k+3]*weight[offset+k+3];
+      }
+      out[j]=sum;
+    }
+  }else{
+    // Retain the original scalar behavior for any future odd-width caller.
+    for(let j=0;j<out.length;j++){
+      let sum=bias[j],offset=j*inputs;
+      for(let k=0;k<inputs;k++)sum+=values[k]*weight[offset+k];
+      out[j]=sum;
+    }
+  }
+  return out;
+}
+function linearIntoFourRows(values,weight,bias,out){
+  // Optional four-output blocking: every neuron retains its own exact
+  // left-to-right IEEE-754 accumulation order. This is NOT a reduction
+  // across neurons and never reorders the input feature sequence.
+  const inputs=values.length;
+  if((inputs&3)!==0||(out.length&3)!==0)
+    return linearInto(values,weight,bias,out);
+  for(let j=0;j<out.length;j+=4){
+    const a0=j*inputs,a1=(j+1)*inputs,
+      a2=(j+2)*inputs,a3=(j+3)*inputs;
+    let s0=bias[j],s1=bias[j+1],s2=bias[j+2],s3=bias[j+3];
+    for(let k=0;k<inputs;k+=4){
+      const x0=values[k],x1=values[k+1],
+        x2=values[k+2],x3=values[k+3];
+      s0+=x0*weight[a0+k];s0+=x1*weight[a0+k+1];
+      s0+=x2*weight[a0+k+2];s0+=x3*weight[a0+k+3];
+      s1+=x0*weight[a1+k];s1+=x1*weight[a1+k+1];
+      s1+=x2*weight[a1+k+2];s1+=x3*weight[a1+k+3];
+      s2+=x0*weight[a2+k];s2+=x1*weight[a2+k+1];
+      s2+=x2*weight[a2+k+2];s2+=x3*weight[a2+k+3];
+      s3+=x0*weight[a3+k];s3+=x1*weight[a3+k+1];
+      s3+=x2*weight[a3+k+2];s3+=x3*weight[a3+k+3];
+    }
+    out[j]=s0;out[j+1]=s1;out[j+2]=s2;out[j+3]=s3;
   }
   return out;
 }
@@ -200,6 +262,10 @@ export class DeepSetsDraftPolicy{
     this.trainingSourceSha=m.source;
     this.layers=m.layers;
     this.schema=DRAFT_DEEPSETS_ACTOR_SCHEMA;
+    const rowBlock=process.env.RNAD_DRAFT_RHO_ROW_BLOCK4??'0';
+    if(rowBlock!=='0'&&rowBlock!=='1')
+      throw new TypeError('RNAD_DRAFT_RHO_ROW_BLOCK4 must be 0 or 1');
+    this._rhoRowBlock4=rowBlock==='1';
   }
   // Pure input contract permits a Python/PyTorch parity check on fixed examples.
   scoreEncoded(encoding){
@@ -216,27 +282,54 @@ export class DeepSetsDraftPolicy{
         throw new TypeError('Malformed encoded own-set features');
       return relu(mlp(f,this.layers,'phi',[48,48]));
     });
+    // Every legal six-Pokemon candidate reuses each pool member hundreds of
+    // times. Hoist EXACT per-member IEEE-754 divisions/multiplications outside
+    // the candidate loop; leave the additions in their original selection
+    // order. This avoids 576 arithmetic operations per legal candidate
+    // without changing logits, RNG draw order or accepted action support.
+    const meanPart=hidden.map(row=>Float64Array.from(row,v=>v/6));
+    const secondPart=hidden.map(row=>Float64Array.from(row,v=>v*v/6));
+    // A legal pool may contain thousands of six-Pokemon combinations.
+    // Reuse rho aggregation/hidden buffers across candidates. No buffers
+    // escape to the caller; logits and public authority checks are unchanged.
     const result=[];
+    const avg=new Float64Array(48),second=new Float64Array(48);
+    const high=new Float64Array(48),x=new Float64Array(148);
+    const h0=new Float64Array(64),h2=new Float64Array(32);
+    const scalar=new Float64Array(1);
+    const rho0W=this.layers['rho.0.weight'],rho0B=this.layers['rho.0.bias'];
+    const rho2W=this.layers['rho.2.weight'],rho2B=this.layers['rho.2.bias'];
+    const rho4W=this.layers['rho.4.weight'],rho4B=this.layers['rho.4.bias'];
+    const rhoLinear=this._rhoRowBlock4?linearIntoFourRows:linearInto;
     for(const code of codes){
-      if(!Array.isArray(code)||code.length!==6||
-        new Set(code).size!==6||code.some(i=>!Number.isSafeInteger(i)||
-          i<0||i>=hidden.length))
+      if(!Array.isArray(code)||code.length!==6)
         throw new TypeError('Malformed draft candidate indices');
-      const avg=new Float64Array(48),second=new Float64Array(48);
-      const high=Float64Array.from({length:48},()=>-Infinity);
+      // Fixed-length duplicate detection avoids a Set allocation for
+      // every candidate while still rejecting identical numeric indices.
+      for(let at=0;at<6;at++){
+        const i=code[at];
+        if(!Number.isSafeInteger(i)||i<0||i>=hidden.length||
+          code.indexOf(i)!==at)
+          throw new TypeError('Malformed draft candidate indices');
+      }
+      avg.fill(0);second.fill(0);high.fill(-Infinity);
       let spent=0,carry=0,mega=0;
       for(const i of code){
-        const v=hidden[i];spent+=prices[i];carry+=carries[i];mega+=megas[i];
+        const v=hidden[i],m=meanPart[i],s=secondPart[i];
+        spent+=prices[i];carry+=carries[i];mega+=megas[i];
         for(let k=0;k<48;k++){
-          avg[k]+=v[k]/6;
-          second[k]+=v[k]*v[k]/6;
+          avg[k]+=m[k];
+          second[k]+=s[k];
           high[k]=Math.max(high[k],v[k]);
         }
       }
       if(spent>credits)throw new Error('Over-budget legal draft pick');
-      const x=[...avg,...second,...high,spent/100,
-        (credits-spent)/100,carry/6,mega/6];
-      const score=mlp(x,this.layers,'rho',[64,32,1])[0];
+      x.set(avg,0);x.set(second,48);x.set(high,96);
+      x[144]=spent/100;x[145]=(credits-spent)/100;
+      x[146]=carry/6;x[147]=mega/6;
+      relu(rhoLinear(x,rho0W,rho0B,h0));
+      relu(rhoLinear(h0,rho2W,rho2B,h2));
+      const score=linearInto(h2,rho4W,rho4B,scalar)[0];
       if(!Number.isFinite(score))throw new Error('Nonfinite model draft score');
       result.push(score);
     }

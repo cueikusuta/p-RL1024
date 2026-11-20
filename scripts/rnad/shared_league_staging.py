@@ -1,0 +1,191 @@
+"""Fail-closed, opt-in CPU staging of one authoritative 20-Actor generation.
+
+Every immutable Actor is fully verified before ANY optimizer update. Distinct
+processes can validate separate Actors, but the single parent assembles the
+complete 20/20 barrier in fixed Actor-ID order. No model is updated here.
+"""
+from __future__ import annotations
+
+import gzip
+import json
+import multiprocessing as mp
+import os
+import time
+from collections import Counter
+from contextlib import nullcontext
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+
+from scripts.rnad.shared_league_contract import (
+    ACTORS, MATCHES_PER_ACTOR, verify_actor, verify_manifest,
+)
+
+
+def _rss_kib():
+    try:
+        import resource
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except ImportError:
+        return 0
+
+
+def _stage_actor(args):
+    actor_id, source_path, manifest, destination, tensor_cache, fast_json, codec = args
+    source_path, destination = Path(source_path), Path(destination)
+    timings = {"decompress": 0.0, "parse": 0.0, "legacy_read_parse": 0.0,
+               "verify": 0.0,
+               "serialize": 0.0, "write": 0.0}
+    if codec not in ("stdlib", "orjson"):
+        raise ValueError("Invalid strict staging JSON codec")
+    if codec == "orjson":
+        if not fast_json:
+            raise ValueError("orjson requires fast JSON staging")
+        try:
+            import orjson
+        except ImportError as exc:
+            raise RuntimeError("orjson codec explicitly selected but not installed") from exc
+    start = time.perf_counter()
+    if fast_json:
+        with gzip.open(source_path, "rb") as source:
+            raw = source.read()
+        timings["decompress"] = time.perf_counter() - start
+        parse_start = time.perf_counter()
+        try:
+            payload = orjson.loads(raw) if codec == "orjson" else json.loads(raw)
+        except ValueError as exc:
+            # JSONDecodeError constructors are not reliably pickleable through
+            # ProcessPoolExecutor; propagate a stable fail-closed ValueError.
+            raise ValueError("Invalid strict JSON Actor artifact") from exc
+        finally:
+            del raw
+        timings["parse"] = time.perf_counter() - parse_start
+    else:
+        # Keep the original streaming decoder as a measurable reference.
+        with gzip.open(source_path, "rt") as source:
+            payload = json.load(source)
+        timings["legacy_read_parse"] = time.perf_counter() - start
+    if payload.get("actor_id") != actor_id:
+        raise ValueError("Actor artifact ID mismatch")
+    verify_start = time.perf_counter()
+    seen = verify_actor(manifest, payload)
+    timings["verify"] = time.perf_counter() - verify_start
+    if len(seen) != MATCHES_PER_ACTOR:
+        raise ValueError("Incomplete accepted Actor shard")
+    role = payload["role"]
+    meta = []
+    for row in payload["matches"]:
+        name = row["match_id"]
+        if tensor_cache:
+            import torch
+            from scripts.rnad.shared_league_bootstrap import digest
+            from scripts.rnad.shared_league_learner import _verified_phase_tensors
+            target = destination / (name + ".pt")
+            start = time.perf_counter()
+            packed = _verified_phase_tensors(row)
+            timings["serialize"] += time.perf_counter() - start
+            start = time.perf_counter()
+            torch.save(packed, target)
+            checksum = digest(target)
+            timings["write"] += time.perf_counter() - start
+            meta.append({"match_id": name, "role": role,
+                         "tensor_cache_sha256": checksum})
+        elif fast_json:
+            start = time.perf_counter()
+            # orjson input came from strict RFC-compliant JSON decoding:
+            # NaN/Infinity were rejected at the ingestion boundary rather than
+            # silently converted into JSON null during serialization.
+            encoded = (orjson.dumps(row) if codec == "orjson" else
+                       json.dumps(row, separators=(",", ":"),
+                                  allow_nan=False).encode("utf-8"))
+            timings["serialize"] += time.perf_counter() - start
+            start = time.perf_counter()
+            (destination / (name + ".json")).write_bytes(encoded)
+            timings["write"] += time.perf_counter() - start
+            meta.append({"match_id": name, "role": role})
+        else:
+            # Byte-identical reference to the pre-optimization implementation.
+            start = time.perf_counter()
+            with (destination / (name + ".json")).open(
+                    "w", encoding="utf-8") as sink:
+                json.dump(row, sink, separators=(",", ":"), allow_nan=False)
+            timings["write"] += time.perf_counter() - start
+            meta.append({"match_id": name, "role": role})
+    del payload
+    return {"actor_id": actor_id, "ids": seen, "role": role,
+            "meta": meta, "timings": timings, "rss_kib": _rss_kib()}
+
+
+def stage_verified_actors(manifest, paths, verified, *,
+                          tensor_cache=False, workers=1, fast_json=False,
+                          codec="stdlib", profile=False, return_metrics=False,
+                          monitor_memory=False):
+    if type(workers) is not int or workers not in (1, 2, 4):
+        raise ValueError("RNAD_PREP_WORKERS must be 1, 2 or 4")
+    if (type(fast_json) is not bool or type(profile) is not bool or
+            type(tensor_cache) is not bool or type(monitor_memory) is not bool):
+        raise ValueError("Invalid staging flags")
+    if codec not in ("stdlib", "orjson") or (codec == "orjson" and not fast_json):
+        raise ValueError("Invalid bounded R-NaD JSON codec selection")
+    verify_manifest(manifest)
+    if len(paths) != ACTORS or any(not Path(p).is_file() for p in paths):
+        raise ValueError("Cannot stage incomplete 20/20 Actor set")
+    verified = Path(verified)
+    verified.mkdir(parents=True, exist_ok=True)
+    args = [(i, str(path), manifest, str(verified), tensor_cache, fast_json, codec)
+            for i, path in enumerate(paths)]
+    start = time.perf_counter()
+    if monitor_memory:
+        from scripts.rnad.shared_league_memory_probe import StageMemorySampler
+        memory_context = StageMemorySampler()
+    else:
+        memory_context = nullcontext(None)
+    with memory_context as memory_sampler:
+        if workers == 1:
+            results = [_stage_actor(arg) for arg in args]
+        else:
+            # Spawn avoids inheriting any PyTorch autograd or filesystem state.
+            with ProcessPoolExecutor(
+                    max_workers=workers, mp_context=mp.get_context("spawn")) as pool:
+                results = list(pool.map(_stage_actor, args))
+    concurrent_memory = memory_sampler.result() if memory_sampler else None
+    match_ids, meta, roles = set(), [], Counter()
+    for i, item in enumerate(results):
+        if item["actor_id"] != i or item["ids"] & match_ids:
+            raise ValueError("Missing/duplicated Actor identity at strict barrier")
+        match_ids.update(item["ids"])
+        meta.extend(item["meta"])
+        roles[item["role"]] += 1
+    if len(match_ids) != ACTORS * MATCHES_PER_ACTOR:
+        raise ValueError("Missing accepted Match at 20/20 staging barrier")
+    wall = time.perf_counter() - start
+    metrics = {
+        "schema": "rnad-learner-staging-profile-v1",
+        "actors": len(results), "accepted_matches": len(match_ids),
+        "workers": workers, "fast_json": fast_json, "codec": codec,
+        "wall_seconds": round(wall, 4),
+        "max_worker_rss_kib": max(item["rss_kib"] for item in results),
+        "concurrent_memory": concurrent_memory,
+        "sum_actor_phase_seconds": {
+            k: round(sum(item["timings"][k] for item in results), 4)
+            for k in ("decompress", "parse", "legacy_read_parse",
+                      "verify", "serialize", "write")
+        },
+        "research_only": True, "strength_claim": False,
+    }
+    if profile:
+        print(json.dumps(metrics, sort_keys=True), flush=True)
+    if return_metrics:
+        return match_ids, meta, roles, metrics
+    return match_ids, meta, roles
+
+
+def staging_config():
+    value = os.environ.get("RNAD_PREP_WORKERS", "1")
+    fast = os.environ.get("RNAD_PREP_FAST_JSON", "0")
+    prof = os.environ.get("RNAD_PROFILE_STAGING", "0")
+    codec = os.environ.get("RNAD_PREP_CODEC", "stdlib")
+    if value not in ("1", "2", "4") or fast not in ("0", "1") or prof not in ("0", "1"):
+        raise ValueError("Invalid bounded R-NaD Learner staging configuration")
+    if codec not in ("stdlib", "orjson") or (codec == "orjson" and fast != "1"):
+        raise ValueError("Invalid bounded R-NaD JSON codec selection")
+    return int(value), fast == "1", prof == "1", codec

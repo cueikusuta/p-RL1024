@@ -1,0 +1,16 @@
+{
+  "schema": "rnad-i5-g13-g48-second-budget-v1",
+  "reviewed_prelaunch_workflow_sha": "7aca7af3bb5c909304ffe64af4e7a32c643c7081",
+  "source_sha": "01501f3a1e12511140bf772d435d39c0c07319bc",
+  "source_g12_run_id": 44529850050,
+  "same_source_ci_run_id": 44517879019,
+  "start_generation": 13,
+  "last_generation": 48,
+  "complete_matches_per_generation": 1280,
+  "optimizer_updates_per_generation": 40,
+  "github_hosted_cpu_only": true,
+  "initial_checkpoint_must_be_preserved": true,
+  "second_independent_10h_budget": 36000,
+  "no_champion_promotion": true,
+  "no_main_merge": true
+}

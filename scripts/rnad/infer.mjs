@@ -68,6 +68,18 @@ export class PersistentRNADInference{
       'value_out.weight':[1,H],'value_out.bias':[1]}))
       this.params[name]=weight(p,name,shape);
     this.memory=[new Array(H).fill(0),new Array(H).fill(0)];
+    // Experimental prefix reuse: compute the GRU memory contribution only
+    // once per decision. The original candidate loop remains the default.
+    const prefixFlag=process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE??'0';
+    if(prefixFlag!=='0'&&prefixFlag!=='1')
+      throw new TypeError('RNAD_POLICY_HIDDEN_PREFIX_REUSE must be 0 or 1');
+    this._reusePolicyPrefix=prefixFlag==='1';
+    // Scratch never escapes infer(); seat memories and outputs cannot alias it.
+    this._scratch={
+      gi:new Array(3*H),gh:new Array(3*H),
+      candidate:new Array(H+this.actionFeatures),
+      hidden:new Array(H),prefix:new Array(H)
+    };
   }
   reset(){this.memory=[new Array(128).fill(0),new Array(128).fill(0)];}
   linear(prefix,x,out){
@@ -95,7 +107,7 @@ export class PersistentRNADInference{
     // The generic linear() above is not used for GRU.
     const wI=this.params['gru.weight_ih'],wH=this.params['gru.weight_hh'];
     const bI=this.params['gru.bias_ih'],bH=this.params['gru.bias_hh'];
-    const gi=new Array(3*H),gh=new Array(3*H);
+    const {gi,gh,candidate,hidden,prefix}=this._scratch;
     for(let i=0;i<3*H;i++){
       let a=bI[i],b=bH[i],offset=i*H;
       for(let j=0;j<H;j++){a+=wI[offset+j]*input[j];b+=wH[offset+j]*previous[j];}
@@ -108,10 +120,45 @@ export class PersistentRNADInference{
       const candidate=Math.tanh(gi[2*H+i]+reset*gh[2*H+i]);
       memory[i]=(1-update)*candidate+update*previous[i];
     }
-    const logits=actions.map(a=>{
-      const hidden=this.linear('policy_hidden',[...memory,...a],H).map(relu);
-      return this.linear('policy_out',hidden,1)[0];
-    });
+    // Candidate scoring uses reusable scratch rather than allocating a
+    // concatenated state and hidden vector for every legal action. Keep the
+    // original left-to-right floating-point accumulation order exactly.
+    const logits=new Array(actions.length);
+    const policyW=this.params['policy_hidden.weight'];
+    const policyB=this.params['policy_hidden.bias'];
+    const outW=this.params['policy_out.weight'];
+    const outBias=this.params['policy_out.bias'][0];
+    for(let j=0;j<H;j++)candidate[j]=memory[j];
+    if(this._reusePolicyPrefix){
+      // For each output neuron, the first H additions are independent of
+      // the candidate. Preserve their exact left-to-right float64 order.
+      for(let i=0;i<H;i++){
+        let sum=policyB[i],offset=i*candidate.length;
+        for(let j=0;j<H;j++)sum+=policyW[offset+j]*memory[j];
+        prefix[i]=sum;
+      }
+    }
+    for(let k=0;k<actions.length;k++){
+      const action=actions[k];
+      if(!this._reusePolicyPrefix)
+        for(let j=0;j<action.length;j++)candidate[H+j]=action[j];
+      for(let i=0;i<H;i++){
+        let sum=this._reusePolicyPrefix?prefix[i]:policyB[i];
+        const offset=i*candidate.length;
+        if(this._reusePolicyPrefix){
+          // Continue the same sum with exactly the original action suffix.
+          for(let j=0;j<action.length;j++)
+            sum+=policyW[offset+H+j]*action[j];
+        }else{
+          for(let j=0;j<candidate.length;j++)
+            sum+=policyW[offset+j]*candidate[j];
+        }
+        hidden[i]=relu(sum);
+      }
+      let score=outBias;
+      for(let j=0;j<H;j++)score+=outW[j]*hidden[j];
+      logits[k]=score;
+    }
     const value=Math.tanh(this.linear('value_out',
       this.linear('value_hidden',memory,H).map(relu),1)[0]);
     if(!finite(value)||logits.some(x=>!finite(x))||

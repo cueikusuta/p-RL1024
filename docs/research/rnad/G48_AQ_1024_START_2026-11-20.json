@@ -1,0 +1,22 @@
+{
+  "schema": "rnad-i5-g48-aq-1024-paired-v1",
+  "workflow_commit_sha": "dd636be62dd2e58577980569c167889cb5130d06",
+  "source_sha": "01501f3a1e12511140bf772d435d39c0c07319bc",
+  "engine_sha": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "frozen_artifact_run": 44648107619,
+  "frozen_artifact_id": 14589292324,
+  "model_id": "G48",
+  "checkpoint_generation": 49,
+  "model_manifest_sha256": "c06ccc66ead1ae83e4a39054f72a59222b2461ed818823489e7eb025cba1cb46",
+  "benchmark": "AQ-Base-001",
+  "seed_start": 10730001,
+  "independent_seed_blocks": 512,
+  "seats_per_seed": 2,
+  "expected_complete_four_win_matches": 1024,
+  "shards": 8,
+  "confidence_level": 0.95,
+  "method": "paired-seed-block-student-t",
+  "fixed_N_no_interim_peeking": true,
+  "research_only": true,
+  "no_champion_promotion_or_merge": true
+}

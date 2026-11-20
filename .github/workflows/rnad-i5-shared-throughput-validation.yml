@@ -1,0 +1,527 @@
+name: I5 shared R-NaD throughput isolated regression
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+  workflow_dispatch:
+permissions: {contents: read, actions: read}
+concurrency:
+  group: i5-shared-throughput-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Validate syntax and original fixed-source engine
+        run: |
+          set -euo pipefail
+          node --check scripts/rnad/shared_league_actor.mjs
+          python -m py_compile scripts/rnad/shared_league_linearized_neurd.py scripts/rnad/shared_league_fast_targets.py scripts/rnad/shared_league_parallel_download.py scripts/rnad/shared_league_collect.py scripts/rnad/shared_league_learner.py scripts/rnad/integrated_policy_v1.py scripts/rnad/selection_ab.py scripts/rnad/shared_league_batched.py scripts/rnad/shared_league_parallel.py scripts/rnad/shared_league_parallel_parity.py scripts/rnad/shared_league_pipelined.py scripts/rnad/shared_league_onnx_cpu_export.py scripts/rnad/shared_league_compiler_repeat.py
+          node scripts/verify-snapshot.mjs
+      - name: Check bitwise GRU and legal support / bounded worker contracts
+        run: |
+          set -euo pipefail
+          node --test test/rnad-infer-allocation-parity.test.js test/rnad-draft-fastpath-parity.test.js test/rnad-draft-deepsets-inference.test.js test/rnad-stage0-contract.test.js test/phase-pipeline-contract.test.js
+          python -m unittest discover -s test -p rnad_shared_league_parallel_download_test.py -v
+      - name: Install pinned CPU PyTorch
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4 orjson==3.13.0
+      - name: Independent phase batching, data decode and checkpoint contracts
+        run: |
+          python -m unittest discover -s test -p rnad_shared_actor_match_parallel_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_fast_targets_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_linearized_neurd_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_perf_test.py -v
+          python -m unittest discover -s test -p rnad_shared_learner_checkpoint_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_advanced_perf_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
+      - name: Original four-win authoritative Match replay through improved Learner
+        run: |
+          set -euo pipefail
+          mkdir -p bootstrap smoke
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-bootstrap --dir bootstrap
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-real-match-smoke --dir smoke
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          python -m scripts.rnad.shared_league_real_smoke --bootstrap bootstrap --smoke smoke --out real-smoke-optimized
+          test -s real-smoke-optimized/smoke-report.json
+          python -m scripts.rnad.shared_league_vector_parity --bootstrap bootstrap --smoke smoke
+  actor-parity:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU torch for a disposable, source-correct bootstrap
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Generate NEW isolated bootstrap from immutable audited teacher sources
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/DB frozen/A frozen/AJS frozen/old
+          gh run download 44096608535 --repo cueikusuta/p-RL1024 --name rnad-i5-draft-battle-512-frozen-trained-model-archive --dir frozen/DB
+          gh run download 44067733118 --repo cueikusuta/p-RL1024 --name rnad-i5-selection-A-4096-six-models-and-dev --dir frozen/A
+          gh run download 44085352444 --repo cueikusuta/p-RL1024 --name rnad-i5-A4096-vs-A2048-public-js-SHA-checked --dir frozen/AJS
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 --name rnad-i5-queue-models-43757054212 --dir frozen/old
+          python -m scripts.rnad.shared_league_bootstrap \
+            --draft frozen/DB/draft512/draft512-e6.json \
+            --draft-report frozen/DB/draft512/study.json \
+            --selection frozen/A/selection-A-4096-e60-s90252.pt \
+            --selection-study frozen/A/selection-A-4096-development.json \
+            --selection-js frozen/AJS/A4096.json \
+            --battle frozen/DB/battle512/trained-model.json \
+            --battle-report frozen/DB/battle512/teacher-report.json \
+            --old-pool frozen/old --out bootstrap
+          test -s bootstrap/generation-manifest.json
+      - name: Compare 64 authoritative Matches across 1, 2 and 4 persistent Node processes
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip,json,subprocess,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_collect import collect
+          manifest=json.loads(Path("bootstrap/generation-manifest.json").read_text())
+          start=time.monotonic()
+          result=collect(bootstrap="bootstrap",actor_id=0,out="batched")
+          fast_elapsed=time.monotonic()-start
+          assert result["accepted_matches"]==64
+          start=time.monotonic()
+          parallel=collect(bootstrap="bootstrap",actor_id=0,
+                           out="parallel",match_workers=2)
+          parallel_elapsed=time.monotonic()-start
+          assert parallel["accepted_matches"]==64
+          start=time.monotonic()
+          parallel_four=collect(bootstrap="bootstrap",actor_id=0,
+                                out="parallel-four",match_workers=4)
+          parallel_four_elapsed=time.monotonic()-start
+          assert parallel_four["accepted_matches"]==64
+          # Isolated matched A/B of the SHA-equal Main/Magnet stateless-head
+          # shortcut. The reference is pinned to the immediate pre-change
+          # actor implementation, but the exact SAME current source-correct
+          # bootstrap and Match seeds drive both sides. Never publish it as
+          # a second training generation or a new checkpoint.
+          reference_source="c31262757e0307ad6c802121012baa9a59536c1d"
+          original_script="scripts/rnad/shared_league_actor_before_ref_reuse.mjs"
+          with open(original_script,"w") as out:
+              subprocess.run(["git","show",reference_source+
+                  ":scripts/rnad/shared_league_actor.mjs"],
+                  check=True,stdout=out)
+          # The archived actor's entrypoint guard checks its exact filename.
+          # Adapt ONLY that guard for the isolated control copy, leaving
+          # inference math, immutable weights and accepted Match logic intact.
+          source=Path(original_script).read_text()
+          guard="endsWith('/shared_league_actor.mjs')"
+          assert source.count(guard)==1
+          Path(original_script).write_text(source.replace(guard,
+              "endsWith('/shared_league_actor_before_ref_reuse.mjs')"))
+          baseline=Path("before-ref-reuse")
+          (baseline/"accepted").mkdir(parents=True)
+          prior=json.loads(Path("batched/actor-batch-jobs.json").read_text())
+          for task in prior["jobs"]:
+              task["out"]=str(baseline/"accepted"/Path(task["out"]).name)
+          (baseline/"jobs.json").write_text(json.dumps(prior))
+          magnet="bootstrap/magnet" if Path("bootstrap/magnet").is_dir() else "bootstrap/actor"
+          baseline_start=time.monotonic()
+          subprocess.run(["node",original_script,"--meta","batched/actor-meta.json",
+                          "--main","bootstrap/actor","--magnet",magnet,
+                          "--batch-jobs",str(baseline/"jobs.json")],
+                         check=True,timeout=1800,stdout=subprocess.DEVNULL)
+          baseline_ref_elapsed=time.monotonic()-baseline_start
+          Path("serial").mkdir(exist_ok=True)
+          meta="batched/actor-meta.json"
+          magnet="bootstrap/magnet" if Path("bootstrap/magnet").exists() else "bootstrap/actor"
+          start=time.monotonic()
+          for seed in range(manifest["seed_start"], manifest["seed_start"]+32):
+              for seat in (0,1):
+                  ident=f"g{manifest['generation']}-a0-s{seed}-seat{seat}"
+                  dest=Path("serial")/(ident+".json.gz")
+                  subprocess.run([
+                      "node","scripts/rnad/shared_league_actor.mjs",
+                      "--seed",str(seed),"--seat",str(seat),"--meta",meta,
+                      "--main","bootstrap/actor","--magnet",magnet,
+                      "--out",str(dest)],check=True,timeout=180,
+                      stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                  with gzip.open(dest,"rt") as f:
+                      serial=json.load(f)
+                  with gzip.open(Path("batched/accepted")/(ident+".json.gz"),"rt") as f:
+                      batch=json.load(f)
+                  with gzip.open(Path("parallel/accepted")/(ident+".json.gz"),"rt") as f:
+                      concurrent=json.load(f)
+                  with gzip.open(Path("parallel-four/accepted")/(ident+".json.gz"),"rt") as f:
+                      concurrent_four=json.load(f)
+                  with gzip.open(Path("before-ref-reuse/accepted")/(ident+".json.gz"),"rt") as f:
+                      before_reuse=json.load(f)
+                  assert serial==batch==concurrent==concurrent_four==before_reuse, f"Actor seed/seat parity failed: {ident}"
+          serial_elapsed=time.monotonic()-start
+          report={
+              "schema":"rnad-i5-actor-batch-parity-timing-research-v1",
+              "source_sha":subprocess.check_output(
+                  ["git","rev-parse","HEAD"],text=True).strip(),
+              "matches":64,"paired_seeds":32,
+              "decoded_accepted_trajectory_identical":True,
+              "persistent_actor_seconds":round(fast_elapsed,3),
+              "two_node_process_actor_seconds":round(parallel_elapsed,3),
+              "four_node_process_actor_seconds":round(parallel_four_elapsed,3),
+              "before_ref_reuse_actor_seconds":round(baseline_ref_elapsed,3),
+              "same_sha_stateless_head_reuse_matched_speed_ratio":round(
+                  baseline_ref_elapsed/fast_elapsed,3),
+              "before_ref_reuse_accepted_trajectory_identical":True,
+              "single_match_process_seconds":round(serial_elapsed,3),
+              "speed_ratio_old_over_new":round(serial_elapsed/fast_elapsed,3),
+              "speed_ratio_persistent_over_two_process":round(
+                  fast_elapsed/parallel_elapsed,3),
+              "two_process_authoritative_trajectories_identical":True,
+              "four_process_authoritative_trajectories_identical":True,
+              "speed_ratio_persistent_over_four_process":round(
+                  fast_elapsed/parallel_four_elapsed,3),
+              "speed_ratio_old_over_four_process":round(
+                  serial_elapsed/parallel_four_elapsed,3),
+              "speed_ratio_two_process_over_four_process":round(
+                  parallel_elapsed/parallel_four_elapsed,3),
+              "strength_or_champion_claim":False,
+          }
+          print(json.dumps(report,indent=2),flush=True)
+          with open("actor-parity-report.json","w") as f:json.dump(report,f,indent=2)
+          PY
+          cat actor-parity-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Frozen v3 fixed-opponent Main/Magnet reuse accepted-Match parity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip,json,os,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_collect import collect
+          timings=[]
+          for actor in (16,17):
+              results=[]
+              for mode in ('0','1'):
+                  os.environ['RNAD_REUSE_LEGACY_FROZEN_LOGITS']=mode
+                  target=f'fixed-legacy-parity/actor{actor}/mode{mode}'
+                  start=time.perf_counter()
+                  outcome=collect(bootstrap='bootstrap',actor_id=actor,
+                                  out=target,smoke=True)
+                  elapsed=time.perf_counter()-start
+                  assert outcome['smoke_complete_matches']==2
+                  ids={}
+                  for path in Path(target,'accepted').glob('*.json.gz'):
+                      with gzip.open(path,'rt') as source:
+                          data=json.load(source)
+                      assert data['completed'] is True and data['score'][data['winner']]==4
+                      ids[data['match_id']]=data
+                  assert len(ids)==2
+                  results.append(ids)
+                  timings.append({'actor':actor,'mode':mode,
+                                  'accepted_matches':len(ids),
+                                  'elapsed_seconds':round(elapsed,3)})
+              assert results[0]==results[1], (
+                  f'Frozen v3 reference reuse changed accepted seed/seat trajectories for Actor {actor}')
+          os.environ.pop('RNAD_REUSE_LEGACY_FROZEN_LOGITS',None)
+          print(json.dumps({'schema':'rnad-i5-frozen-v3-reuse-parity-v1',
+              'source_sha':__import__('subprocess').check_output(
+                  ['git','rev-parse','HEAD'],text=True).strip(),
+              'fixed_actors_verified':[16,17],
+              'same_seed_seat_accepted_trajectories_identical':True,
+              'timings_are_smoke_only_not_generation_speed':True,
+              'timings':timings},indent=2))
+          PY
+      - name: Fixed-v3 full-shard two/four-worker throughput and parity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip,json,os,subprocess,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_collect import collect
+          manifest=json.loads(Path('bootstrap/generation-manifest.json').read_text())
+          cases=(('control_two','0',2),('reuse_two','1',2),('reuse_four','1',4))
+          report={'schema':'rnad-i5-fixed-v3-full-actor-parity-timing-v1',
+                  'source_sha':subprocess.check_output(
+                      ['git','rev-parse','HEAD'],text=True).strip(),
+                  'complete_accepted_matches_per_actor_case':64,
+                  'actors':[16,17],'cases':[],'all_decoded_trajectories_equal':False,
+                  'single_trial_not_a_generation_speedup_claim':True,
+                  'optimizer_updates_run':0}
+          try:
+              for actor in (16,17):
+                  reference=None
+                  for label,mode,workers in cases:
+                      os.environ['RNAD_REUSE_LEGACY_FROZEN_LOGITS']=mode
+                      folder=Path('fixed-64-parity')/f'actor{actor}'/label
+                      started=time.perf_counter()
+                      result=collect(bootstrap='bootstrap',actor_id=actor,
+                                     out=str(folder),match_workers=workers)
+                      elapsed=time.perf_counter()-started
+                      assert result['actor_id']==actor and result['accepted_matches']==64
+                      rows={}
+                      for source in (folder/'accepted').glob('*.json.gz'):
+                          with gzip.open(source,'rt') as stream:
+                              row=json.load(stream)
+                          assert row['completed'] is True
+                          assert row['score'][row['winner']]==4
+                          assert row['learner_seat'] in (0,1)
+                          key=(row['seed'],row['learner_seat'])
+                          assert key not in rows
+                          rows[key]=row
+                      assert len(rows)==64
+                      if reference is None:
+                          reference=rows
+                      else:
+                          assert rows==reference, (
+                              f'Fixed Actor {actor}: immutable accepted trajectories '
+                              f'differ for {label}')
+                      report['cases'].append({
+                          'actor_id':actor,'mode':label,'reuse_flag':mode,
+                          'match_workers':workers,'matches':len(rows),
+                          'elapsed_seconds':round(elapsed,4)})
+          finally:
+              os.environ.pop('RNAD_REUSE_LEGACY_FROZEN_LOGITS',None)
+          report['all_decoded_trajectories_equal']=True
+          Path('fixed-64-parity-report.json').write_text(
+              json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2),flush=True)
+          PY
+          cat fixed-64-parity-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Real 64-Match policy prefix and Deep Sets rho row-block parity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip,json,os,subprocess,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_collect import collect
+          def accepted(folder):
+              result={}
+              for file in Path(folder).glob('*.json.gz'):
+                  with gzip.open(file,'rt') as stream:
+                      match=json.load(stream)
+                  assert match['completed'] is True
+                  assert match['score'][match['winner']]==4
+                  key=(match['seed'],match['learner_seat'])
+                  assert key not in result
+                  result[key]=match
+              assert len(result)==64
+              return result
+          cases=[
+              (0,'parallel-four/accepted',4),
+              (16,'fixed-64-parity/actor16/control_two/accepted',2),
+          ]
+          report={'schema':'rnad-i5-optin-policy-prefix-rho-snapshot-parity-v1',
+                  'head_sha':subprocess.check_output(
+                      ['git','rev-parse','HEAD'],text=True).strip(),
+                  'experimental_only':True,'same_sha_accepted_trajectory_identity':False,
+                  'optimizer_updates':0,'real_complete_matches_compared':0,
+                  'timing_is_single_trial_not_generation_throughput':True,
+                  'cases':[]}
+          try:
+              os.environ['RNAD_POLICY_HIDDEN_PREFIX_REUSE']='1'
+              os.environ['RNAD_DRAFT_RHO_ROW_BLOCK4']='1'
+              os.environ['RNAD_PIPELINE_SNAPSHOT_CACHE']='1'
+              os.environ['RNAD_REUSE_LEGACY_FROZEN_LOGITS']='0'
+              for actor,baseline,workers in cases:
+                  reference=accepted(baseline)
+                  path=f'optin-affine-rho-parity/actor{actor}'
+                  start=time.perf_counter()
+                  outcome=collect(bootstrap='bootstrap',actor_id=actor,
+                                  out=path,match_workers=workers)
+                  elapsed=time.perf_counter()-start
+                  assert outcome['accepted_matches']==64
+                  actual=accepted(Path(path,'accepted'))
+                  assert reference==actual, (
+                      f'Actor {actor} seed/seat accepted trajectory changed '
+                      'with opt-in policy prefix, rho and snapshot cache')
+                  report['cases'].append({
+                      'actor':actor,'worker_count':workers,
+                      'accepted_matches':len(actual),
+                      'optin_wall_seconds':round(elapsed,4)})
+                  report['real_complete_matches_compared']+=len(actual)
+          finally:
+              os.environ.pop('RNAD_POLICY_HIDDEN_PREFIX_REUSE',None)
+              os.environ.pop('RNAD_DRAFT_RHO_ROW_BLOCK4',None)
+              os.environ.pop('RNAD_PIPELINE_SNAPSHOT_CACHE',None)
+              os.environ.pop('RNAD_REUSE_LEGACY_FROZEN_LOGITS',None)
+          report['same_sha_accepted_trajectory_identity']=True
+          print(json.dumps(report,indent=2),flush=True)
+          Path('optin-prefix-rho-real-parity-report.json').write_text(
+              json.dumps(report,indent=2))
+          PY
+          cat optin-prefix-rho-real-parity-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Profile actual accepted Actor CPU hotspots (8 Matches)
+        run: |
+          set -euo pipefail
+          mkdir -p cpu-prof/accepted
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("bootstrap/generation-manifest.json").read_text())
+          jobs=[]
+          for seed in range(m["seed_start"],m["seed_start"]+4):
+              for seat in (0,1):
+                  ident=f"g{m['generation']}-a0-s{seed}-seat{seat}"
+                  jobs.append({"seed":seed,"seat":seat,
+                               "out":str(Path("cpu-prof/accepted")/(ident+".json.gz"))})
+          Path("cpu-prof/jobs.json").write_text(json.dumps({
+              "schema":"rnad-shared-actor-batch-jobs-v1","jobs":jobs}))
+          PY
+          magnet=bootstrap/actor
+          test ! -d bootstrap/magnet || magnet=bootstrap/magnet
+          node --cpu-prof --cpu-prof-dir=cpu-prof --cpu-prof-name=rnad.cpuprofile scripts/rnad/shared_league_actor.mjs --meta batched/actor-meta.json --main bootstrap/actor --magnet "$magnet" --batch-jobs cpu-prof/jobs.json
+          node scripts/rnad/shared_league_actor_profile.mjs cpu-prof/rnad.cpuprofile | tee actor-cpu-profile-report.json
+          cat actor-cpu-profile-report.json >> "$GITHUB_STEP_SUMMARY"
+  parallel-learner:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RNAD_LEARNER_JSON_CODEC: orjson
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU PyTorch
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4 orjson==3.13.0
+      - name: Recover immutable bootstrap and one complete 64 Match actor bundle
+        run: |
+          set -euo pipefail
+          mkdir -p bootstrap real-actor
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-bootstrap --dir bootstrap
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-actor-0 --dir real-actor
+          test -s real-actor/actor-0.json.gz
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+      - name: Compare 32 real Match CPU-parallel gradients against original
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_parallel_parity --bootstrap bootstrap --actor real-actor/actor-0.json.gz --workers 4 | tee cpu-parallel-report.json
+          cat cpu-parallel-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Diagnose real Match 32-gradient CPU hotspots (research only)
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_grad_profile \
+            --bootstrap bootstrap --actor real-actor/actor-0.json.gz \
+            | tee grad-profile.json
+          python - <<'PY'
+          import json
+          p=json.load(open('grad-profile.json'))
+          assert p['full_verified_actor_matches']==64
+          assert p['examined_matches']==32 and p['all_gradients_finite']
+          assert p['single_optimizer_updates']==0
+          assert p['phase_wall_seconds']['backward_total']>0
+          assert p['phase_wall_seconds']['forward_total']>0
+          PY
+          cat grad-profile.json >> "$GITHUB_STEP_SUMMARY"
+          python -m scripts.rnad.shared_league_grad_profile \
+            --bootstrap bootstrap --actor real-actor/actor-0.json.gz \
+            --reuse-tensors | tee grad-profile-reused.json
+          python - <<'PY'
+          import json
+          a=json.load(open('grad-profile.json'))
+          b=json.load(open('grad-profile-reused.json'))
+          assert b['reuse_frozen_phase_tensors'] is True
+          assert a['examined_matches']==b['examined_matches']==32
+          assert a['accepted_decisions']==b['accepted_decisions']==4116
+          assert b['all_gradients_finite'] and b['single_optimizer_updates']==0
+          print('Real 32-Match forward/backward timing only; no generation speed claim')
+          PY
+          cat grad-profile-reused.json >> "$GITHUB_STEP_SUMMARY"
+  compiled-candidate:
+    needs: verify
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RNAD_TORCH_COMPILE: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      TORCHINDUCTOR_COMPILE_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU PyTorch + build runtime for TorchInductor
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Trusted original four-match bootstrap
+        run: |
+          mkdir -p bootstrap smoke
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-bootstrap --dir bootstrap
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-real-match-smoke --dir smoke
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+      - name: Isolated TorchInductor real-Match parity and cold compilation cost
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_vector_parity --bootstrap bootstrap --smoke smoke | tee compile-candidate-report.json
+          cat compile-candidate-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Reused TorchInductor head hot-run versus cold compilation study
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_compiler_repeat --bootstrap bootstrap --smoke smoke | tee compile-hot-report.json
+          cat compile-hot-report.json >> "$GITHUB_STEP_SUMMARY"
+  native-candidate:
+    needs: verify
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install CPU ONNX/Node candidate dependencies (research only)
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4 onnx==1.17.0 onnxruntime==1.20.1
+          npm install --prefix .rnad-onnx-deps --no-save --no-audit --no-fund onnxruntime-node@1.20.1 --onnxruntime-node-install-cuda=skip
+      - name: Obtain immutable actual actor, full-Match inputs and export frozen battle head
+        run: |
+          set -euo pipefail
+          mkdir -p bootstrap smoke
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-bootstrap --dir bootstrap
+          gh run download 44318145987 --repo cueikusuta/p-RL1024 --name rnad-i5-shared-main-g0-real-match-smoke --dir smoke
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          python -m scripts.rnad.shared_league_onnx_cpu_export --actor-battle bootstrap/actor/battle.json --out onnx-study
+      - name: Accepted Battle decisions Node.js vs CPU ONNX numerical/speed comparison
+        run: |
+          set -euo pipefail
+          node scripts/rnad/shared_league_onnx_node_study.mjs --onnx onnx-study/research-battle-only.onnx --manifest onnx-study/manifest.json --battle bootstrap/actor/battle.json --smoke smoke --deps .rnad-onnx-deps | tee native-candidate-report.json
+          cat native-candidate-report.json >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,641 @@
+name: I5 source-pinned G13-G48 second 10h league (G0-G12 immutable)
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - docs/research/rnad/G13_G48_PINNED_TEN_HOUR_START_2026-11-20.json
+permissions: {}
+concurrency:
+  group: rnad-i5-immutable-g13-to-g48-new-budget
+  cancel-in-progress: false
+# Run only once from the G0 fully verified handoff. This file is control-plane
+# code; every Actor and Learner checks out exactly the pinned G0 training SHA.
+# No G0 replay, no stage reset, no new Champion promotion.
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: One-shot G13+ phase, source pinned, no G0-G12 replay
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          launch='docs/research/rnad/G13_G48_PINNED_TEN_HOUR_START_2026-11-20.json'
+          x=json.loads(Path(launch).read_text())
+          prelaunch=subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()
+          assert x == {
+              'schema':'rnad-i5-g13-g48-second-budget-v1',
+              'reviewed_prelaunch_workflow_sha':prelaunch,
+              'source_sha':'01501f3a1e12511140bf772d435d39c0c07319bc',
+              'source_g12_run_id':44529850050,
+              'same_source_ci_run_id':44517879019,
+              'start_generation':13,
+              'last_generation':48,
+              'complete_matches_per_generation':1280,
+              'optimizer_updates_per_generation':40,
+              'github_hosted_cpu_only':True,
+              'initial_checkpoint_must_be_preserved':True,
+              'second_independent_10h_budget':36000,
+              'no_champion_promotion':True,
+              'no_main_merge':True,
+          }, 'Unapproved league restart contract'
+          changed=subprocess.check_output(
+              ['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()
+          assert changed == [launch], 'Launch commit contains unexpected source edits'
+          contract=Path('.github/workflows/rnad-i5-next13-fast-generation-reusable.yml').read_text()
+          assert "source_ref:" in contract
+          # Build this expression at runtime: do not let Actions interpolate it
+          # before the checkout configuration is inspected as literal text.
+          ref_expression = 'ref: ' + chr(36) + '{'*2 + ' inputs.source_ref || github.sha ' + '}'*2
+          assert ref_expression in contract, 'Pinned checkout expression missing'
+          assert contract.count(ref_expression) == 4, 'All four checkouts must be pinned'
+          print('Source-pinned second 10-hour continuation after proven G12; prelaunch HEAD',prelaunch)
+          PY
+          for pair in "44529850050 03bdf8ca36849b2db76e6469b0dcf39bb3ad9177" "44517879019 01501f3a1e12511140bf772d435d39c0c07319bc"; do
+            set -- $pair
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$1" \
+              --jq '{id,head_sha,status,conclusion}' > "run-$1.json"
+            test "$(jq -r '.head_sha' "run-$1.json")" = "$2"
+            test "$(jq -r '.status' "run-$1.json")" = completed
+            test "$(jq -r '.conclusion' "run-$1.json")" = success
+          done
+
+  bridge:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+      - name: Verify immutable G0 handoff bytes and provenance; do not reinitialize
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '01501f3a1e12511140bf772d435d39c0c07319bc'
+          mkdir -p next-bootstrap original-result
+          gh run download 44529850050 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-cont-next-bootstrap-after-g12 --dir next-bootstrap
+          gh run download 44529850050 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-cont-g12-full-learner-result --dir original-result
+          (cd next-bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import hashlib,json,subprocess,time
+          from pathlib import Path
+          b=Path('next-bootstrap')
+          source='01501f3a1e12511140bf772d435d39c0c07319bc'
+          manifest=json.loads((b/'generation-manifest.json').read_text())
+          report=json.loads((b/'handoff-report.json').read_text())
+          idx=json.loads((b/'checkpoint-index.json').read_text())
+          ctx=json.loads((b/'continuation-context.json').read_text())
+          old=json.loads(Path('original-result/generation13-report.json').read_text())
+          old_index=json.loads(Path('original-result/generation13-index.json').read_text())
+          assert manifest['generation']==13 and manifest['seed_start']==9908321
+          assert manifest['source_sha']==source and report['source_sha']==source
+          assert report['previous_generation']==12 and report['prior_optimizer_updates']==40
+          assert report['exact_previous_complete_matches']==1280
+          assert old['accepted_complete_four_win_matches']==1280
+          assert old['optimizer_updates_completed']==40 and old['champion_promoted'] is False
+          assert old['cumulative_complete_matches']==16640 and old['cumulative_optimizer_updates']==520
+          assert old_index['full_checkpoint_sha256']==report['prior_checkpoint_sha256']
+          assert idx['prior_generation_checkpoint_sha256']==old_index['full_checkpoint_sha256']
+          assert idx['generation']==13 and idx['is_champion'] is False
+          assert hashlib.sha256((b/'checkpoint-g0.pt').read_bytes()).hexdigest()==idx['sha256']
+          assert report['optimizer_full_state_preserved'] is True
+          assert report['target_full_state_preserved'] is True
+          assert report['magnet_full_state_preserved'] is True
+          assert report['rng_full_state_preserved'] is True
+          assert ctx['new_continuation_source_sha']==source
+          assert ctx['budget_seconds']==36000
+          assert ctx['deadline_epoch']==ctx['start_epoch']+36000, 'Prior budget tampered'
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==source
+          print(json.dumps({'source_sha':source,'generation':13,
+              'prior_cumulative_accepted_matches':16640,'prior_cumulative_updates':520,
+              'checkpoint_sha':idx['sha256'],
+              'continuation_deadline_epoch':ctx['deadline_epoch'],
+              'remaining_budget_seconds':ctx['deadline_epoch']-int(time.time()),
+              'no_champion':True},indent=2))
+          PY
+          # This is a NEW user-authorized approximately 10-hour phase, not
+          # restarting the previous phase nor editing frozen model state.
+          python - <<'PY'
+          import hashlib,json,time
+          from pathlib import Path
+          b=Path("next-bootstrap")
+          idx=json.loads((b/"checkpoint-index.json").read_text())
+          before_ckpt=hashlib.sha256((b/"checkpoint-g0.pt").read_bytes()).hexdigest()
+          before_model=hashlib.sha256((b/"actor/manifest.json").read_bytes()).hexdigest()
+          assert before_ckpt==idx["sha256"]
+          old=(b/"continuation-context.json").read_bytes()
+          ctx=json.loads(old)
+          assert ctx["source_run_id"]==44318145987
+          assert ctx["budget_seconds"]==36000
+          assert ctx["new_continuation_source_sha"]=="01501f3a1e12511140bf772d435d39c0c07319bc"
+          assert ctx["deadline_epoch"]==ctx["start_epoch"]+36000
+          (b/"previous-budget-context.json").write_bytes(old)
+          start=int(time.time())
+          ctx.update(start_epoch=start,deadline_epoch=start+36000,
+              original_generation=13,
+              new_budget_phase="g13-forward-user-approved-2026-11-20",
+              previous_budget_source_run=44529850050,
+              previous_budget_context_sha256=hashlib.sha256(old).hexdigest())
+          (b/"continuation-context.json").write_text(json.dumps(ctx,indent=2)+"\n")
+          assert hashlib.sha256((b/"checkpoint-g0.pt").read_bytes()).hexdigest()==before_ckpt
+          assert hashlib.sha256((b/"actor/manifest.json").read_bytes()).hexdigest()==before_model
+          def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+          files=sorted(p for p in b.rglob("*") if p.is_file() and p.name!="file-pins.sha256")
+          (b/"file-pins.sha256").write_text("".join(
+              f"{digest(p)}  {p.relative_to(b)}\n" for p in files))
+          print(json.dumps({"generation":13,"checkpoint_sha":before_ckpt,
+              "new_phase_seconds":36000,"start_epoch":start,
+              "deadline_epoch":start+36000,"prior_budget_archived":True,
+              "model_checkpoint_unchanged":True,"champion_promoted":False}))
+          PY
+          (cd next-bootstrap && sha256sum -c file-pins.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-cont-next-bootstrap-after-g12
+          path: next-bootstrap/
+          retention-days: 30
+          if-no-files-found: error
+
+  g13:
+    needs: bridge
+    if: ${{ needs.bridge.result == 'success' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 13
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g12
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g14:
+    needs: g13
+    if: ${{ needs.g13.result == 'success' && needs.g13.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 14
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g13
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g15:
+    needs: g14
+    if: ${{ needs.g14.result == 'success' && needs.g14.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 15
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g14
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g16:
+    needs: g15
+    if: ${{ needs.g15.result == 'success' && needs.g15.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 16
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g15
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g17:
+    needs: g16
+    if: ${{ needs.g16.result == 'success' && needs.g16.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 17
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g16
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g18:
+    needs: g17
+    if: ${{ needs.g17.result == 'success' && needs.g17.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 18
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g17
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g19:
+    needs: g18
+    if: ${{ needs.g18.result == 'success' && needs.g18.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 19
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g18
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g20:
+    needs: g19
+    if: ${{ needs.g19.result == 'success' && needs.g19.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 20
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g19
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g21:
+    needs: g20
+    if: ${{ needs.g20.result == 'success' && needs.g20.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 21
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g20
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g22:
+    needs: g21
+    if: ${{ needs.g21.result == 'success' && needs.g21.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 22
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g21
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g23:
+    needs: g22
+    if: ${{ needs.g22.result == 'success' && needs.g22.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 23
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g22
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g24:
+    needs: g23
+    if: ${{ needs.g23.result == 'success' && needs.g23.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 24
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g23
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g25:
+    needs: g24
+    if: ${{ needs.g24.result == 'success' && needs.g24.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 25
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g24
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g26:
+    needs: g25
+    if: ${{ needs.g25.result == 'success' && needs.g25.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 26
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g25
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g27:
+    needs: g26
+    if: ${{ needs.g26.result == 'success' && needs.g26.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 27
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g26
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g28:
+    needs: g27
+    if: ${{ needs.g27.result == 'success' && needs.g27.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 28
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g27
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g29:
+    needs: g28
+    if: ${{ needs.g28.result == 'success' && needs.g28.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 29
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g28
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g30:
+    needs: g29
+    if: ${{ needs.g29.result == 'success' && needs.g29.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 30
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g29
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g31:
+    needs: g30
+    if: ${{ needs.g30.result == 'success' && needs.g30.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 31
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g30
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g32:
+    needs: g31
+    if: ${{ needs.g31.result == 'success' && needs.g31.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 32
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g31
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g33:
+    needs: g32
+    if: ${{ needs.g32.result == 'success' && needs.g32.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 33
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g32
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g34:
+    needs: g33
+    if: ${{ needs.g33.result == 'success' && needs.g33.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 34
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g33
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g35:
+    needs: g34
+    if: ${{ needs.g34.result == 'success' && needs.g34.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 35
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g34
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g36:
+    needs: g35
+    if: ${{ needs.g35.result == 'success' && needs.g35.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 36
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g35
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g37:
+    needs: g36
+    if: ${{ needs.g36.result == 'success' && needs.g36.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 37
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g36
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g38:
+    needs: g37
+    if: ${{ needs.g37.result == 'success' && needs.g37.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 38
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g37
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g39:
+    needs: g38
+    if: ${{ needs.g38.result == 'success' && needs.g38.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 39
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g38
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g40:
+    needs: g39
+    if: ${{ needs.g39.result == 'success' && needs.g39.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 40
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g39
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g41:
+    needs: g40
+    if: ${{ needs.g40.result == 'success' && needs.g40.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 41
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g40
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g42:
+    needs: g41
+    if: ${{ needs.g41.result == 'success' && needs.g41.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 42
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g41
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g43:
+    needs: g42
+    if: ${{ needs.g42.result == 'success' && needs.g42.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 43
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g42
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g44:
+    needs: g43
+    if: ${{ needs.g43.result == 'success' && needs.g43.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 44
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g43
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g45:
+    needs: g44
+    if: ${{ needs.g44.result == 'success' && needs.g44.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 45
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g44
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g46:
+    needs: g45
+    if: ${{ needs.g45.result == 'success' && needs.g45.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 46
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g45
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g47:
+    needs: g46
+    if: ${{ needs.g46.result == 'success' && needs.g46.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 47
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g46
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+
+  g48:
+    needs: g47
+    if: ${{ needs.g47.result == 'success' && needs.g47.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-next13-fast-generation-reusable.yml
+    with:
+      generation: 48
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g47
+      source_ref: 01501f3a1e12511140bf772d435d39c0c07319bc
+    permissions:
+      contents: read
+      actions: read
+
+

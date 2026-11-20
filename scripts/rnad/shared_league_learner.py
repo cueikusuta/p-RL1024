@@ -16,6 +16,7 @@ import math
 import os
 import random
 from collections import Counter, defaultdict
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -41,7 +42,27 @@ SHUFFLE_SEED = 11520261118
 
 
 def _load(path):
-    with gzip.open(path, "rt") as source:
+    """Decode immutable actor gzip or strict-verified plain JSON.
+
+    The opt-in orjson path is only used after the strict 20/20 receipt/manifest
+    barrier. It preserves Python JSON numbers and never skips verification.
+    The reference stdlib parser remains the default and comparison baseline.
+    """
+    path = Path(path)
+    codec = os.environ.get("RNAD_LEARNER_JSON_CODEC", "stdlib")
+    if codec == "orjson":
+        try:
+            import orjson
+        except ImportError as exc:
+            raise RuntimeError("Pinned orjson required by learner codec") from exc
+        if path.suffix == ".gz":
+            with gzip.open(path, "rb") as source:
+                return orjson.loads(source.read())
+        return orjson.loads(path.read_bytes())
+    if codec != "stdlib":
+        raise ValueError("RNAD_LEARNER_JSON_CODEC must be stdlib or orjson")
+    with (gzip.open(path, "rt") if path.suffix == ".gz"
+          else path.open("r", encoding="utf-8")) as source:
         return json.load(source)
 
 
@@ -99,6 +120,28 @@ def _inputs(phase, p):
             torch.tensor([p["actions"]], dtype=torch.float32))
 
 
+def _selection_batch(model, target, magnet, events, train_seats):
+    """Batch independent selection-head forwards, never recurrent Battle."""
+    indices = [i for i, row in enumerate(events)
+               if row["actor"] in train_seats and row["phase"] == "selection"]
+    if not indices:
+        return {}
+    fields = (("own_cat", torch.long), ("foe_cat", torch.long),
+              ("own_num", torch.float32), ("foe_num", torch.float32))
+    observations = {
+        key: torch.tensor([events[i]["phase_input"][key] for i in indices],
+                          dtype=dtype)
+        for key, dtype in fields
+    }
+    logits, values = model.selection_forward_batch(observations)
+    with torch.no_grad():
+        target_logits, target_values = target.selection_forward_batch(observations)
+        magnet_logits, _ = magnet.selection_forward_batch(observations)
+    return {index: (logits[j], values[j], target_logits[j],
+                    target_values[j], magnet_logits[j])
+            for j, index in enumerate(indices)}
+
+
 def _match_loss(model, target, magnet, record, *, role):
     own_seat = record["learner_seat"]
     train_seats = (0, 1) if role == "self" else (own_seat,)
@@ -106,7 +149,9 @@ def _match_loss(model, target, magnet, record, *, role):
                 for key, net in (("main", model), ("target", target),
                                  ("magnet", magnet))}
     inputs, terms = [], []
-    for row in record["events"]:
+    selection_outputs = _selection_batch(
+        model, target, magnet, record["events"], train_seats)
+    for event_index, row in enumerate(record["events"]):
         seat, phase = row["actor"], row["phase"]
         if seat not in train_seats:
             # Frozen agent probabilities/values were logged only AFTER
@@ -121,19 +166,23 @@ def _match_loss(model, target, magnet, record, *, role):
             })
             inputs.append((None, None, phase))
             continue
-        observation, legal = _inputs(phase, row["phase_input"])
-        logits, value, next_memory = model(
-            phase, observation, legal, memories["main"][seat])
-        if phase == "battle":
-            memories["main"][seat] = next_memory.detach()
-        with torch.no_grad():
-            t, t_value, next_t = target(
-                phase, observation, legal, memories["target"][seat])
-            m, _, next_m = magnet(
-                phase, observation, legal, memories["magnet"][seat])
+        if phase == "selection":
+            logits, value, t, t_value, m = selection_outputs[event_index]
+        else:
+            observation, legal = _inputs(phase, row["phase_input"])
+            logits, value, next_memory = model(
+                phase, observation, legal, memories["main"][seat])
             if phase == "battle":
-                memories["target"][seat] = next_t
-                memories["magnet"][seat] = next_m
+                memories["main"][seat] = next_memory.detach()
+            with torch.no_grad():
+                t, t_value, next_t = target(
+                    phase, observation, legal, memories["target"][seat])
+                m, _, next_m = magnet(
+                    phase, observation, legal, memories["magnet"][seat])
+                if phase == "battle":
+                    memories["target"][seat] = next_t
+                    memories["magnet"][seat] = next_m
+        with torch.no_grad():
             target_pi, magnet_pi = torch.softmax(t, -1), torch.softmax(m, -1)
             original = torch.tensor(row["magnet_pi"], dtype=torch.float32)
             if magnet_pi.shape != original.shape or (
@@ -172,6 +221,46 @@ def _match_loss(model, target, magnet, record, *, role):
     return balanced, max(ratios)
 
 
+
+def _verified_phase_tensors(row):
+    """Only after verify_actor: convert public/self tensors without labels."""
+    phase_dtype = {
+        "draft": (("pool", torch.float32), ("codes", torch.long),
+                  ("extra", torch.float32)),
+        "selection": (("own_cat", torch.long), ("foe_cat", torch.long),
+                      ("own_num", torch.float32),
+                      ("foe_num", torch.float32)),
+        "battle": (("state", torch.float32), ("actions", torch.float32)),
+    }
+    packed = dict(row)
+    packed["events"] = []
+    for event in row["events"]:
+        phase = event["phase"]
+        if phase not in phase_dtype:
+            raise ValueError("Invalid phase for strict tensor cache")
+        copy_event = dict(event)
+        payload = dict(event["phase_input"])
+        for key, dtype in phase_dtype[phase]:
+            payload[key] = torch.as_tensor(payload[key], dtype=dtype)
+        copy_event["phase_input"] = payload
+        packed["events"].append(copy_event)
+    return packed
+
+
+def _cached_verified(root, choice, *, tensor_cache):
+    name = choice["match_id"]
+    if not tensor_cache:
+        return _load(root / (name+".json"))
+    path = root / (name+".pt")
+    if digest(path) != choice["tensor_cache_sha256"]:
+        raise ValueError("Corrupt strict tensor cache after acceptance")
+    # Safe tensors and primitive metadata only; no arbitrary pickle objects.
+    row = torch.load(path, map_location="cpu", weights_only=True)
+    if row.get("match_id") != name or row.get("completed") is not True:
+        raise ValueError("Tensor cache does not match verified Match")
+    return row
+
+
 def _atomic_checkpoint(path, ckpt):
     path=Path(path)
     tmp = path.with_suffix(".tmp")
@@ -208,24 +297,23 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
     # hosted runner's RAM even though the gzip artifacts fit on disk.
     verified = Path(actors) / "_strict_verified_matches"
     verified.mkdir(exist_ok=True)
-    match_ids, meta, roles = set(), [], Counter()
-    for actor_id, path in enumerate(paths):
-        payload = _load(path)
-        if payload.get("actor_id") != actor_id:
-            raise ValueError("Actor artifact ID mismatch")
-        newly_verified = verify_actor(manifest, payload)
-        if len(newly_verified) != 64 or newly_verified & match_ids:
-            raise ValueError("Incomplete or duplicated actor training shard")
-        match_ids.update(newly_verified)
-        roles[payload["role"]] += 1
-        for row in payload["matches"]:
-            name = row["match_id"]
-            with gzip.open(verified / (name + ".json.gz"), "wt",
-                           compresslevel=4) as output_match:
-                json.dump(row, output_match,
-                          separators=(",", ":"), allow_nan=False)
-            meta.append({"match_id": name, "role": payload["role"]})
-        del payload
+    cache_flag = os.environ.get("RNAD_VERIFIED_TENSOR_CACHE", "0")
+    if cache_flag not in ("0", "1"):
+        raise ValueError("Invalid strict verified tensor cache flag")
+    tensor_cache = cache_flag == "1"
+    if tensor_cache and os.environ.get("RNAD_LEARNER_BACKEND", "reference") != "vector":
+        raise ValueError("Tensor cache needs the experimental vector Learner")
+    # All strict receipt/provenance checks finish before the first optimizer
+    # update. Opt-in stage variants are compared on exactly the same inputs.
+    from scripts.rnad.shared_league_staging import (
+        stage_verified_actors, staging_config,
+    )
+    prep_workers, fast_json, profile_staging, prep_codec = staging_config()
+    match_ids, meta, roles = stage_verified_actors(
+        manifest, paths, verified, tensor_cache=tensor_cache,
+        workers=prep_workers, fast_json=fast_json, codec=prep_codec,
+        profile=profile_staging,
+    )
     expected_roles = {"self": 8, "historical": 6,
                       "fixed": 4, "exploiter": 2}
     if not manifest["opponents"]["exploiter"]:
@@ -272,49 +360,90 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
         raise ValueError("Invalid checkpoint model, replay order or training prefix")
     model,target,magnet,optimizer,scheduler=_models(root,ckpt)
     torch.set_num_threads(1)
-    for step in range(ckpt["step"],max_steps):
-        selected=ordering[32*step:32*(step+1)]
-        if len(selected)!=32 or len(set(x["match_id"] for x in selected))!=32:
-            raise ValueError("Missing no-reuse minibatch")
-        optimizer.zero_grad(set_to_none=True)
-        losses,ratios=[],[]
-        for choice in selected:
-            record = _load(verified / (choice["match_id"] + ".json.gz"))
-            loss,ratio=_match_loss(model,target,magnet,record,
-                                   role=choice["role"])
-            (loss/32).backward()
-            del record
-            losses.append(float(loss.detach()))
-            ratios.append(ratio)
-        norm=torch.nn.utils.clip_grad_norm_(
-            model.parameters(),10.0,error_if_nonfinite=True)
-        if not torch.isfinite(norm):
-            raise ValueError("Nonfinite minibatch gradient")
-        optimizer.step()
-        scheduler.step()
-        with torch.no_grad():
-            for dst,src in zip(target.parameters(),model.parameters()):
-                dst.mul_(.99).add_(src,alpha=.01)
-        if any(not torch.isfinite(p).all() for p in model.parameters()):
-            raise ValueError("Nonfinite integrated Main after optimizer step")
-        ckpt.update({
-            "step": step+1, "model":model.state_dict(),
-            "target":target.state_dict(), "magnet":magnet.state_dict(),
-            "optimizer":optimizer.state_dict(),
-            "scheduler":scheduler.state_dict(),
-            "torch_rng":torch.get_rng_state(),
-            "python_rng":random.getstate(),
-            "training_match_ids":ids[:32*(step+1)],
-        })
-        # snapshot state_dict values before mutating next minibatch.
-        ckpt["model"]={k:v.clone() for k,v in model.state_dict().items()}
-        ckpt["target"]={k:v.clone() for k,v in target.state_dict().items()}
-        _atomic_checkpoint(checkpoint_path,ckpt)
-        print(json.dumps({"step":step+1,"steps_total":40,
-                          "accepted_matches_applied":32*(step+1),
-                          "mean_three_phase_loss":sum(losses)/len(losses),
-                          "max_off_policy_ratio":max(ratios),
-                          "research_only":True}),flush=True)
+    backend = os.environ.get("RNAD_LEARNER_BACKEND", "reference")
+    if backend not in ("reference", "vector", "parallel"):
+        raise ValueError("Unknown research-only Learner backend")
+    if backend == "parallel":
+        from scripts.rnad.shared_league_parallel import (
+            ParallelGradientPool, configured_workers,
+        )
+        vector_workers = os.environ.get("RNAD_PARALLEL_VECTOR", "0")
+        if vector_workers not in ("0","1"):
+            raise ValueError("RNAD_PARALLEL_VECTOR must be 0 or 1")
+        pool_context = ParallelGradientPool(
+            model, target, magnet, workers=configured_workers(),
+            vector=vector_workers == "1")
+    else:
+        pool_context = nullcontext(None)
+    with pool_context as parallel_pool:
+        for step in range(ckpt["step"],max_steps):
+            selected=ordering[32*step:32*(step+1)]
+            if len(selected)!=32 or len(set(x["match_id"] for x in selected))!=32:
+                raise ValueError("Missing no-reuse minibatch")
+            optimizer.zero_grad(set_to_none=True)
+            losses,ratios=[],[]
+            if backend == "reference":
+                for choice in selected:
+                    record = _load(verified / (choice["match_id"] + ".json"))
+                    loss,ratio=_match_loss(model,target,magnet,record,
+                                           role=choice["role"])
+                    (loss/32).backward()
+                    del record
+                    losses.append(float(loss.detach()))
+                    ratios.append(ratio)
+            elif backend == "vector":
+                # Preserve all 32 Match IDs, exact loss normalization and the
+                # single optimizer update; bound graph peak memory by microbatch.
+                from scripts.rnad.shared_league_batched import (
+                    batched_match_losses, vector_batch_size,
+                )
+                size = vector_batch_size()
+                for start in range(0, len(selected), size):
+                    micro = selected[start:start+size]
+                    loaded = [(_cached_verified(verified, x, tensor_cache=tensor_cache),
+                               x["role"]) for x in micro]
+                    results = batched_match_losses(model, target, magnet, loaded)
+                    (sum(loss for loss, _ in results)/32).backward()
+                    losses.extend(float(loss.detach()) for loss, _ in results)
+                    ratios.extend(ratio for _, ratio in results)
+                    del results, loaded
+            elif backend == "parallel":
+                tasks = [
+                    (str(verified/(x["match_id"]+(".pt" if tensor_cache else ".json"))),
+                     x["role"],
+                     x.get("tensor_cache_sha256") if tensor_cache else None)
+                    for x in selected
+                ]
+                losses,ratios = parallel_pool.step_gradients(tasks)
+            norm=torch.nn.utils.clip_grad_norm_(
+                model.parameters(),10.0,error_if_nonfinite=True)
+            if not torch.isfinite(norm):
+                raise ValueError("Nonfinite minibatch gradient")
+            optimizer.step()
+            scheduler.step()
+            with torch.no_grad():
+                for dst,src in zip(target.parameters(),model.parameters()):
+                    dst.mul_(.99).add_(src,alpha=.01)
+            if any(not torch.isfinite(p).all() for p in model.parameters()):
+                raise ValueError("Nonfinite integrated Main after optimizer step")
+            ckpt.update({
+                "step": step+1, "model":model.state_dict(),
+                "target":target.state_dict(), "magnet":magnet.state_dict(),
+                "optimizer":optimizer.state_dict(),
+                "scheduler":scheduler.state_dict(),
+                "torch_rng":torch.get_rng_state(),
+                "python_rng":random.getstate(),
+                "training_match_ids":ids[:32*(step+1)],
+            })
+            # snapshot state_dict values before mutating next minibatch.
+            ckpt["model"]={k:v.clone() for k,v in model.state_dict().items()}
+            ckpt["target"]={k:v.clone() for k,v in target.state_dict().items()}
+            _atomic_checkpoint(checkpoint_path,ckpt)
+            print(json.dumps({"step":step+1,"steps_total":40,
+                              "accepted_matches_applied":32*(step+1),
+                              "mean_three_phase_loss":sum(losses)/len(losses),
+                              "max_off_policy_ratio":max(ratios),
+                              "research_only":True}),flush=True)
     if ckpt["step"] != OPTIMIZER_STEPS:
         return {"complete":False,"step":ckpt["step"]}
     # A complete generation is the ONLY legal boundary for a new Actor

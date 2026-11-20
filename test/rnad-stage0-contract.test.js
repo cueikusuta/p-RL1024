@@ -210,3 +210,30 @@ test('battle public field schema rejects secret-bearing nested weather and hazar
   secretPadding.field.sideEffects[0][0].hiddenSet={moves:['SECRET']};
   assert.deepEqual(projectRnadObservation(secretPadding,{seat:0}),expected);
 });
+
+test('signature-reuse fast path preserves cloned legal support and fail-closed guards',()=>{
+  const original=[{kind:'move',index:0},{kind:'move',index:1}];
+  const {actions,signatures}=validateRnadLegalActions(original,{includeSignatures:true});
+  assert.notStrictEqual(actions,original);
+  assert.equal(signatures.size,2);
+  assert.ok(signatures.has(JSON.stringify({kind:'move',index:0})));
+  original[0].index=9;
+  assert.deepEqual(actions[0],{kind:'move',index:0});
+  assert.throws(()=>validateRnadLegalActions([
+    {kind:'move',index:0},{kind:'move',index:0}],{includeSignatures:true}),/Duplicate/);
+  const obs=projectRnadObservation({phase:'selection',round:1,
+    self:{team},opponent:{species:['public']}},{seat:0});
+  const exact=team.slice(0,3).map(p=>p.instanceId);
+  const legal=rnadLegalActions({phase:'selection',self:{team}});
+  const args={phase:'selection',round:1,observation:obs,legalActions:legal,
+    action:exact,behaviorLogProbability:Math.log(1/60),
+    referenceLogProbability:Math.log(1/60),predictedValue:0};
+  const c=collector();
+  assert.throws(()=>c.propose({...args,policyEligibleActions:[
+    ['not-a-legal-selection']] }),/Guard support/);
+  assert.equal(c.stats().pending,false);
+  c.propose({...args,policyEligibleActions:[exact]});
+  assert.equal(c.stats().pending,true);
+  c.reject();
+  assert.equal(c.stats().accepted_decisions,0);
+});

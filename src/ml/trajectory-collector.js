@@ -33,19 +33,21 @@ export function createRnadTrajectoryCollector({
       observation.schema!==RNAD_OBSERVATION_SCHEMA||
       observation.seat!==seat||observation.phase!==phase)
       throw new TypeError('Invalid proposed RNAD decision');
-    const legal=validateRnadLegalActions(legalActions);
+    const {actions:legal,signatures:authority}=validateRnadLegalActions(
+      legalActions,{includeSignatures:true});
     const target=key(action);
-    if(!legal.some(candidate=>key(candidate)===target))
+    if(!authority.has(target))
       throw new TypeError('Proposed action not in the exact legal set');
     // A deployment guard may reduce policy support but never grant authority:
     // keep all authoritative legal candidates AND record the narrowed set.
     // Actor log-probabilities refer to this support, not the full legal set.
     let eligible=null;
     if(policyEligibleActions!==undefined){
-      eligible=validateRnadLegalActions(policyEligibleActions);
-      const authority=new Set(legal.map(key));
-      if(eligible.some(candidate=>!authority.has(key(candidate)))||
-         !eligible.some(candidate=>key(candidate)===target))
+      const validated=validateRnadLegalActions(policyEligibleActions,
+        {includeSignatures:true});
+      eligible=validated.actions;
+      if([...validated.signatures].some(signature=>!authority.has(signature))||
+         !validated.signatures.has(target))
         throw new TypeError('Guard support is not a legal accepted subset');
     }
     if(![behaviorLogProbability,referenceLogProbability,predictedValue]

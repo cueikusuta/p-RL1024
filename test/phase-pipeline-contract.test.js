@@ -74,3 +74,42 @@ test('seat-local continuity crosses rounds without sharing opponents hidden data
   assert.equal(second.snapshot().completed.length,0);
   first.accepted('draft',draft(),d2);
 });
+
+test('opt-in cached immutable snapshot follows accepted phase revisions',()=>{
+  const prior=process.env.RNAD_PIPELINE_SNAPSHOT_CACHE;
+  try{
+    process.env.RNAD_PIPELINE_SNAPSHOT_CACHE='1';
+    const p=setup([]);
+    const first=p.snapshot();
+    assert.strictEqual(p.snapshot(),first);
+    assert.ok(Object.isFrozen(first));
+    const d=p.select('draft',draft(),{round:1});
+    const afterDraftStart=p.snapshot();
+    assert.notStrictEqual(afterDraftStart,first);
+    assert.strictEqual(p.snapshot(),afterDraftStart);
+    p.accepted('draft',draft(),d);
+    const afterDraft=p.snapshot();
+    assert.notStrictEqual(afterDraft,afterDraftStart);
+    assert.equal(afterDraft.current.draft.roster.length,6);
+    const s=p.select('selection',selection(),{round:1});
+    assert.strictEqual(p.snapshot(),afterDraft,
+      'proposal pending does not change accepted context');
+    p.accepted('selection',selection(),s);
+    const afterSelection=p.snapshot();
+    assert.notStrictEqual(afterSelection,afterDraft);
+    assert.deepEqual(afterSelection.current.selection.ids,['t0','t1','t2']);
+    const a=p.select('battle',battle(),{round:1});
+    p.accepted('battle',battle(),a);
+    const afterBattle=p.snapshot();
+    assert.notStrictEqual(afterBattle,afterSelection);
+    p.roundEnd(1,0);
+    assert.notStrictEqual(p.snapshot(),afterBattle);
+    assert.equal(p.snapshot().completed[0].result.winner,0);
+    assert.throws(()=>{p.snapshot().completed[0].result.winner=1;},TypeError);
+    process.env.RNAD_PIPELINE_SNAPSHOT_CACHE='incorrect';
+    assert.throws(()=>setup([]),/RNAD_PIPELINE_SNAPSHOT_CACHE must be 0 or 1/);
+  }finally{
+    if(prior===undefined)delete process.env.RNAD_PIPELINE_SNAPSHOT_CACHE;
+    else process.env.RNAD_PIPELINE_SNAPSHOT_CACHE=prior;
+  }
+});

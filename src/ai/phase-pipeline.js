@@ -5,7 +5,11 @@ export const PHASE_PIPELINE_SCHEMA='p-rl1024-phase-pipeline-v1';
 const STAGES=['draft','selection','battle'];
 const hasOwn=(object,key)=>Object.prototype.hasOwnProperty.call(object,key);
 const isObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
-const clone=value=>structuredClone(value);
+// Primitive values cannot alias mutable state; preserve full deep cloning
+// of objects and original errors on unserializable functions/symbols.
+const clone=value=>value===null||
+  (typeof value!=='object'&&typeof value!=='function'&&typeof value!=='symbol')?
+  value:structuredClone(value);
 function immutable(value) {
   if(value&&typeof value==='object'){
     Object.freeze(value);
@@ -67,10 +71,21 @@ export function createPhasePipeline(agents,{seat}={}){
   const notes={draft:null,selection:null,battle:null};
   const completed=[];
   let current=null,pending=null,finished=false;
+  // Research-only opt-in: freeze one snapshot per accepted-state revision.
+  // A frozen clone cannot be mutated by agents or alias internal match state.
+  const flag=typeof process==='undefined'?'0':
+    (process.env?.RNAD_PIPELINE_SNAPSHOT_CACHE??'0');
+  if(flag!=='0'&&flag!=='1')
+    throw new TypeError('RNAD_PIPELINE_SNAPSHOT_CACHE must be 0 or 1');
+  const reuseSnapshot=flag==='1';
+  let cachedSnapshot=null;
   function snapshot(){
-    return immutable(clone({schema:PHASE_PIPELINE_SCHEMA,seat,
+    if(reuseSnapshot&&cachedSnapshot!==null)return cachedSnapshot;
+    const result=immutable(clone({schema:PHASE_PIPELINE_SCHEMA,seat,
       round:current?.round??null,agents:ids,
       current,completed,handoff:notes}));
+    if(reuseSnapshot)cachedSnapshot=result;
+    return result;
   }
   function select(stage,view,{round,rng=null}={}){
     if(finished||pending||!STAGES.includes(stage)||
@@ -82,6 +97,7 @@ export function createPhasePipeline(agents,{seat}={}){
         throw new Error('Draft out of order');
       current={round,draft:null,selection:null,
         battle:{decisions:0,lastAction:null,lastPublicOpponent:null},result:null};
+      cachedSnapshot=null;
     }else if(!current||current.round!==round||!current.draft||
       (stage==='selection'&&(view.phase!=='selection'||current.selection))||
       (stage==='battle'&&(!current.selection||!view.requestType)))
@@ -122,6 +138,7 @@ export function createPhasePipeline(agents,{seat}={}){
     }
     if(pending.handoff!==null)notes[stage]=pending.handoff;
     pending=null;
+    cachedSnapshot=null;
     handlers[stage].accepted?.({view:immutable(clone(view)),action:ids,
       context:snapshot(),seat,round:current.round,
       authorityReceipt});
@@ -133,6 +150,7 @@ export function createPhasePipeline(agents,{seat}={}){
     current.result={winner};
     completed.push(current);
     current=null;
+    cachedSnapshot=null;
   }
   function finish(result,authorityReceipt=null){
     if(finished||pending||current||!isObject(result))

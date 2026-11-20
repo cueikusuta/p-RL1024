@@ -54,6 +54,10 @@ test('frozen DeepSets inference uses only seat own-set features and legal pool',
     assert.deepEqual(one,two);
     assert.equal(one.features[0].length,44);
     assert.deepEqual(one.codes[0],[0,1,2,3,4,5]);
+    // The extra candidate tensors are own-only and bit-for-bit the values
+    // formerly recomputed for the value head and accepted Learner handoff.
+    assert.deepEqual(one.extras,[
+      [.08,.02,1/6,0],[.07,.03,1/6,0]]);
     const prediction=p.choose(a,legal);
     assert.equal(prediction.index,0);
     assert.ok(Math.abs(prediction.logProbability+Math.log(2))<1e-10);

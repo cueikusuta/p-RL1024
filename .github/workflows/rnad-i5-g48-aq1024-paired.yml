@@ -1,0 +1,269 @@
+name: I5 G48 vs AQ-Base 1024 complete paired Matches
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - docs/research/rnad/G48_AQ_1024_START_2026-11-20.json
+permissions: {}
+concurrency:
+  group: rnad-i5-g48-aq1024-20261120
+  cancel-in-progress: false
+# 512 independent seed blocks with two seat-swapped complete four-win matches.
+# Post-g48 checkpoint is internally generation=49; training source is immutable.
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 2, persist-credentials: false}
+      - name: Verify preregistered 1024-only evaluation and immutable G48 origin
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          file='docs/research/rnad/G48_AQ_1024_START_2026-11-20.json'
+          spec=json.loads(Path(file).read_text())
+          previous=subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()
+          assert spec=={
+            'schema':'rnad-i5-g48-aq-1024-paired-v1',
+            'workflow_commit_sha':previous,
+            'source_sha':'01501f3a1e12511140bf772d435d39c0c07319bc',
+            'engine_sha':'ea81165993110ee9fb3a09dcb97c6708c0d7397b',
+            'frozen_artifact_run':44648107619,
+            'frozen_artifact_id':14589292324,
+            'model_id':'G48',
+            'checkpoint_generation':49,
+            'model_manifest_sha256':'c06ccc66ead1ae83e4a39054f72a59222b2461ed818823489e7eb025cba1cb46',
+            'benchmark':'AQ-Base-001',
+            'seed_start':10730001,
+            'independent_seed_blocks':512,
+            'seats_per_seed':2,
+            'expected_complete_four_win_matches':1024,
+            'shards':8,
+            'confidence_level':0.95,
+            'method':'paired-seed-block-student-t',
+            'fixed_N_no_interim_peeking':True,
+            'research_only':True,
+            'no_champion_promotion_or_merge':True
+          },'Changed prospective G48 vs AQ-Base plan'
+          changed=subprocess.check_output(['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()
+          assert changed==[file],'Start commit must only contain preregistration'
+          print('Prospective 512 paired seed blocks, 1024 complete Matches, G48 post-train',flush=True)
+          PY
+          gh api repos/cueikusuta/p-RL1024/actions/artifacts/14589292324 \
+            --jq '{id,name,expired,workflow_run}' > frozen-artifact.json
+          test "$(jq -r .id frozen-artifact.json)" = 14589292324
+          test "$(jq -r .name frozen-artifact.json)" = rnad-i5-g48-frozen-G48
+          test "$(jq -r .expired frozen-artifact.json)" = false
+          test "$(jq -r '.workflow_run.id' frozen-artifact.json)" = 44648107619
+  evaluate:
+    needs: preflight
+    name: "Frozen G48 vs AQ part ${{ matrix.part }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        part: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PART: ${{ matrix.part }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false, ref: 01501f3a1e12511140bf772d435d39c0c07319bc}
+      - name: Install pinned Node v22 for source-locked simulation
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Restore identical frozen G48 model and audit every head SHA
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 01501f3a1e12511140bf772d435d39c0c07319bc
+          gh run download 44648107619 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-g48-frozen-G48 --dir frozen
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          root=Path('frozen')
+          sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          m=json.loads((root/'actor/manifest.json').read_text())
+          pin=json.loads((root/'model-pin.json').read_text())
+          assert pin['id']=='G48' and pin['generation']==49 and pin['frozen'] is True
+          assert m['generation']==49
+          assert m['source_sha']=='01501f3a1e12511140bf772d435d39c0c07319bc'
+          assert m['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'
+          assert sha(root/'actor/manifest.json')==pin['manifest_sha256']=='c06ccc66ead1ae83e4a39054f72a59222b2461ed818823489e7eb025cba1cb46'
+          assert set(m['files'])=={'draft','selection','battle','values'}
+          for name,h in m['files'].items():
+              assert sha(root/'actor'/(name+'.json'))==h
+          print('Exactly frozen post-G48 actor bundle verified')
+          PY
+      - name: Run 64 new paired seeds, each as both seat assignments
+        run: |
+          set -euo pipefail
+          mkdir -p result
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {createIntegratedAQSession} from './scripts/rnad/evaluate-shared-g012-vs-aq.mjs';
+          import {runStrategyMatch} from './aq-runtime/scripts/dev/simulator/strategy-match.js';
+          import {createOpponent,weightsSha256 as AQ_BASE_SHA} from './models/aq-base.mjs';
+          import {verifiedRunningSourceSha} from './scripts/dev/simulator/rnad-match.js';
+          import provenance from './provenance/manifest.json' with {type:'json'};
+          const source='01501f3a1e12511140bf772d435d39c0c07319bc';
+          const engine='ea81165993110ee9fb3a09dcb97c6708c0d7397b';
+          const modelSha='c06ccc66ead1ae83e4a39054f72a59222b2461ed818823489e7eb025cba1cb46';
+          const part=Number(process.env.PART);
+          const start=10730001+part*64;
+          if(!Number.isInteger(part)||part<0||part>7||verifiedRunningSourceSha()!==source||
+             provenance.sourceCommit!==engine)throw Error('Wrong frozen source or part');
+          const aq=createOpponent();
+          if(aq.modelSha256!==AQ_BASE_SHA)throw Error('AQ benchmark changed');
+          const rows=[];
+          for(let seed=start;seed<start+64;seed++){
+            for(const candidateSeat of [0,1]){
+              const actor=createIntegratedAQSession({modelDir:'frozen/actor',seat:candidateSeat});
+              const result=runStrategyMatch({
+                seed,policies:[0,1].map(s=>s===candidateSeat?'pure-rl-linear':'aq-base'),
+                pureRlSessions:[0,1].map(s=>s===candidateSeat?actor:null),
+                pureRlAllPhases:true,strategyMode:'integrated',
+                v2Weights:{blend:.28,exposure:.75,continuation:.4},aqBase:aq
+              });
+              const stats=result.pureRlStats?.[candidateSeat];
+              if(result.completed!==true||![0,1].includes(result.winner)||
+                 !Array.isArray(result.score)||result.score.length!==2||
+                 result.score[result.winner]!==4||result.score[1-result.winner]>=4||
+                 !Number.isInteger(result.rounds)||result.rounds<4||result.rounds>64||
+                 stats?.updates!==0||stats?.pending!==false||
+                 stats?.accepted_decisions!==result.actionCounts[candidateSeat]+2*result.rounds)
+                 throw Error('Incomplete/faulty frozen AQ match seed '+seed+' seat '+candidateSeat);
+              rows.push({seed,candidateSeat,won:result.winner===candidateSeat,
+                completed:true,score:result.score,rounds:result.rounds,
+                accepted_decisions:stats.accepted_decisions});
+            }
+          }
+          const wins=rows.filter(x=>x.won).length;
+          const result={schema:'rnad-i5-g48-aq1024-evidence-v1',
+            model_id:'G48',model_manifest_sha256:modelSha,
+            source_sha:source,engine_sha:engine,opponent_id:'AQ-Base-001',
+            aq_model_sha256:AQ_BASE_SHA,part,seed_start:start,seed_blocks:64,
+            evaluation_policy:'frozen-greedy-no-training',training_during_evaluation:false,
+            champion_promoted:false,complete_four_win_matches:128,wins,rows};
+          fs.writeFileSync('result/result.json',JSON.stringify(result)+'\n',{flag:'wx'});
+          console.log(JSON.stringify({part,seed_start:start,complete_four_win_matches:128,wins,
+            champion_promoted:false}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rnad-i5-g48-aq1024-evidence-part${{ matrix.part }}
+          path: result/result.json
+          if-no-files-found: warn
+          retention-days: 90
+  summarize:
+    needs: [preflight, evaluate]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false, ref: 01501f3a1e12511140bf772d435d39c0c07319bc}
+      - name: Verify all 512 full paired blocks and compute 95pct CI once
+        run: |
+          set -euo pipefail
+          test "${{ needs.evaluate.result }}" = success
+          mkdir -p evidence final
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-g48-aq1024-evidence-part*' --dir evidence
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import {pairedClusterCI,pairedSignSensitivity} from './scripts/rnad/paired-league-stats.mjs';
+          import {weightsSha256 as AQ_BASE_SHA} from './models/aq-base.mjs';
+          const modelSha='c06ccc66ead1ae83e4a39054f72a59222b2461ed818823489e7eb025cba1cb46';
+          const src='01501f3a1e12511140bf772d435d39c0c07319bc';
+          const eng='ea81165993110ee9fb3a09dcb97c6708c0d7397b';
+          const seen=new Map();
+          let wins=0,accepted=0;
+          for(let part=0;part<8;part++){
+            const file=path.join('evidence','rnad-i5-g48-aq1024-evidence-part'+part,'result.json');
+            const z=JSON.parse(fs.readFileSync(file,'utf8'));
+            if(z.schema!=='rnad-i5-g48-aq1024-evidence-v1'||z.model_id!=='G48'||
+               z.model_manifest_sha256!==modelSha||z.source_sha!==src||z.engine_sha!==eng||
+               z.opponent_id!=='AQ-Base-001'||z.aq_model_sha256!==AQ_BASE_SHA||
+               z.part!==part||z.seed_start!==10730001+part*64||z.seed_blocks!==64||
+               z.evaluation_policy!=='frozen-greedy-no-training'||z.training_during_evaluation!==false||
+               z.champion_promoted!==false||z.complete_four_win_matches!==128||
+               z.rows?.length!==128||z.rows.filter(x=>x.won).length!==z.wins)
+               throw Error('Unverified frozen shard part '+part);
+            for(const r of z.rows){
+              const key=r.seed+':'+r.candidateSeat;
+              if(!Number.isInteger(r.seed)||r.seed<z.seed_start||r.seed>=z.seed_start+64||
+                 ![0,1].includes(r.candidateSeat)||seen.has(key)||
+                 r.completed!==true||typeof r.won!=='boolean'||!Array.isArray(r.score)||
+                 r.score.length!==2||r.score.some(v=>!Number.isInteger(v)||v<0||v>4)||
+                 r.score[r.won?r.candidateSeat:1-r.candidateSeat]!==4||
+                 r.score[r.won?1-r.candidateSeat:r.candidateSeat]>=4||
+                 !Number.isInteger(r.rounds)||r.rounds<4||r.rounds>64||
+                 !Number.isInteger(r.accepted_decisions)||r.accepted_decisions<=0)
+                throw Error('Invalid/duplicate seed seat evidence '+key);
+              seen.set(key,r);
+              wins+=Number(r.won);
+              accepted+=r.accepted_decisions;
+            }
+          }
+          const blocks=[];
+          for(let seed=10730001;seed<10730001+512;seed++){
+            const a=seen.get(seed+':0'),b=seen.get(seed+':1');
+            if(!a||!b)throw Error('Missing whole paired seed block '+seed);
+            blocks.push((Number(a.won)+Number(b.won))/2);
+          }
+          if(seen.size!==1024||blocks.length!==512||!Number.isInteger(wins))
+            throw Error('Not exactly 1024 accepted complete Matches');
+          const stats=pairedClusterCI(blocks,{
+            familywiseAlpha:0.05,comparisons:1,range:[0,1],nullValue:0.5
+          });
+          const result={schema:'rnad-i5-g48-aq1024-final-v1',
+            model_id:'G48',post_training_checkpoint_generation:49,
+            model_manifest_sha256:modelSha,source_sha:src,engine_sha:eng,
+            opponent_id:'AQ-Base-001',opponent_model_sha256:AQ_BASE_SHA,
+            seed_start:10730001,seed_end:10730512,
+            independent_seed_blocks:512,both_seats:true,complete_four_win_matches:1024,
+            g48_wins:wins,aq_wins:1024-wins,g48_win_rate:wins/1024,
+            accepted_g48_decisions:accepted,...stats,
+            exploratory_sign_test:pairedSignSensitivity(blocks,{nullValue:0.5}),
+            g48_superiority_supported_95pct:stats.confidence_interval[0]>0.5,
+            aq_superiority_supported_95pct:stats.confidence_interval[1]<0.5,
+            research_only:true,champion_promoted:false,main_merged:false,
+            model_and_opponent_frozen:true,
+            interpretation:'Paired two-seat fixed AQ-Base win rate only; not improvement versus G12 or other opponents'
+          };
+          fs.writeFileSync('final/g48-vs-aq1024-result.json',JSON.stringify(result,null,2)+'\n');
+          console.log(JSON.stringify(result,null,2));
+          JS
+          (cd final && sha256sum g48-vs-aq1024-result.json > result-sha256.txt)
+          cat final/g48-vs-aq1024-result.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rnad-i5-g48-aq1024-final-report
+          path: final/
+          if-no-files-found: warn
+          retention-days: 90

@@ -1,0 +1,235 @@
+name: I5 frozen G12/G48 actor phase diagnostics (read-only)
+on:
+  push:
+    branches: [perf/5-rnad-shared-league-throughput]
+    paths:
+      - .github/workflows/rnad-i5-frozen-actor-phase-diagnostics.yml
+permissions: {contents: read, actions: read}
+concurrency:
+  group: i5-frozen-actor-phase-diagnostics
+  cancel-in-progress: true
+jobs:
+  analyze:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.11'}
+      - name: Download original frozen generation manifests (no new simulator, no training)
+        run: |
+          set -euo pipefail
+          mkdir -p bootstrap-g12 bootstrap-g48
+          gh run download 44529850050 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-cont-next-bootstrap-after-g11 --dir bootstrap-g12
+          gh run download 44554626133 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-cont-next-bootstrap-after-g47 --dir bootstrap-g48
+          (cd bootstrap-g12 && sha256sum -c file-pins.sha256 >/dev/null)
+          (cd bootstrap-g48 && sha256sum -c file-pins.sha256 >/dev/null)
+      - name: Restore EXACT original 20 actor artifacts for each generation
+        run: |
+          set -euo pipefail
+          for gen in 12 48; do
+            if [ "$gen" -eq 12 ]; then run=44529850050; else run=44554626133; fi
+            for i in $(seq 0 19); do
+              mkdir -p "actors-g$gen/actor-$i"
+              for try in 1 2 3; do
+                if gh run download "$run" --repo cueikusuta/p-RL1024 \
+                  --name "rnad-i5-cont-g$gen-actor-$i" \
+                  --dir "actors-g$gen/actor-$i"; then break; fi
+                if [ "$try" = 3 ]; then exit 1; fi
+                sleep "$((try*7))"
+              done
+              test -s "actors-g$gen/actor-$i/actor-$i.json.gz"
+            done
+          done
+      - name: Strict 20/20 authority acceptance verification and phase diagnostics
+        run: |
+          python - <<'PY'
+          import gzip
+          import json
+          import math
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          
+          from scripts.rnad.shared_league_contract import (
+              ACTORS, MATCHES_PER_ACTOR, PHASES, verify_actor, verify_manifest,
+          )
+          
+          # Read-only, exhaustive 20/20 Actor diagnostic. This is not a training
+          # checkpoint or a held-out strength evaluation.
+          def summarize_generation(g):
+              root = Path(f"bootstrap-g{g}")
+              manifest = json.loads((root / "generation-manifest.json").read_text())
+              if manifest["generation"] != g:
+                  raise ValueError("Wrong frozen generation manifest")
+              manifest_hash = verify_manifest(manifest)
+              counts, wins, opp_counts, opp_wins = Counter(), Counter(), Counter(), Counter()
+              all_phases = Counter()
+              phase_events_training = Counter()
+              accum = defaultdict(lambda: defaultdict(float))
+              match_count = Counter()
+              ids = set()
+              rounds_total = 0
+              decision_total = 0
+              largest_match = 0
+              for actor in range(ACTORS):
+                  path = Path(f"actors-g{g}") / f"actor-{actor}" / f"actor-{actor}.json.gz"
+                  with gzip.open(path, "rt", encoding="utf-8") as file:
+                      payload = json.load(file)
+                  valid = verify_actor(manifest, payload)
+                  if valid & ids or len(valid) != MATCHES_PER_ACTOR:
+                      raise ValueError("Duplicate/missing authoritative Match IDs")
+                  ids.update(valid)
+                  role = payload["role"]
+                  opponent = payload["opponent_id"]
+                  counts[role] += len(payload["matches"])
+                  opp_counts[opponent] += len(payload["matches"])
+                  for match in payload["matches"]:
+                      rounds_total += match["rounds"]
+                      decision_total += len(match["events"])
+                      largest_match = max(largest_match, len(match["events"]))
+                      won = match["winner"] == match["learner_seat"]
+                      wins[role] += int(won)
+                      opp_wins[opponent] += int(won)
+                      train_seats = {0, 1} if role == "self" else {match["learner_seat"]}
+                      per_match = defaultdict(list)
+                      for event in match["events"]:
+                          phase = event["phase"]
+                          all_phases[phase] += 1
+                          if event["actor"] not in train_seats:
+                              continue
+                          phase_events_training[phase] += 1
+                          p, q = event["policy_pi"], event["magnet_pi"]
+                          n = len(p)
+                          entropy = -sum(v * math.log(v) for v in p)
+                          norm_entropy = entropy / math.log(n) if n > 1 else 0.0
+                          tv = sum(abs(x - y) for x, y in zip(p, q)) / 2
+                          target = 1.0 if event["actor"] == match["winner"] else -1.0
+                          proxy_mse = (event["predicted_value"] - target) ** 2
+                          per_match[phase].append((
+                              norm_entropy, tv, p[event["action_index"]], proxy_mse,
+                          ))
+                      for phase in PHASES:
+                          events = per_match[phase]
+                          if not events:
+                              raise ValueError("Missing learner-seat accepted phase")
+                          match_count[phase] += 1
+                          for j, name in enumerate((
+                              "normalized_policy_entropy",
+                              "policy_vs_magnet_TV",
+                              "chosen_policy_probability",
+                              "raw_value_vs_terminal_MSE_proxy",
+                          )):
+                              accum[phase][name] += sum(x[j] for x in events) / len(events)
+                  del payload
+          
+              if len(ids) != 1280 or dict(counts) != {
+                  "self": 512, "historical": 512, "fixed": 256,
+              }:
+                  raise ValueError("Not exactly 1280 frozen accepted Matches / 20 actors")
+              if all_phases["draft"] != 2 * rounds_total or \
+                 all_phases["selection"] != 2 * rounds_total or \
+                 sum(all_phases.values()) != decision_total:
+                  raise ValueError("Incomplete phase accounting")
+              return {
+                  "generation": g,
+                  "source_sha": manifest["source_sha"],
+                  "engine_sha": manifest["engine_sha"],
+                  "main_sha256": manifest["main_sha256"],
+                  "generation_manifest_canonical_sha256": manifest_hash,
+                  "actor_count": ACTORS,
+                  "complete_four_win_matches": len(ids),
+                  "rounds_total": rounds_total,
+                  "accepted_decisions_all_seats": decision_total,
+                  "max_accepted_decisions_per_match": largest_match,
+                  "accepted_phase_counts_all_seats": dict(all_phases),
+                  "training_seat_phase_counts": dict(phase_events_training),
+                  "training_role_results": {
+                      role: {"matches": counts[role], "main_wins": wins[role],
+                             "win_rate": wins[role] / counts[role]}
+                      for role in ("self", "historical", "fixed")
+                  },
+                  "opponent_results_training_only": {
+                      ident: {"matches": opp_counts[ident], "main_wins": opp_wins[ident],
+                              "win_rate": opp_wins[ident] / opp_counts[ident]}
+                      for ident in sorted(opp_counts)
+                  },
+                  "phase_per_match_averages_training_seats": {
+                      phase: {"matches": match_count[phase],
+                              **{name: value / match_count[phase]
+                                 for name, value in sorted(accum[phase].items())}}
+                      for phase in PHASES
+                  },
+              }
+          
+          summary = {
+              "schema": "rnad-i5-frozen-g12-g48-phase-diagnostic-v1",
+              "evaluation_type": "descriptive-training-trajectory-audit-only",
+              "training_or_evaluation_performed": False,
+              "independent_holdout_or_strength_claim": False,
+              "number_of_generations": 2,
+              "generations": {str(g): summarize_generation(g) for g in (12, 48)},
+              "missing_information": [
+                  "independent same-seed G48 versus G12 comparison",
+                  "G48 against AQ phase-swap ablations",
+                  "teacher top1/utility labels on the accepted training traces",
+                  "backpropagated per-phase gradient norms and V-trace clipping fractions",
+                  "voluntary-switch versus forced-switch action annotations",
+              ],
+              "limitations": [
+                  "G48 Actor uses the pre-g48-update frozen Main; G48 versus AQ evaluation uses post-g48 checkpoint.",
+                  "G12/G48 training opponents and seeds differ; training win rates are not comparable held-out strength measures.",
+                  "All phase means first average within Match; Match-level observations are not independent strength samples.",
+                  "The terminal-return squared-error proxy is NOT the V-trace/NeuRD critic's learning target.",
+                  "Normalized entropy and policy-versus-Magnet TV measure policy uncertainty/drift, not decision quality.",
+              ],
+          }
+          if summary["generations"]["12"]["accepted_decisions_all_seats"] != 157280 or \
+             summary["generations"]["48"]["accepted_decisions_all_seats"] != 152228:
+              raise ValueError("Original independent Actor log counts disagree")
+          Path("frozen-generation-diagnostics.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+          )
+          with open("frozen-generation-diagnostics.md", "w") as md:
+              md.write("## I5 read-only G12/G48 accepted Actor diagnostic (NOT AQ held-out)\n")
+              for g in (12, 48):
+                  s = summary["generations"][str(g)]
+                  md.write(f"\n### Generation {g}: {s['complete_four_win_matches']} complete Matches\n")
+                  md.write(f"Total accepted decisions: {s['accepted_decisions_all_seats']}; "
+                           f"battle: {s['accepted_phase_counts_all_seats']['battle']}\n\n")
+                  for role, data in s["training_role_results"].items():
+                      md.write(f"- {role}: {data['main_wins']}/{data['matches']} "
+                               f"({data['win_rate']*100:.2f}%)\n")
+                  for phase, stats in s["phase_per_match_averages_training_seats"].items():
+                      md.write(f"- {phase}: normalized entropy {stats['normalized_policy_entropy']:.4f}, "
+                               f"policy-Magnet TV {stats['policy_vs_magnet_TV']:.4f}, "
+                               f"chosen pi {stats['chosen_policy_probability']:.4f}, "
+                               f"terminal MSE proxy {stats['raw_value_vs_terminal_MSE_proxy']:.4f}\n")
+              md.write("\nTraining distributions and terminal MSE proxies are descriptive only; "
+                       "no claim about G48-versus-G12 improvement or which phase is causal.\n")
+          print(json.dumps({
+              "schema": summary["schema"],
+              "counts": {g: {
+                  "matches": s["complete_four_win_matches"],
+                  "decisions": s["accepted_decisions_all_seats"],
+                  "fixed_win_rate": s["training_role_results"]["fixed"]["win_rate"]
+              } for g, s in summary["generations"].items()},
+              "heldout_strength_claim": False
+          }))
+          
+          PY
+          cat frozen-generation-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rnad-i5-g12-g48-frozen-phase-diagnostics
+          path: |
+            frozen-generation-diagnostics.json
+            frozen-generation-diagnostics.md
+          if-no-files-found: warn
+          retention-days: 90

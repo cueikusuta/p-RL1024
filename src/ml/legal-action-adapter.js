@@ -10,7 +10,11 @@ const phases=new Set(['draft','selection','battle']);
 const phaseOf=view=>['draft','selection'].includes(view?.phase)
   ?view.phase:(typeof view?.requestType==='string'?'battle':null);
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
-const clone=x=>structuredClone(x);
+// structuredClone of primitive allowlisted fields is a no-op. Preserve
+// structuredClone validation for objects, functions and symbols.
+const clone=x=>x===null||
+  (typeof x!=='object'&&typeof x!=='function'&&typeof x!=='symbol')?
+  x:structuredClone(x);
 const fields=(src,keys)=>object(src)?Object.fromEntries(keys
   .filter(key=>Object.hasOwn(src,key))
   .map(key=>[key,clone(src[key])])):{};
@@ -40,7 +44,7 @@ export function rnadLegalActions(view){
     (view.requestType==='replacement'&&active?.hp>0&&view.self?.needsSwitch!==true));
   return validateRnadLegalActions(actions,{allowEmpty:inactive});
 }
-export function validateRnadLegalActions(actions,{allowEmpty=false}={}){
+export function validateRnadLegalActions(actions,{allowEmpty=false,includeSignatures=false}={}){
   if(!Array.isArray(actions)||actions.length>60000||
     (!allowEmpty&&actions.length===0))
     throw new TypeError('Invalid legal action list length');
@@ -52,7 +56,10 @@ export function validateRnadLegalActions(actions,{allowEmpty=false}={}){
     if(!key||signatures.has(key))throw new TypeError('Duplicate/invalid legal action');
     signatures.add(key);
   }
-  return clone(actions);
+  // Internal receipt collector can reuse the signatures computed during
+  // strict duplicate detection, without serializing every action again.
+  const safeActions=clone(actions);
+  return includeSignatures?{actions:safeActions,signatures}:safeActions;
 }
 export function projectRnadObservation(view,{seat,context=null}={}){
   if(![0,1].includes(seat)||!object(view))
