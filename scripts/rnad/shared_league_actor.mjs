@@ -149,8 +149,17 @@ function sample(p,rng){
 export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false}){
   assert(finite(epsilon)&&epsilon>0&&epsilon<=.1,'Invalid behavior epsilon');
   const legacy=legacyPath!==null;
+  // Opt-in research: a frozen v3 opponent has identical Main/Magnet bytes
+  // and identical seat-local GRU histories. Its reference logits can be
+  // reused from Main instead of running the same GRU a second time.
+  // Keep the original dual-inference path as the default parity baseline.
+  const legacyReuse=process.env.RNAD_REUSE_LEGACY_FROZEN_LOGITS??'0';
+  assert(legacyReuse==='0'||legacyReuse==='1',
+    'RNAD_REUSE_LEGACY_FROZEN_LOGITS must be 0 or 1');
+  const sharedLegacy=legacy&&legacyReuse==='1';
   const main=legacy?readLegacy(legacyPath,legacySha):readBundle(modelDir);
-  const magnet=legacy?readLegacy(legacyPath,legacySha):readBundle(magnetDir);
+  const magnet=sharedLegacy?null:
+    legacy?readLegacy(legacyPath,legacySha):readBundle(magnetDir);
   if(!legacy)assert(main.p.policy_id===magnet.p.policy_id&&
     main.p.generation===magnet.p.generation,'Main/Magnet generation mismatch');
   const saved=[];
@@ -163,7 +172,10 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
       let logits,ref,value,phaseInput;
       if(legacy){
         const x=main.inferProjected(observation,legalActions,seat);
-        const m=magnet.inferProjected(observation,legalActions,seat);
+        // Both old frozen v3 networks start from the same zero memory and
+        // see the same authoritative observation/seat on every decision.
+        // No reference-memory state is observable; reuse only identical logits.
+        const m=sharedLegacy?x:magnet.inferProjected(observation,legalActions,seat);
         logits=x.logits;ref=m.logits;value=x.value;
         // Stored MAIN-visible accepted tensor, even for frozen v3 opponents.
         phaseInput=encodeForLearner(observation,legalActions);
