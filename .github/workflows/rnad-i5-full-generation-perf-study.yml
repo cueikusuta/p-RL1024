@@ -48,12 +48,37 @@ jobs:
           assert m["source_sha"]=="0f348495dd381dbfd299e00c0346f61351212075"
           assert m["generation"]==0 and m["actor_count"]==20
           PY
-      - name: Strict 1280 accepted Match / 40-update reference versus CPU-vector dry-run
+      - name: Strict 1280 accepted Match / 40-update CPU-vector versus packed inputs dry-run
         run: |
           set -euo pipefail
           python -m scripts.rnad.shared_league_full_gen_benchmark \
-            --bootstrap bootstrap --actors actors --strict \
+            --bootstrap bootstrap --actors actors --strict --compare-packing \
             | tee full-generation-study.log
+          python - <<'PY'
+          import json
+          lines=open('full-generation-study.log').read().splitlines()
+          start=next(i for i,line in enumerate(lines)
+                     if line.strip()=='{')
+          result=json.loads('\n'.join(lines[start:]))
+          assert result['compare_reused_phase_tensors'] is True
+          assert result['accepted_complete_matches']==1280
+          assert result['reference']['optimizer_updates']==40
+          assert result['experimental']['optimizer_updates']==40
+          audit=result['full_state_audit']
+          assert audit['full_state_parity_passed'] is True
+          assert audit['all_1280_accepted_match_ids_in_identical_order'] is True
+          assert audit['adam_moment_tensors_compared']>=108
+          assert audit['torch_rng_equal'] and audit['python_rng_equal']
+          assert audit['scheduler_equal']
+          assert result['full_generation_actor_collection_timed'] is False
+          print(json.dumps({'reference_40_updates_seconds':
+                            result['reference']['total_40_update_seconds'],
+                            'packed_40_updates_seconds':
+                            result['experimental']['total_40_update_seconds'],
+                            'full_state_audit':audit,
+                            'actor_collection_not_included':True,
+                            'not_a_60_second_end_to_end_claim':True},indent=2))
+          PY
           tail -n 85 full-generation-study.log >> "$GITHUB_STEP_SUMMARY"
       - name: Summarize research only (NO checkpoint publication)
         if: always()

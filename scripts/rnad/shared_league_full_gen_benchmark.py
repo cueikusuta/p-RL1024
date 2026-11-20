@@ -8,6 +8,7 @@ optimizer updates remain in TemporaryDirectory and are never published.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import math
 import statistics
@@ -15,6 +16,7 @@ import tempfile
 import time
 from collections import Counter
 from pathlib import Path
+from unittest.mock import patch
 
 import torch
 
@@ -78,11 +80,12 @@ def _run(bootstrap, ordering, verified_dir, backend, tempdir):
         raise ValueError("Wrong historical full-state checkpoint")
     model,target,magnet,opt,scheduler=_models(bootstrap,checkpoint)
     torch.set_num_threads(1)
-    if backend=="cpu-parallel-vector":
+    if backend in ("cpu-parallel-vector", "cpu-parallel-vector-reused-tensors"):
         pool=ParallelGradientPool(model,target,magnet,workers=4,vector=True)
     else:
         pool=None
     step_total,grad_total,save_total=[],[],[]
+    mean_losses,max_ratios=[],[]
     try:
         for step in range(40):
             batch=ordering[step*32:(step+1)*32]
@@ -107,6 +110,8 @@ def _run(bootstrap, ordering, verified_dir, backend, tempdir):
             if len(losses)!=32 or len(ratios)!=32 or (
                     any(not math.isfinite(v) for v in losses+ratios)):
                 raise ValueError("Missing or nonfinite full Match losses")
+            mean_losses.append(sum(losses)/len(losses))
+            max_ratios.append(max(ratios))
             norm=torch.nn.utils.clip_grad_norm_(
                 model.parameters(),10.0,error_if_nonfinite=True)
             if not torch.isfinite(norm):
@@ -151,11 +156,109 @@ def _run(bootstrap, ordering, verified_dir, backend, tempdir):
         "median_step_seconds":round(statistics.median(step_total),4),
         "accepted_complete_matches":len(ordering),
         "optimizer_updates":len(step_total),
+        "mean_loss_per_step":mean_losses,
+        "maximum_ratio_per_step":max_ratios,
         "model":{k:v.detach().clone() for k,v in model.state_dict().items()},
+        "full_state":{
+            "step":checkpoint["step"],
+            "training_match_ids":checkpoint["training_match_ids"],
+            "model":checkpoint["model"],
+            "target":checkpoint["target"],
+            "magnet":checkpoint["magnet"],
+            "optimizer":checkpoint["optimizer"],
+            "scheduler":checkpoint["scheduler"],
+            "torch_rng":checkpoint["torch_rng"],
+            "python_rng":checkpoint["python_rng"],
+        },
     }
 
 
-def compare(bootstrap, actors, *, strict=False):
+
+def _audit_full_state(reference, candidate):
+    """Fail closed on checkpoint/optimizer/scheduler/RNG and Match ordering drift.
+
+    Unlike comparing only the final Main, this detects a broken Target EMA,
+    frozen Magnet, Adam moments, scheduler, replay order or RNG continuation.
+    Tolerance reflects the existing parallel CPU floating-point parity gate.
+    """
+    a, b = reference["full_state"], candidate["full_state"]
+    if a["step"] != 40 or b["step"] != 40:
+        raise AssertionError("Incomplete 40-update checkpoint")
+    if a["training_match_ids"] != b["training_match_ids"] or (
+            len(a["training_match_ids"]) != 1280 or
+            len(set(a["training_match_ids"])) != 1280):
+        raise AssertionError("Mismatch in complete accepted Match ordering")
+    if a["scheduler"] != b["scheduler"]:
+        raise AssertionError("Scheduler state changed")
+    if a["python_rng"] != b["python_rng"] or not torch.equal(
+            a["torch_rng"], b["torch_rng"]):
+        raise AssertionError("Full-state RNG continuation changed")
+    maxima = {}
+    for component in ("model", "target", "magnet"):
+        old, new = a[component], b[component]
+        if set(old) != set(new):
+            raise AssertionError(component + " keys mismatch")
+        widest = 0.0
+        for key in old:
+            torch.testing.assert_close(
+                old[key], new[key], rtol=4e-3, atol=4e-5)
+            widest = max(widest, float((old[key]-new[key]).abs().max()))
+        maxima[component] = widest
+    old_opt, new_opt = a["optimizer"], b["optimizer"]
+    if old_opt["param_groups"] != new_opt["param_groups"] or (
+            set(old_opt["state"]) != set(new_opt["state"])):
+        raise AssertionError("Adam optimizer groups or slots changed")
+    moments = 0
+    moment_maxima = {"exp_avg":0.0, "exp_avg_sq":0.0}
+    for key, old_slot in old_opt["state"].items():
+        new_slot = new_opt["state"][key]
+        if set(old_slot) != set(new_slot):
+            raise AssertionError("Adam moment fields changed")
+        for field, first in old_slot.items():
+            second = new_slot[field]
+            if field == "step":
+                if not torch.equal(first, second):
+                    raise AssertionError("Adam step counter changed")
+            elif field in moment_maxima:
+                if first.shape != second.shape or first.dtype != second.dtype:
+                    raise AssertionError("Adam moment shape/dtype changed")
+                if not torch.isfinite(first).all() or not torch.isfinite(second).all():
+                    raise AssertionError("Nonfinite Adam moment")
+                atol = 4e-6 if field == "exp_avg" else 4e-10
+                torch.testing.assert_close(first, second, rtol=4e-3, atol=atol)
+                moment_maxima[field] = max(
+                    moment_maxima[field], float((first-second).abs().max()))
+                moments += 1
+            elif isinstance(first, torch.Tensor) or isinstance(second, torch.Tensor):
+                if not torch.equal(first, second):
+                    raise AssertionError("Unexpected Adam tensor drift")
+            elif first != second:
+                raise AssertionError("Unexpected Adam metadata drift")
+    if not moments:
+        raise AssertionError("No Adam state moments audited")
+    if len(reference["mean_loss_per_step"]) != 40 or (
+            len(candidate["mean_loss_per_step"]) != 40):
+        raise AssertionError("Incomplete loss history")
+    loss_differences = [
+        abs(x-y) for x,y in zip(
+            reference["mean_loss_per_step"],candidate["mean_loss_per_step"])]
+    ratio_differences = [
+        abs(x-y) for x,y in zip(
+            reference["maximum_ratio_per_step"],candidate["maximum_ratio_per_step"])]
+    if max(loss_differences) > 1e-3 or max(ratio_differences) > 1e-5:
+        raise AssertionError("Loss or V-trace ratio drift over 40 updates")
+    return {"full_state_parity_passed":True,
+            "all_1280_accepted_match_ids_in_identical_order":True,
+            "model_target_magnet_max_abs_diff":maxima,
+            "adam_moment_tensors_compared":moments,
+            "adam_moment_max_abs_diff":moment_maxima,
+            "scheduler_equal":True, "torch_rng_equal":True,
+            "python_rng_equal":True,
+            "max_40_step_mean_loss_abs_diff":max(loss_differences),
+            "max_40_step_ratio_abs_diff":max(ratio_differences)}
+
+
+def compare(bootstrap, actors, *, strict=False, compare_packing=False):
     root=Path(bootstrap)
     with tempfile.TemporaryDirectory(prefix="rnad-g0-observational-") as tmp:
         scratch=Path(tmp)
@@ -166,10 +269,21 @@ def compare(bootstrap, actors, *, strict=False):
         ordered=_order(meta)
         if len(ordered)!=1280:
             raise ValueError("Wrong exact original one-generation ordering")
-        scalar=_run(root,ordered,verified_dir,
-                    "original-scalar",scratch/"scalar")
-        optimized=_run(root,ordered,verified_dir,
-                       "cpu-parallel-vector",scratch/"parallel")
+        if compare_packing:
+            # Same verified 1280/40-update inputs, frozen original G0 and
+            # exactly one 4-worker optimizer stream in each independent run.
+            with patch.dict(os.environ, {"RNAD_REUSE_FROZEN_PHASE_TENSORS":"0"}):
+                scalar=_run(root,ordered,verified_dir,
+                            "cpu-parallel-vector",scratch/"vector-reference")
+            with patch.dict(os.environ, {"RNAD_REUSE_FROZEN_PHASE_TENSORS":"1"}):
+                optimized=_run(root,ordered,verified_dir,
+                               "cpu-parallel-vector-reused-tensors",
+                               scratch/"vector-reused")
+        else:
+            scalar=_run(root,ordered,verified_dir,
+                        "original-scalar",scratch/"scalar")
+            optimized=_run(root,ordered,verified_dir,
+                           "cpu-parallel-vector",scratch/"parallel")
         largest=max(float((v-optimized["model"][k]).abs().max())
                     for k,v in scalar["model"].items())
         checksum_equal=all(torch.equal(v,optimized["model"][k])
@@ -177,9 +291,13 @@ def compare(bootstrap, actors, *, strict=False):
         speed=scalar["total_40_update_seconds"]/optimized[
             "total_40_update_seconds"]
         def simple(x):
-            return {k:v for k,v in x.items() if k!="model"}
+            return {k:v for k,v in x.items()
+                    if k not in ("model","full_state")}
         result={
-            "schema":"rnad-i5-original-g0-1280-match-40-step-isolated-timing-v1",
+            "schema":("rnad-i5-g0-1280-match-40-update-packing-parity-v1"
+                       if compare_packing else
+                       "rnad-i5-original-g0-1280-match-40-step-isolated-timing-v1"),
+            "compare_reused_phase_tensors":compare_packing,
             "original_source_sha":HISTORIC_SOURCE_SHA,
             "observational_new_code_not_valid_checkpoint_continuation":True,
             "one_shared_optimizer_in_each_trial":True,
@@ -193,6 +311,10 @@ def compare(bootstrap, actors, *, strict=False):
             "max_final_model_parameter_abs_difference":largest,
             "final_models_bitwise_equal":checksum_equal,
             "one_trial_40_step_speed_ratio":round(speed,4),
+            "full_state_audit":(_audit_full_state(scalar,optimized)
+                                if compare_packing else None),
+            "full_generation_actor_collection_timed":False,
+            "same_32_match_group_40_updates_tested":True,
             "twofold_wall_speed_proven":False,
             "strength_comparison_performed":False,
             "champion_promoted":False,
@@ -208,8 +330,10 @@ def main():
     p.add_argument("--bootstrap",required=True)
     p.add_argument("--actors",required=True)
     p.add_argument("--strict",action="store_true")
+    p.add_argument("--compare-packing",action="store_true")
     a=p.parse_args()
-    print(json.dumps(compare(a.bootstrap,a.actors,strict=a.strict),
+    print(json.dumps(compare(a.bootstrap,a.actors,strict=a.strict,
+                             compare_packing=a.compare_packing),
                      indent=2),flush=True)
 
 
