@@ -312,11 +312,18 @@ jobs:
           python -m scripts.rnad.shared_league_artifact_recovery resolve \
             --generation "${{ inputs.generation }}" --artifact-json listing.json > resolved.json
           test "$(jq -r '.source_artifacts | length' resolved.json)" -eq 20
+          # Four bounded concurrent GH transport streams. Logical IDs,
+          # recovered/original identity, exact run and 20/20 barrier are
+          # validated before any source reaches the single Learner.
+          python -m scripts.rnad.shared_league_parallel_download \
+            --generation "${{ inputs.generation }}" \
+            --run-id "${{ github.run_id }}" \
+            --resolved resolved.json --out actors --workers 4 \
+            | tee actor-transport-report.json
           for n in $(seq 0 19); do
-            artifact_name="$(jq -r --argjson n "$n" '.source_artifacts[$n]' resolved.json)"
-            download_pinned "$artifact_name" "actors/actor-$n"
             test -s "actors/actor-$n/actor-$n.json.gz"
           done
+          cat actor-transport-report.json >> "$GITHUB_STEP_SUMMARY"
           echo '20/20 distinct accepted source artifacts; full Match receipt verification follows' >> "$GITHUB_STEP_SUMMARY"
       - name: Exactly 1 Learner x 40 NeuRD/V-trace steps; full optimizer/Target/Magnet/RNG state
         run: |
