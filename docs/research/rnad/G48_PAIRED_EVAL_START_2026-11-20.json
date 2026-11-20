@@ -1,0 +1,36 @@
+{
+  "schema": "rnad-i5-g48-preregistered-95pct-paired-v1",
+  "workflow_commit_sha": "3b6fffcd170b736fb2a4d23f04fa2d801ab6c8ad",
+  "training_source_sha": "01501f3a1e12511140bf772d435d39c0c07319bc",
+  "engine_sha": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "G48_checkpoint_generation": 49,
+  "model_artifacts": {
+    "G48": 14572586905,
+    "G12": 14541007309,
+    "G11": 14540081530
+  },
+  "analysis_families": {
+    "aq": {
+      "candidate": "G48",
+      "baselines": [
+        "G12",
+        "G11"
+      ],
+      "seed_start": 10710001,
+      "independent_seed_blocks": 4096,
+      "expected_complete_matches": 24576
+    },
+    "direct": {
+      "candidate": "G48",
+      "baseline": "G12",
+      "seed_start": 10720001,
+      "independent_seed_blocks": 4096,
+      "expected_complete_matches": 8192
+    }
+  },
+  "familywise_alpha_per_family": 0.05,
+  "minimum_practical_gain": 0.02,
+  "both_seats": true,
+  "fixed_N_no_intermediate_peeking": true,
+  "no_automatic_champion_or_merge": true
+}
