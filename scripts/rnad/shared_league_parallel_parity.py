@@ -203,9 +203,27 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
                                       vector=True) as workers:
                 begun=time.perf_counter()
                 fast_losses,fast_ratios=workers.step_gradients(tasks)
-                fast_seconds=time.perf_counter()-begun
+                fast_audit_seconds=time.perf_counter()-begun
         for left,right in zip(serial_grads, fast.parameters()):
             torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+        # Audit instrumentation deliberately runs OUTSIDE performance timing:
+        # its additional reference Torch targets are required for safety
+        # but are not part of the production candidate's computation.
+        fast_bench, bt, bm, bo, bs = _models(root, checkpoint)
+        with patch.dict(os.environ, {
+                "RNAD_FAST_RNAD_TARGETS": "1",
+                "RNAD_AUDIT_NUMERIC_TARGETS": "0"}):
+            with ParallelGradientPool(fast_bench, bt, bm,
+                                      workers=processes, vector=True) as workers:
+                begun = time.perf_counter()
+                fast_bench_losses, fast_bench_ratios = workers.step_gradients(tasks)
+                fast_seconds = time.perf_counter()-begun
+        for left, right in zip(serial_grads, fast_bench.parameters()):
+            torch.testing.assert_close(left, right.grad,
+                                       rtol=4e-3, atol=4e-5)
+        if abs(sum(fast_losses)-sum(fast_bench_losses)) > 1e-5 or (
+                abs(max(fast_ratios)-max(fast_bench_ratios)) > 1e-8):
+            raise AssertionError("Audited versus unaudited NumPy learner drift")
         # Candidate: stop-gradient NeuRD coefficients are flattened into one
         # differentiable dot per Match/phase. Preserve the same 32 real
         # accepted Match decisions and compare all model gradients.
@@ -224,7 +242,7 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         with patch.dict(os.environ, {
                 "RNAD_FAST_RNAD_TARGETS": "1",
                 "RNAD_LINEARIZED_NEURD": "1",
-                "RNAD_AUDIT_NUMERIC_TARGETS": "1"}):
+                "RNAD_AUDIT_NUMERIC_TARGETS": "0"}):
             with ParallelGradientPool(combined, ct, cm, workers=processes,
                                       vector=True) as workers:
                 begun = time.perf_counter()
@@ -306,6 +324,9 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         "single_trial_ratio_microbatch4_over_8":
             round(vector_parallel_seconds / eight_seconds, 4),
         "parallel_vector_numpy_targets_seconds": round(fast_seconds, 4),
+        "numpy_target_parity_audit_extra_reference_seconds":
+            round(fast_audit_seconds, 4),
+        "timed_candidate_numeric_audit_disabled": True,
         "single_trial_ratio_torch_over_numpy_targets":
             round(vector_parallel_seconds / fast_seconds, 4),
         "parallel_vector_linearized_neurd_seconds":
