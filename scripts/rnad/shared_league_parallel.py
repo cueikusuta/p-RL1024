@@ -17,13 +17,15 @@ from scripts.rnad.shared_league_learner import _load, _match_loss
 
 _WORKER_NETS = None
 _WORKER_VECTOR = False
+_WORKER_VECTOR_BATCH = 4
 
 
-def _worker_init(model, target, magnet, vector):
-    global _WORKER_NETS, _WORKER_VECTOR
+def _worker_init(model, target, magnet, vector, vector_batch):
+    global _WORKER_NETS, _WORKER_VECTOR, _WORKER_VECTOR_BATCH
     torch.set_num_threads(1)
     _WORKER_NETS = (model, target, magnet)
     _WORKER_VECTOR = vector
+    _WORKER_VECTOR_BATCH = vector_batch
 
 
 def _grad_chunk(rows):
@@ -42,9 +44,9 @@ def _grad_chunk(rows):
 
     if _WORKER_VECTOR:
         from scripts.rnad.shared_league_batched import batched_match_losses
-        for start in range(0, len(rows), 4):
+        for start in range(0, len(rows), _WORKER_VECTOR_BATCH):
             part = [(loaded(path, checksum), role)
-                    for path, role, checksum in rows[start:start+4]]
+                    for path, role, checksum in rows[start:start+_WORKER_VECTOR_BATCH]]
             outputs = batched_match_losses(model, target, magnet, part)
             (sum(loss for loss, _ in outputs) / 32).backward()
             losses.extend(float(loss.detach()) for loss, _ in outputs)
@@ -72,11 +74,20 @@ def _grad_chunk(rows):
 
 class ParallelGradientPool:
     def __init__(self, model, target, magnet, *, workers=4, vector=False,
-                 task_matches=None):
+                 task_matches=None, vector_batch=None):
         if type(workers) is not int or workers not in (2, 4):
             raise ValueError("Use 2 or 4 bounded hosted CPU workers")
         if type(vector) is not bool:
             raise ValueError("Invalid vector worker option")
+        if vector_batch is None:
+            raw = os.environ.get("RNAD_PARALLEL_VECTOR_MATCH_BATCH", "4")
+            if raw not in ("4", "8"):
+                raise ValueError("RNAD_PARALLEL_VECTOR_MATCH_BATCH must be 4 or 8")
+            vector_batch = int(raw)
+        if type(vector_batch) is not int or vector_batch not in (4, 8):
+            raise ValueError("Parallel vector batch must be exactly 4 or 8")
+        if not vector and vector_batch != 4:
+            raise ValueError("Vector batch 8 requires vector=True")
         if task_matches is None:
             raw = os.environ.get("RNAD_PARALLEL_TASK_MATCHES", "0")
             if raw not in ("0", "4", "8"):
@@ -88,6 +99,7 @@ class ParallelGradientPool:
         # opt in to deterministic dynamic load balancing across long/short
         # accepted Matches; one parent still owns the only optimizer.
         self.task_matches = task_matches
+        self.vector_batch = vector_batch
         torch.set_num_threads(1)
         if any(p.grad is not None for p in model.parameters()):
             raise ValueError("Start worker pool before accumulating gradients")
@@ -98,7 +110,7 @@ class ParallelGradientPool:
         ctx = mp.get_context("spawn")
         self.pool = ctx.Pool(
             workers, initializer=_worker_init,
-            initargs=(model, target, magnet, vector))
+            initargs=(model, target, magnet, vector, vector_batch))
         self.workers = workers
         self.model = model
 
