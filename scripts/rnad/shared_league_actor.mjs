@@ -67,14 +67,19 @@ function draftFeatures(deep,encoded){
   assert(h.length>0,'Empty own roster');
   const mean=Array(48).fill(0);
   for(const row of h)for(let i=0;i<48;i++)mean[i]+=row[i]/h.length;
-  const extras=encoded.codes.map(code=>{
+  // Only four per-candidate aggregates are needed by the value head.
+  // Keep the original nested reduce and left-to-right summation order,
+  // but avoid materializing one transient four-number array per legal pick
+  // and rescanning that entire array four times.
+  const extrasSum=[0,0,0,0];
+  for(const code of encoded.codes){
     const spent=code.reduce((n,i)=>n+encoded.prices[i],0);
-    return [spent/100,(encoded.credits-spent)/100,
+    const row=[spent/100,(encoded.credits-spent)/100,
       code.reduce((n,i)=>n+encoded.carries[i],0)/6,
       code.reduce((n,i)=>n+encoded.megas[i],0)/6];
-  });
-  return [...mean,...Array.from({length:4},(_,k)=>
-    extras.reduce((n,row)=>n+row[k],0)/extras.length)];
+    for(let k=0;k<4;k++)extrasSum[k]+=row[k];
+  }
+  return [...mean,...extrasSum.map(sum=>sum/encoded.codes.length)];
 }
 const verifiedBundleCache=new Map();
 const verifiedLegacyCache=new Map();
