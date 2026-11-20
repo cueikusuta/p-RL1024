@@ -125,6 +125,25 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
             vector_parallel_seconds=time.perf_counter()-begun
         for left,right in zip(serial_grads, vector_parallel.parameters()):
             torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+        # Optional fine-grained task scheduler: same 32 immutable accepted
+        # Matches, identical single optimizer, checked against scalar reference.
+        dynamic, dt, dm, do, ds = _models(root, checkpoint)
+        with ParallelGradientPool(dynamic, dt, dm, workers=processes,
+                                  vector=True, task_matches=4) as workers:
+            begun=time.perf_counter()
+            dynamic_losses,dynamic_ratios=workers.step_gradients(tasks)
+            dynamic_seconds=time.perf_counter()-begun
+        for left,right in zip(serial_grads, dynamic.parameters()):
+            torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+    torch.nn.utils.clip_grad_norm_(dynamic.parameters(),10.,
+                                   error_if_nonfinite=True)
+    do.step()
+    ds.step()
+    for p,q in zip(serial.parameters(),dynamic.parameters()):
+        torch.testing.assert_close(p,q,rtol=4e-3,atol=4e-5)
+    if abs(sum(losses)-sum(dynamic_losses)) > 1e-3 or (
+            abs(max(ratios)-max(dynamic_ratios)) > 1e-5):
+        raise AssertionError("Dynamic parallel gradient objective changed")
     torch.nn.utils.clip_grad_norm_(vector_parallel.parameters(),10.,
                                    error_if_nonfinite=True)
     vo.step()
@@ -146,6 +165,11 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
         "vector_microbatch4_gradient_seconds":round(vector_seconds, 4),
         "parallel_vector_microbatch4_gradient_seconds":
             round(vector_parallel_seconds, 4),
+        "dynamic_task_matches":4,
+        "parallel_dynamic_microbatch4_gradient_seconds":
+            round(dynamic_seconds, 4),
+        "single_trial_speed_ratio_fixed_over_dynamic":
+            round(vector_parallel_seconds/dynamic_seconds, 4),
         "single_trial_speed_ratio_scalar_over_parallel_vector":
             round(scalar_seconds/vector_parallel_seconds, 4),
         "single_trial_speed_ratio_scalar_over_vector":
