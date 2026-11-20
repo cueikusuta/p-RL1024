@@ -303,6 +303,67 @@ jobs:
           print(json.dumps(report,indent=2),flush=True)
           PY
           cat fixed-64-parity-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Real 64-Match policy prefix and Deep Sets rho row-block parity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip,json,os,subprocess,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_collect import collect
+          def accepted(folder):
+              result={}
+              for file in Path(folder).glob('*.json.gz'):
+                  with gzip.open(file,'rt') as stream:
+                      match=json.load(stream)
+                  assert match['completed'] is True
+                  assert match['score'][match['winner']]==4
+                  key=(match['seed'],match['learner_seat'])
+                  assert key not in result
+                  result[key]=match
+              assert len(result)==64
+              return result
+          cases=[
+              (0,'parallel-four/accepted',4),
+              (16,'fixed-64-parity/actor16/control_two/accepted',2),
+          ]
+          report={'schema':'rnad-i5-optin-policy-prefix-rho-parity-v1',
+                  'head_sha':subprocess.check_output(
+                      ['git','rev-parse','HEAD'],text=True).strip(),
+                  'experimental_only':True,'same_sha_accepted_trajectory_identity':False,
+                  'optimizer_updates':0,'real_complete_matches_compared':0,
+                  'timing_is_single_trial_not_generation_throughput':True,
+                  'cases':[]}
+          try:
+              os.environ['RNAD_POLICY_HIDDEN_PREFIX_REUSE']='1'
+              os.environ['RNAD_DRAFT_RHO_ROW_BLOCK4']='1'
+              os.environ['RNAD_REUSE_LEGACY_FROZEN_LOGITS']='0'
+              for actor,baseline,workers in cases:
+                  reference=accepted(baseline)
+                  path=f'optin-affine-rho-parity/actor{actor}'
+                  start=time.perf_counter()
+                  outcome=collect(bootstrap='bootstrap',actor_id=actor,
+                                  out=path,match_workers=workers)
+                  elapsed=time.perf_counter()-start
+                  assert outcome['accepted_matches']==64
+                  actual=accepted(Path(path,'accepted'))
+                  assert reference==actual, (
+                      f'Actor {actor} seed/seat accepted trajectory changed '
+                      'with opt-in policy prefix or four-output Deep Sets rho')
+                  report['cases'].append({
+                      'actor':actor,'worker_count':workers,
+                      'accepted_matches':len(actual),
+                      'optin_wall_seconds':round(elapsed,4)})
+                  report['real_complete_matches_compared']+=len(actual)
+          finally:
+              os.environ.pop('RNAD_POLICY_HIDDEN_PREFIX_REUSE',None)
+              os.environ.pop('RNAD_DRAFT_RHO_ROW_BLOCK4',None)
+              os.environ.pop('RNAD_REUSE_LEGACY_FROZEN_LOGITS',None)
+          report['same_sha_accepted_trajectory_identity']=True
+          print(json.dumps(report,indent=2),flush=True)
+          Path('optin-prefix-rho-real-parity-report.json').write_text(
+              json.dumps(report,indent=2))
+          PY
+          cat optin-prefix-rho-real-parity-report.json >> "$GITHUB_STEP_SUMMARY"
       - name: Profile actual accepted Actor CPU hotspots (8 Matches)
         run: |
           set -euo pipefail
