@@ -13,6 +13,7 @@ import json
 import math
 import re
 from collections import Counter
+from itertools import chain
 
 SCHEMA = "rnad-shared-league-generation-v1"
 ACTOR_SCHEMA = "rnad-shared-league-actor-v1"
@@ -225,7 +226,7 @@ def _verify_events(record):
               isinstance(pi, list) and isinstance(magnet, list) and
               len(pi) == len(magnet) == n and
               all(type(x) in (int,float) and math.isfinite(x) and x > 0
-                  for x in __import__("itertools").chain(pi, magnet)) and
+                  for x in chain(pi, magnet)) and
               abs(sum(pi)-1) < 1e-5 and abs(sum(magnet)-1) < 1e-5 and
               type(behavior) in (int, float) and math.isfinite(behavior) and
               0 < behavior <= 1 and
