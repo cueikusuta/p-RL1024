@@ -71,11 +71,23 @@ def _grad_chunk(rows):
 
 
 class ParallelGradientPool:
-    def __init__(self, model, target, magnet, *, workers=4, vector=False):
+    def __init__(self, model, target, magnet, *, workers=4, vector=False,
+                 task_matches=None):
         if type(workers) is not int or workers not in (2, 4):
             raise ValueError("Use 2 or 4 bounded hosted CPU workers")
         if type(vector) is not bool:
             raise ValueError("Invalid vector worker option")
+        if task_matches is None:
+            raw = os.environ.get("RNAD_PARALLEL_TASK_MATCHES", "0")
+            if raw not in ("0", "4", "8"):
+                raise ValueError("RNAD_PARALLEL_TASK_MATCHES must be 0, 4 or 8")
+            task_matches = int(raw)
+        if type(task_matches) is not int or task_matches not in (0, 4, 8):
+            raise ValueError("Invalid bounded gradient task size")
+        # Zero preserves the original fixed strided partition. Small tasks
+        # opt in to deterministic dynamic load balancing across long/short
+        # accepted Matches; one parent still owns the only optimizer.
+        self.task_matches = task_matches
         torch.set_num_threads(1)
         if any(p.grad is not None for p in model.parameters()):
             raise ValueError("Start worker pool before accumulating gradients")
@@ -93,7 +105,10 @@ class ParallelGradientPool:
     def step_gradients(self, rows):
         if len(rows) != 32:
             raise ValueError("Exactly 32 complete Match rows per optimizer step")
-        chunks = [rows[i::self.workers] for i in range(self.workers)]
+        chunks = ([rows[i:i+self.task_matches]
+                   for i in range(0, 32, self.task_matches)]
+                  if self.task_matches else
+                  [rows[i::self.workers] for i in range(self.workers)])
         result = self.pool.map(_grad_chunk, chunks)
         # Sum in a bounded deterministic order; independent task completion
         # order has no effect on gradient reduction order.
