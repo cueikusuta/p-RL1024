@@ -13,6 +13,7 @@ import torch
 from scripts.rnad.integrated_policy_v1 import IntegratedPolicyV1
 from scripts.rnad.selection_ab import TRIPLES
 from scripts.rnad.shared_league_learner import _load, _selection_batch
+from scripts.rnad.shared_league_parallel import ParallelGradientPool
 
 
 class SharedLeagueThroughputTest(unittest.TestCase):
@@ -34,6 +35,23 @@ class SharedLeagueThroughputTest(unittest.TestCase):
             "own_num": torch.randn(4, 6, 16),
             "foe_num": torch.randn(4, 6, 6),
         }
+
+    def test_vector_microbatch_configuration_is_bounded(self):
+        model = torch.nn.Linear(2, 2)
+        for bad in ("0", "-1", "1", "16", "garbage"):
+            with self.subTest(value=bad), (
+                    patch.dict(os.environ, {
+                        "RNAD_PARALLEL_VECTOR_MATCH_BATCH": bad})):
+                with self.assertRaisesRegex(ValueError,
+                                             "RNAD_PARALLEL_VECTOR_MATCH_BATCH"):
+                    ParallelGradientPool(model, model, model,
+                                         workers=4, vector=True)
+        with self.assertRaisesRegex(ValueError, "exactly 4 or 8"):
+            ParallelGradientPool(model, model, model, workers=4,
+                                 vector=True, vector_batch=5)
+        with self.assertRaisesRegex(ValueError, "requires vector=True"):
+            ParallelGradientPool(model, model, model, workers=4,
+                                 vector=False, vector_batch=8)
 
     def test_selection_batch_matches_unbatched_predictions_and_gradients(self):
         model = self._model()
