@@ -1,7 +1,7 @@
 {
   "schema": "rnad-i5-g62-source-pinned-ten-hour-v1",
-  "workflow_prelaunch_sha": "f893ab5caad04fda9626ebd5d7974244a2b76bb9",
-  "training_source_sha": "3486890f5ba3e4858540857c4fde3c3493efe66a",
+  "workflow_prelaunch_sha": "70ba16939b1d2b9a6e0ab5b0962f09c8dd529ff8",
+  "training_source_sha": "26bcb35e6a1e7e74daa7e05c74c4b381c751188b",
   "previous_completed_run_id": 44733372530,
   "previous_completed_run_sha": "b1a2d350f5344ca0555db0bf7d15169943600f5e",
   "g62_bootstrap_artifact_id": 14633376773,
