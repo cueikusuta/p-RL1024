@@ -14,6 +14,7 @@ from scripts.rnad.integrated_policy_v1 import IntegratedPolicyV1
 from scripts.rnad.selection_ab import TRIPLES
 from scripts.rnad.shared_league_learner import _load, _selection_batch
 from scripts.rnad.shared_league_parallel import ParallelGradientPool
+from scripts.rnad import shared_league_batched as batched
 
 
 class SharedLeagueThroughputTest(unittest.TestCase):
@@ -162,6 +163,56 @@ class SharedLeagueThroughputTest(unittest.TestCase):
                 json.dump(row, stream)
             self.assertEqual(_load(raw), row)
             self.assertEqual(_load(zipped), row)
+
+    def test_frozen_draft_selection_tensors_reused_without_numerical_change(self):
+        import copy
+        model = self._model()
+        target, magnet = copy.deepcopy(model).eval(), copy.deepcopy(model).eval()
+        pool = torch.randn(8, 44)
+        draft_rows = [(0, 0, {
+            "pool": pool.tolist(),
+            "codes": [[0, 1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 6]],
+            "extra": [[0.1, 0.2, 0.3, 0.4], [0.4, 0.3, 0.2, 0.1]],
+        })]
+        obs = self._observations()
+        selection_rows = [(i, i, {
+            k: v[i].tolist() for k, v in obs.items()
+        }) for i in range(4)]
+        for inference, rows in (
+                (batched._draft_inference, draft_rows),
+                (batched._selection_inference, selection_rows)):
+            with self.subTest(inference=inference.__name__):
+                with patch.dict(os.environ, {
+                        "RNAD_REUSE_FROZEN_PHASE_TENSORS": "0"}):
+                    reference = batched._three_models(
+                        model, target, magnet, inference, iter([rows]))
+                with patch.dict(os.environ, {
+                        "RNAD_REUSE_FROZEN_PHASE_TENSORS": "1"}):
+                    candidate = batched._three_models(
+                        model, target, magnet, inference, iter([rows]))
+                self.assertEqual(set(reference), set(candidate))
+                for key in reference:
+                    for expected, actual in zip(reference[key], candidate[key]):
+                        torch.testing.assert_close(
+                            expected, actual, rtol=0, atol=0)
+                loss_ref = sum(x[0].sum()+x[1] for x in reference.values())
+                loss_new = sum(x[0].sum()+x[1] for x in candidate.values())
+                original_grads = torch.autograd.grad(
+                    loss_ref, list(model.parameters()), allow_unused=True)
+                candidate_grads = torch.autograd.grad(
+                    loss_new, list(model.parameters()), allow_unused=True)
+                for old, new in zip(original_grads, candidate_grads):
+                    if old is None or new is None:
+                        self.assertIsNone(old)
+                        self.assertIsNone(new)
+                    else:
+                        torch.testing.assert_close(old,new,rtol=0,atol=0)
+        with patch.dict(os.environ, {
+                "RNAD_REUSE_FROZEN_PHASE_TENSORS": "garbage"}):
+            with self.assertRaisesRegex(
+                    ValueError, "RNAD_REUSE_FROZEN_PHASE_TENSORS"):
+                batched._three_models(model,target,magnet,
+                    batched._draft_inference,iter([draft_rows]))
 
 
 if __name__ == "__main__":

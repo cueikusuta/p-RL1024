@@ -10,6 +10,7 @@ import argparse
 import gzip
 import json
 import math
+import os
 import time
 from collections import defaultdict
 from contextlib import ExitStack
@@ -28,7 +29,7 @@ _TIMED = ("_draft_inference", "_selection_inference",
           "_battle_inference", "rnad_targets")
 
 
-def profile(bootstrap, actor):
+def profile(bootstrap, actor, *, reuse_tensors=False):
     root = Path(bootstrap)
     manifest = json.loads((root / "generation-manifest.json").read_text())
     verify_manifest(manifest)
@@ -66,6 +67,9 @@ def profile(bootstrap, actor):
     losses, ratios = [], []
     start_all = time.perf_counter()
     with ExitStack() as stack:
+        if reuse_tensors:
+            stack.enter_context(patch.dict(
+                os.environ, {"RNAD_REUSE_FROZEN_PHASE_TENSORS": "1"}))
         for label in _TIMED:
             stack.enter_context(patch.object(
                 batched, label, timed(label, getattr(batched, label))))
@@ -96,6 +100,7 @@ def profile(bootstrap, actor):
         "accepted_decisions": sum(len(row["events"]) for row in rows),
         "matched_minibatch_role": payload["role"],
         "microbatch_matches": 4,
+        "reuse_frozen_phase_tensors": reuse_tensors,
         "single_optimizer_updates": 0,
         "all_gradients_finite": True,
         "timing_is_single_diagnostic_not_full_generation": True,
@@ -109,8 +114,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bootstrap", required=True)
     parser.add_argument("--actor", required=True)
+    parser.add_argument("--reuse-tensors", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(profile(args.bootstrap, args.actor), indent=2),
+    print(json.dumps(profile(args.bootstrap, args.actor,
+                             reuse_tensors=args.reuse_tensors), indent=2),
           flush=True)
 
 

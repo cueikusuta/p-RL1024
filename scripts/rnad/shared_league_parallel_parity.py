@@ -173,6 +173,28 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
             vector_parallel_seconds=time.perf_counter()-begun
         for left,right in zip(serial_grads, vector_parallel.parameters()):
             torch.testing.assert_close(left,right.grad,rtol=4e-3,atol=4e-5)
+        # Research-only reusable public draft/selection tensor preparation.
+        # The same three frozen/model weights, all accepted rows and one
+        # optimizer step are checked against the original scalar reference.
+        packed, pkt, pkm, pko, pks = _models(root, checkpoint)
+        with patch.dict(os.environ, {"RNAD_REUSE_FROZEN_PHASE_TENSORS": "1"}):
+            with ParallelGradientPool(packed, pkt, pkm,
+                                      workers=processes, vector=True) as workers:
+                packed_start = time.perf_counter()
+                packed_losses, packed_ratios = workers.step_gradients(tasks)
+                packed_seconds = time.perf_counter() - packed_start
+        for left, right in zip(serial_grads, packed.parameters()):
+            torch.testing.assert_close(left, right.grad, rtol=4e-3, atol=4e-5)
+        if abs(sum(packed_losses) - sum(vp_losses)) > 1e-5 or (
+                abs(max(packed_ratios) - max(vp_ratios)) > 1e-8):
+            raise AssertionError("Shared frozen input packing changed loss or ratio")
+        torch.nn.utils.clip_grad_norm_(packed.parameters(), 10.,
+                                       error_if_nonfinite=True)
+        pko.step()
+        pks.step()
+        for left, right in zip(serial.parameters(), packed.parameters()):
+            torch.testing.assert_close(left, right, rtol=4e-3, atol=4e-5)
+        packed_adam_report = _audit_adam_optimizer_state(opt, pko)
         # Optional fine-grained task scheduler: same 32 immutable accepted
         # Matches, identical single optimizer, checked against scalar reference.
         dynamic, dt, dm, do, ds = _models(root, checkpoint)
@@ -321,6 +343,10 @@ def benchmark(bootstrap, actor_bundle, *, processes=4):
             round(vector_parallel_seconds, 4),
         "parallel_vector_microbatch8_gradient_seconds":
             round(eight_seconds, 4),
+        "parallel_vector_reused_phase_tensors_seconds":
+            round(packed_seconds, 4),
+        "reused_phase_tensors_32_real_matches":len(rows),
+        "reused_phase_tensors_adam_moments_after_step":packed_adam_report,
         "single_trial_ratio_microbatch4_over_8":
             round(vector_parallel_seconds / eight_seconds, 4),
         "parallel_vector_numpy_targets_seconds": round(fast_seconds, 4),

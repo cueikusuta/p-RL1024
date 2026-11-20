@@ -60,8 +60,8 @@ def _chunk_by_size(rows, size_fn, capacity):
         yield chunk
 
 
-def _draft_inference(net, rows):
-    """One phi for all pools, one rho for all ragged legal candidate teams."""
+def _draft_tensors(rows):
+    """Prepare immutable authority-accepted inputs independently of weights."""
     pool_parts, code_parts, extra_parts = [], [], []
     pool_sizes, action_sizes = [], []
     offset = 0
@@ -83,6 +83,14 @@ def _draft_inference(net, rows):
     pool_tensor = torch.cat(pool_parts, dim=0)
     codes_tensor = torch.cat(code_parts, dim=0)
     extra_tensor = torch.cat(extra_parts, dim=0)
+    return pool_tensor, codes_tensor, extra_tensor, pool_sizes, action_sizes
+
+
+def _draft_inference(net, rows, packed=None):
+    """One phi for all pools, one rho for all ragged legal candidate teams."""
+    if packed is None:
+        packed = _draft_tensors(rows)
+    pool_tensor, codes_tensor, extra_tensor, pool_sizes, action_sizes = packed
     embedded = _call(net.draft.phi, pool_tensor)
     selected = embedded[codes_tensor]
     features = torch.cat((selected.mean(dim=1),
@@ -103,7 +111,8 @@ def _draft_inference(net, rows):
     return out
 
 
-def _selection_inference(net, rows):
+def _selection_tensors(rows):
+    """One public/self selection input conversion shared by all frozen heads."""
     keys = (("own_cat", torch.long), ("foe_cat", torch.long),
             ("own_num", torch.float32), ("foe_num", torch.float32))
     # as_tensor(list_of_tensors) attempts scalar conversion; stack supports
@@ -111,6 +120,11 @@ def _selection_inference(net, rows):
     batched = {key: torch.stack([
         torch.as_tensor(entry[2][key], dtype=dtype) for entry in rows],
         dim=0) for key, dtype in keys}
+    return batched
+
+
+def _selection_inference(net, rows, packed=None):
+    batched = _selection_tensors(rows) if packed is None else packed
     logits, _, _, own, foe = _call(
         net.selection, batched, return_embeddings=True)
     inputs = torch.cat((own.mean(dim=1), foe.mean(dim=1)), dim=-1)
@@ -120,12 +134,22 @@ def _selection_inference(net, rows):
 
 
 def _three_models(model, target, magnet, inference, rows):
+    # The authority-accepted public tensor conversion is identical for Main,
+    # Target and Magnet. Experimental reuse changes only input preparation.
+    flag = os.environ.get("RNAD_REUSE_FROZEN_PHASE_TENSORS", "0")
+    if flag not in ("0", "1"):
+        raise ValueError("RNAD_REUSE_FROZEN_PHASE_TENSORS must be 0 or 1")
+    pack_fn = (_draft_tensors if inference is _draft_inference else
+               _selection_tensors if inference is _selection_inference else None)
+    if flag == "1" and pack_fn is None:
+        raise ValueError("Unknown frozen phase tensor packer")
     result = {}
     for chunk in rows:
-        current = inference(model, chunk)
+        packed = pack_fn(chunk) if flag == "1" else None
+        current = inference(model, chunk, packed)
         with torch.no_grad():
-            targets = inference(target, chunk)
-            magnets = inference(magnet, chunk)
+            targets = inference(target, chunk, packed)
+            magnets = inference(magnet, chunk, packed)
         for key, (logits, value) in current.items():
             t, tv = targets[key]
             m, _ = magnets[key]

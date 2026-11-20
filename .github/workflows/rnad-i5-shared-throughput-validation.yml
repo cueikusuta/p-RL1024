@@ -437,6 +437,20 @@ jobs:
           assert p['phase_wall_seconds']['forward_total']>0
           PY
           cat grad-profile.json >> "$GITHUB_STEP_SUMMARY"
+          python -m scripts.rnad.shared_league_grad_profile \
+            --bootstrap bootstrap --actor real-actor/actor-0.json.gz \
+            --reuse-tensors | tee grad-profile-reused.json
+          python - <<'PY'
+          import json
+          a=json.load(open('grad-profile.json'))
+          b=json.load(open('grad-profile-reused.json'))
+          assert b['reuse_frozen_phase_tensors'] is True
+          assert a['examined_matches']==b['examined_matches']==32
+          assert a['accepted_decisions']==b['accepted_decisions']==4116
+          assert b['all_gradients_finite'] and b['single_optimizer_updates']==0
+          print('Real 32-Match forward/backward timing only; no generation speed claim')
+          PY
+          cat grad-profile-reused.json >> "$GITHUB_STEP_SUMMARY"
   compiled-candidate:
     needs: verify
     continue-on-error: true
