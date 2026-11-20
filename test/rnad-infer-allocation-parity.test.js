@@ -99,3 +99,46 @@ for(const {states,actions,schema} of [
     assert.throws(()=>optimized.infer(state,[[NaN]],0),/Invalid RNAD infer inputs/);
   });
 }
+
+for(const {states,actions,schema} of [
+  {states:32,actions:16,schema:RNAD_FEATURE_SCHEMA},
+  {states:96,actions:48,schema:RNAD_THREE_PHASE_FEATURE_SCHEMA_V5}
+]){
+  test('opt-in shared policy prefix matches original scalar bits '+schema,()=>{
+    const payload=fixture(states,actions,schema);
+    const reference=new PersistentRNADInference(payload);
+    const previous=process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE;
+    let accelerated;
+    try{
+      process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE='1';
+      accelerated=new PersistentRNADInference(payload);
+    }finally{
+      if(previous===undefined)delete process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE;
+      else process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE=previous;
+    }
+    for(let step=0;step<12;step++){
+      const seat=step%2,advance=step%4!==0;
+      const state=Array.from({length:states},(_,i)=>((i*11+step)%37-18)/19);
+      const candidates=Array.from({length:[1,3,60,8][step%4]},(_,k)=>
+        Array.from({length:actions},(_,j)=>((k*13+j*7+step)%41-20)/23));
+      const expected=originalInfer(reference,state,candidates,seat,advance);
+      const actual=accelerated.infer(state,candidates,seat,{advance});
+      assert.deepStrictEqual(actual,expected);
+      assert.deepStrictEqual(accelerated.memory,reference.memory);
+    }
+    accelerated.reset();reference.reset();
+    assert.deepStrictEqual(accelerated.memory,reference.memory);
+  });
+}
+test('invalid prefix optimization flag fails closed',()=>{
+  const previous=process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE;
+  try{
+    process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE='maybe';
+    assert.throws(()=>new PersistentRNADInference(
+      fixture(96,48,RNAD_THREE_PHASE_FEATURE_SCHEMA_V5)),
+      /RNAD_POLICY_HIDDEN_PREFIX_REUSE must be 0 or 1/);
+  }finally{
+    if(previous===undefined)delete process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE;
+    else process.env.RNAD_POLICY_HIDDEN_PREFIX_REUSE=previous;
+  }
+});
