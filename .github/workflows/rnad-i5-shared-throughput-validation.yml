@@ -115,6 +115,30 @@ jobs:
                                 out="parallel-four",match_workers=4)
           parallel_four_elapsed=time.monotonic()-start
           assert parallel_four["accepted_matches"]==64
+          # Isolated matched A/B of the SHA-equal Main/Magnet stateless-head
+          # shortcut. The reference is pinned to the immediate pre-change
+          # actor implementation, but the exact SAME current source-correct
+          # bootstrap and Match seeds drive both sides. Never publish it as
+          # a second training generation or a new checkpoint.
+          reference_source="c31262757e0307ad6c802121012baa9a59536c1d"
+          original_script="scripts/rnad/shared_league_actor_before_ref_reuse.mjs"
+          with open(original_script,"w") as out:
+              subprocess.run(["git","show",reference_source+
+                  ":scripts/rnad/shared_league_actor.mjs"],
+                  check=True,stdout=out)
+          baseline=Path("before-ref-reuse")
+          (baseline/"accepted").mkdir(parents=True)
+          prior=json.loads(Path("batched/actor-batch-jobs.json").read_text())
+          for task in prior["jobs"]:
+              task["out"]=str(baseline/"accepted"/Path(task["out"]).name)
+          (baseline/"jobs.json").write_text(json.dumps(prior))
+          magnet="bootstrap/magnet" if Path("bootstrap/magnet").is_dir() else "bootstrap/actor"
+          baseline_start=time.monotonic()
+          subprocess.run(["node",original_script,"--meta","batched/actor-meta.json",
+                          "--main","bootstrap/actor","--magnet",magnet,
+                          "--batch-jobs",str(baseline/"jobs.json")],
+                         check=True,timeout=1800,stdout=subprocess.DEVNULL)
+          baseline_ref_elapsed=time.monotonic()-baseline_start
           Path("serial").mkdir(exist_ok=True)
           meta="batched/actor-meta.json"
           magnet="bootstrap/magnet" if Path("bootstrap/magnet").exists() else "bootstrap/actor"
@@ -137,7 +161,9 @@ jobs:
                       concurrent=json.load(f)
                   with gzip.open(Path("parallel-four/accepted")/(ident+".json.gz"),"rt") as f:
                       concurrent_four=json.load(f)
-                  assert serial==batch==concurrent==concurrent_four, f"Actor seed/seat parity failed: {ident}"
+                  with gzip.open(Path("before-ref-reuse/accepted")/(ident+".json.gz"),"rt") as f:
+                      before_reuse=json.load(f)
+                  assert serial==batch==concurrent==concurrent_four==before_reuse, f"Actor seed/seat parity failed: {ident}"
           serial_elapsed=time.monotonic()-start
           report={
               "schema":"rnad-i5-actor-batch-parity-timing-research-v1",
@@ -148,6 +174,10 @@ jobs:
               "persistent_actor_seconds":round(fast_elapsed,3),
               "two_node_process_actor_seconds":round(parallel_elapsed,3),
               "four_node_process_actor_seconds":round(parallel_four_elapsed,3),
+              "before_ref_reuse_actor_seconds":round(baseline_ref_elapsed,3),
+              "same_sha_stateless_head_reuse_matched_speed_ratio":round(
+                  baseline_ref_elapsed/fast_elapsed,3),
+              "before_ref_reuse_accepted_trajectory_identical":True,
               "single_match_process_seconds":round(serial_elapsed,3),
               "speed_ratio_old_over_new":round(serial_elapsed/fast_elapsed,3),
               "speed_ratio_persistent_over_two_process":round(
