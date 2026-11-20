@@ -207,6 +207,46 @@ jobs:
           with open("actor-parity-report.json","w") as f:json.dump(report,f,indent=2)
           PY
           cat actor-parity-report.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Frozen v3 fixed-opponent Main/Magnet reuse accepted-Match parity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip,json,os,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_collect import collect
+          timings=[]
+          for actor in (16,17):
+              results=[]
+              for mode in ('0','1'):
+                  os.environ['RNAD_REUSE_LEGACY_FROZEN_LOGITS']=mode
+                  target=f'fixed-legacy-parity/actor{actor}/mode{mode}'
+                  start=time.perf_counter()
+                  outcome=collect(bootstrap='bootstrap',actor_id=actor,
+                                  out=target,smoke=True)
+                  elapsed=time.perf_counter()-start
+                  assert outcome['smoke_complete_matches']==2
+                  ids={}
+                  for path in Path(target,'accepted').glob('*.json.gz'):
+                      with gzip.open(path,'rt') as source:
+                          data=json.load(source)
+                      assert data['completed'] is True and data['score'][data['winner']]==4
+                      ids[data['match_id']]=data
+                  assert len(ids)==2
+                  results.append(ids)
+                  timings.append({'actor':actor,'mode':mode,
+                                  'accepted_matches':len(ids),
+                                  'elapsed_seconds':round(elapsed,3)})
+              assert results[0]==results[1], (
+                  f'Frozen v3 reference reuse changed accepted seed/seat trajectories for Actor {actor}')
+          os.environ.pop('RNAD_REUSE_LEGACY_FROZEN_LOGITS',None)
+          print(json.dumps({'schema':'rnad-i5-frozen-v3-reuse-parity-v1',
+              'source_sha':__import__('subprocess').check_output(
+                  ['git','rev-parse','HEAD'],text=True).strip(),
+              'fixed_actors_verified':[16,17],
+              'same_seed_seat_accepted_trajectories_identical':True,
+              'timings_are_smoke_only_not_generation_speed':True,
+              'timings':timings},indent=2))
+          PY
       - name: Profile actual accepted Actor CPU hotspots (8 Matches)
         run: |
           set -euo pipefail
