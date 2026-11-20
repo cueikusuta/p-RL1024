@@ -1,6 +1,6 @@
 {
   "schema": "rnad-i5-g49-strength-continuation-launch-v1",
-  "source_sha": "98d025d4859e0005d76771c17fd385a0e3f4e400",
+  "source_sha": "a54ff4d14e2e5aa56cf35f44b95685a3f744cb69",
   "previous_source_sha": "01501f3a1e12511140bf772d435d39c0c07319bc",
   "g49_source_run_id": 44554626133,
   "g49_bootstrap_artifact": "rnad-i5-cont-next-bootstrap-after-g48",
