@@ -247,8 +247,22 @@ export function approvedFixedSession(config,epsilon=.02){
           data,roundWins:scores[seat],roundLosses:scores[1-seat]});
         const k=guard.choose(chosen.candidates,chosen.selectedIndex).index;
         intended=legal[k];
-        postAccept=(action)=>commitStrategyV2Choice(publicView,{
-          ...options,variant:'strategy-v2-e'},ranking,action);
+        postAccept=(action)=>{
+          const supported=ranking.rows.some(row=>
+            row.action.kind===action.kind&&
+            row.action.index===action.index&&
+            Boolean(row.action.mega)===Boolean(action.mega)&&
+            row.action.targetIndex===action.targetIndex);
+          if(!supported){
+            // epsilon exploration can choose an AUTHORITY-legal action outside
+            // V2's narrower public rank. Do not pretend AQ actually proposed
+            // that action; clear tactical memory instead of forging a V2 commit.
+            memory={};
+            return;
+          }
+          commitStrategyV2Choice(publicView,{
+            ...options,variant:'strategy-v2-e'},ranking,action);
+        };
       }else{
         intended=chooseStrategyV2Action(publicView,{
           ...options,variant:'strategy-v2-e',
