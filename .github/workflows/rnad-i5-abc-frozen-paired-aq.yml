@@ -1,10 +1,6 @@
 name: I5 A/B/C preregistered 2048 seed paired frozen AQ comparison
 on:
-  push:
-    branches: [research/5-abc-frozen-paired-aq-eval]
-    paths:
-      - .github/workflows/rnad-i5-abc-frozen-paired-aq.yml
-  workflow_dispatch: {}
+  workflow_dispatch: {} # No automatic 12,288-Match rerun on a workflow maintenance commit
 permissions: {}
 concurrency:
   group: rnad-i5-abc-frozen-aq-comparison
@@ -175,14 +171,18 @@ jobs:
           set -euo pipefail
           gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
              --name rnad-i5-abc-frozen-plan-and-bundles --dir frozen
-          mkdir -p evidence
+          mkdir -p raw-artifacts evidence
           gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
-             --pattern 'rnad-i5-abc-paired-*-part-*' --merge-multiple --dir evidence
-          test "$(find evidence -name '*.json' | wc -l)" -eq 48
+             --pattern 'rnad-i5-abc-paired-*-part-*' --dir raw-artifacts
           python - <<'PY'
           from pathlib import Path
+          import shutil
+          files=list(Path('raw-artifacts').rglob('*.json'))
           expected={f'abc-{m}-{i}.json' for m in ('A','B','C') for i in range(16)}
-          assert {p.name for p in Path('evidence').glob('*.json')}==expected
+          assert len(files)==48 and {p.name for p in files}==expected
+          for p in files:
+              assert p.parent.name=='rnad-i5-abc-paired-'+p.name[4]+'-part-'+p.stem.split('-')[-1]
+              shutil.copyfile(p,Path('evidence')/p.name)
           PY
       - name: Final N-only 95% Bonferroni 3-comparison paired seed-block inference
         run: |
