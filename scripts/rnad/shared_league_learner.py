@@ -93,7 +93,10 @@ def _order(rows):
 def _shape_model(actor_dir):
     import json
     source = json.loads((Path(actor_dir) / "selection.json").read_text())
-    return IntegratedPolicyV1(source["public_actor_vocabulary"])
+    battle = json.loads((Path(actor_dir) / "battle.json").read_text())
+    from scripts.rnad.neural import THREE_PHASE_FEATURE_SCHEMA_V5
+    return IntegratedPolicyV1(source["public_actor_vocabulary"],
+        battle_schema=battle.get("feature_schema", THREE_PHASE_FEATURE_SCHEMA_V5))
 
 
 def _models(bootstrap, checkpoint):
