@@ -13,6 +13,8 @@ import {encodeRnadThreePhaseDecisionV4,RNAD_THREE_PHASE_FEATURE_SCHEMA_V4}
   from '../../src/ml/rnad-phase-features-v4.js';
 import {encodeRnadThreePhaseDecisionV5,RNAD_THREE_PHASE_FEATURE_SCHEMA_V5}
   from '../../src/ml/rnad-phase-features-v5.js';
+import {encodeRnadThreePhaseDecisionV6,RNAD_THREE_PHASE_FEATURE_SCHEMA_V6}
+  from '../../src/ml/rnad-phase-features-v6.js';
 export const RNAD_MODEL_SCHEMA='rnad-small-gru-v1';
 const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const sigmoid=x=>1/(1+Math.exp(-x));
@@ -38,13 +40,14 @@ export class PersistentRNADInference{
     const payload=typeof serialized==='string'?JSON.parse(readFileSync(serialized,'utf8')):serialized;
     if(!payload||payload.schema!==RNAD_MODEL_SCHEMA||
       payload.hidden!==128||!payload.weights||
-      ![32,48,96].includes(payload.state_features)||
-      ![16,32,48].includes(payload.action_features))
+      ![32,48,96,384].includes(payload.state_features)||
+      ![16,32,48,160].includes(payload.action_features))
       throw new TypeError('Wrong RNAD model/schema dimensions');
     this.featureSchema=payload.feature_schema??RNAD_FEATURE_SCHEMA;
     this.stateFeatures=payload.state_features;
     this.actionFeatures=payload.action_features;
-    const widths=this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V5?
+    const widths=this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V6?
+      [384,160]:this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V5?
       [96,48]:
       [RNAD_THREE_PHASE_FEATURE_SCHEMA_V3,RNAD_THREE_PHASE_FEATURE_SCHEMA_V4]
         .includes(this.featureSchema)?[48,32]:[32,16];
@@ -54,7 +57,8 @@ export class PersistentRNADInference{
       RNAD_THREE_PHASE_FEATURE_SCHEMA_V2,
       RNAD_THREE_PHASE_FEATURE_SCHEMA_V3,
       RNAD_THREE_PHASE_FEATURE_SCHEMA_V4,
-      RNAD_THREE_PHASE_FEATURE_SCHEMA_V5].includes(this.featureSchema))
+      RNAD_THREE_PHASE_FEATURE_SCHEMA_V5,
+      RNAD_THREE_PHASE_FEATURE_SCHEMA_V6].includes(this.featureSchema))
       throw new TypeError('Unsupported RNAD model feature schema');
     const p=payload.weights,H=128;
     this.params={};
@@ -157,6 +161,8 @@ export class PersistentRNADInference{
       encodeRnadThreePhaseDecisionV4(observation,legalActions):
       this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V5?
       encodeRnadThreePhaseDecisionV5(observation,legalActions):
+      this.featureSchema===RNAD_THREE_PHASE_FEATURE_SCHEMA_V6?
+      encodeRnadThreePhaseDecisionV6(observation,legalActions):
       encodeRnadDecision(observation,legalActions);
     return this.infer(f.state,f.actions,seat,opts);
   }
