@@ -4,6 +4,7 @@
 import {encodeRnadThreePhaseDecisionV5} from './rnad-phase-features-v5.js';
 import data from '../../data/catalog/battle-data.json' with {type:'json'};
 import {effectiveness} from '../battle-mechanics.js';
+import {calculateChampionsStats} from '../champions-stats.js';
 
 export const RNAD_THREE_PHASE_FEATURE_SCHEMA_V6='rnad-three-phase-features-v6';
 export const RNAD_V6_STATE_FEATURES=384;
@@ -119,6 +120,33 @@ function opponentRoster(obs){
   return roster;
 }
 const moveId=m=>typeof m==='string'?m:m?.id;
+const boostScale=x=>x>=0?(2+Math.min(6,x))/2:2/(2+Math.min(6,-x));
+// Intentionally NOT an exact damage oracle: enemy EVs, nature, hidden
+// item/ability, damage rolls and additional modifiers are unavailable.
+// Report a broad range plus conservative KO-possible/KO-likely indicators.
+function publicDamageBand(observation,active,def,move,typing){
+  const species=data.species?.[observation.opponent?.speciesId];
+  if(!species?.baseStats||!Number.isFinite(observation.opponent?.hpPercent)||
+     !['Physical','Special'].includes(def.category)||
+     !Number.isFinite(def.basePower)||def.basePower<=0)
+    return {low:0,high:0,possible:0};
+  const p=calculateChampionsStats(species.baseStats,{},{});
+  const ownStat=def.category==='Physical'?'atk':'spa';
+  const foeStat=def.category==='Physical'?'def':'spd';
+  const attack=number(active.stats?.[ownStat]??active.baseStats?.[ownStat])*
+    boostScale(number(active.boosts?.[ownStat]??active.stages?.[ownStat]));
+  const defense=number(p[foeStat])*
+    boostScale(number(observation.opponent?.stages?.[foeStat]));
+  const baseHp=Math.max(1,number(p.hp)*bound(observation.opponent.hpPercent,100));
+  const stab=active.types?.includes(def.type)?1.5:1;
+  const standard=((22*def.basePower*attack/Math.max(1,defense))/50+2)*
+    Math.max(0,typing)*stab/Math.max(1,baseHp);
+  // ± broad proxy uncertainty to discourage an overconfident exact-KO claim.
+  // These are capped damage ratios, not calibrated percentages/probabilities.
+  const low=standard*0.68,high=standard*1.55;
+  return {low:bound(low,2),high:bound(high,2),
+    possible:high>=1?1:0};
+}
 function action112(obs,action){
   const p=obs.self?.team?.[obs.self?.active];
   if(!p)throw new TypeError('Missing own active team member');
@@ -148,6 +176,8 @@ function action112(obs,action){
   });
   const mult=attacking&&Array.isArray(obs.opponent?.types)&&obs.opponent.types.length?
     effectiveness(type,obs.opponent.types,data.typeChart):0;
+  const damage=attacking?publicDamageBand(obs,p,def,move,mult):
+    {low:0,high:0,possible:0};
   const pp=typeof move==='object'?move?.pp:p.pp?.[action.index];
   const mx=typeof move==='object'?move?.maxPP:undefined;
   const movePart=[...typeFlags(type?[type]:[]),
@@ -159,7 +189,7 @@ function action112(obs,action){
     mx?ratio(pp,mx):bound(pp,64),
     (p.types??[]).includes(type)?1:0,bound(mult,4),
     bound(number(def.basePower)*number(mult),1000),
-    def.recoil?1:0,def.heal?1:0,action.mega?1:0];
+    damage.low,damage.high,action.mega?1:0];
   assertWidth(movePart,48,'move action');
   const target=swapped??{};
   const boosts=target.boosts??target.stages??{};
@@ -173,7 +203,7 @@ function action112(obs,action){
   const context=[...foeTypes,bound(p.stats?.spe??p.baseStats?.spe,350),
     bound(swapped?.stats?.spe??swapped?.baseStats?.spe,350),
     ratio(p.hp,p.maxHP),bound(obs.opponent?.hpPercent,100),
-    bound(number(def.priority)+7,14),bound(mult,4)];
+    bound(number(def.priority)+7,14),damage.possible];
   assertWidth(context,24,'action context');
   return assertWidth([...movePart,...switchPart,...context],112,'action extension');
 }
