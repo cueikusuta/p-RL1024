@@ -105,7 +105,7 @@ jobs:
         with:
           name: rnad-i5-cont-g${{ inputs.generation }}-actor-${{ matrix.actor_id }}
           path: out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz
-          retention-days: 3
+          retention-days: 1
           if-no-files-found: error
 
   inspect:
@@ -205,7 +205,7 @@ jobs:
         with:
           name: rnad-i5-cont-g${{ inputs.generation }}-recovered-actor-${{ matrix.actor_id }}
           path: out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz
-          retention-days: 3
+          retention-days: 1
           if-no-files-found: error
 
   learner:
@@ -343,12 +343,59 @@ jobs:
         with:
           name: rnad-i5-cont-g${{ inputs.generation }}-full-learner-result
           path: research-output/
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: success()
         with:
           name: rnad-i5-cont-next-bootstrap-after-g${{ inputs.generation }}
           path: next-bootstrap/
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: error
+
+  cleanup:
+    name: "g\${{ inputs.generation }} bounded storage cleanup after verified handoff"
+    needs: learner
+    if: \${{ needs.learner.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    permissions: {actions: write}
+    env:
+      GH_TOKEN: \${{ github.token }}
+    steps:
+      - name: Delete ONLY consumed Actor shards and obsolete B+C intermediate checkpoint artifacts
+        run: |
+          set -euo pipefail
+          gh api 'repos/cueikusuta/p-RL1024/actions/runs/\${{ github.run_id }}/artifacts?per_page=100' \
+            --paginate --jq '.artifacts[] | [.id,.name,.expired] | @tsv' > artifacts.tsv
+          python - <<'PY'
+          from pathlib import Path
+          g=int("\${{ inputs.generation }}")
+          entries={}
+          for line in Path("artifacts.tsv").read_text().splitlines():
+              ident,name,expired=line.split("\t")
+              assert ident.isdecimal() and name not in entries
+              entries[name]=(int(ident),expired)
+          current=f"rnad-i5-cont-next-bootstrap-after-g{g}"
+          assert current in entries and entries[current][1]=="false",(
+              "No verified next-bootstrap, refusing cleanup")
+          delete=[]
+          for actor in range(20):
+              name=f"rnad-i5-cont-g{g}-actor-{actor}"
+              if name in entries and entries[name][1]=="false":
+                  delete.append(entries[name][0])
+          old=g-2
+          if old>=199 and old%25!=0:
+              for name in (f"rnad-i5-cont-next-bootstrap-after-g{old}",
+                           f"rnad-i5-cont-g{old}-full-learner-result"):
+                  if name in entries and entries[name][1]=="false":
+                      delete.append(entries[name][0])
+          Path("delete-ids.txt").write_text("".join(f"{x}\n" for x in delete))
+          print(f"gen={g}, consumed={len(delete)}, keep latest checkpoint and milestones")
+          PY
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            gh api --method DELETE "repos/cueikusuta/p-RL1024/actions/artifacts/$id"
+          done < delete-ids.txt
+          echo "Only verified consumed artifacts deleted; full-state checkpoints remain pinned" >> "$GITHUB_STEP_SUMMARY"
