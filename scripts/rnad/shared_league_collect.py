@@ -76,7 +76,7 @@ def _verified_match(path, *, seed, seat, match_id, manifest, opponent,
         row.get("score", [0, 0])[row["winner"]] != 4):
         raise ValueError("Stale or incomplete accepted Match on retry")
     if verify_events:
-        _verify_events(row)
+        _verify_events(row, battle_schema=manifest.get("battle_feature_schema", "rnad-three-phase-features-v5"))
     return row
 
 

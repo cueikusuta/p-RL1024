@@ -21,6 +21,7 @@ from scripts.rnad.integrated_policy_v1 import (
 from scripts.rnad.neural import (
     RNADNetwork, export_json, migrate_v2_export_to_v3,
     THREE_PHASE_FEATURE_SCHEMA_V3, THREE_PHASE_FEATURE_SCHEMA_V5,
+    THREE_PHASE_FEATURE_SCHEMA_V6, STATE_FEATURES_V6,
     STATE_FEATURES_V3, ACTION_FEATURES_V3,
 )
 from scripts.rnad.shared_league_contract import (
@@ -104,7 +105,9 @@ def export_bundle(net, *, generation, original_draft, selection_template,
     write_json(directory / "selection.json", source_a)
 
     export_json(net.battle, directory / "battle.json",
-                feature_schema=THREE_PHASE_FEATURE_SCHEMA_V5)
+                feature_schema=THREE_PHASE_FEATURE_SCHEMA_V6
+                if net.battle.state_features==STATE_FEATURES_V6
+                else THREE_PHASE_FEATURE_SCHEMA_V5)
     critics = {
         "schema": CRITIC_SCHEMA,
         "generation": generation,

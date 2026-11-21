@@ -204,6 +204,36 @@ class SharedLeagueContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "provenance"):
             verify_actor(self.manifest, corrupted)
 
+    def test_v6_accepts_strict_384_by_160_battle_tensors_only_when_pinned(self):
+        m=manifest()
+        m["battle_feature_schema"]="rnad-three-phase-features-v6"
+        x=payload(m,0)
+        for row in x["matches"]:
+            for event in row["events"]:
+                if event["phase"]=="battle":
+                    event["phase_input"]={
+                        "state":[0.1]*384,
+                        "actions":[[0.1]*160,[0.2]*160],
+                    }
+        verify_actor(m,x)
+        wrong=copy.deepcopy(x)
+        event=next(e for e in wrong["matches"][0]["events"]
+                   if e["phase"]=="battle")
+        event["phase_input"]["actions"][0].pop()
+        with self.assertRaisesRegex(ValueError,"versioned battle"):
+            verify_actor(m,wrong)
+        wrong_schema=copy.deepcopy(m)
+        del wrong_schema["battle_feature_schema"]
+        # Construct a fresh envelope bound to the legacy manifest; changing
+        # a manifest without resealing must fail earlier on the SHA gate.
+        legacy_payload=payload(wrong_schema,0)
+        for left,right in zip(legacy_payload["matches"],x["matches"]):
+            for e,source in zip(left["events"],right["events"]):
+                if e["phase"]=="battle":
+                    e["phase_input"]=copy.deepcopy(source["phase_input"])
+        with self.assertRaisesRegex(ValueError,"versioned battle"):
+            verify_actor(wrong_schema,legacy_payload)
+
     def test_model_dimensions_not_silently_accepted_as_integration(self):
         m = copy.deepcopy(self.manifest)
         m["feature_schema"] = "rnad-three-phase-features-v5"

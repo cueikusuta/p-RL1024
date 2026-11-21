@@ -26,6 +26,8 @@ MATCHES_PER_GENERATION = ACTORS * MATCHES_PER_ACTOR
 OPTIMIZER_BATCH_MATCHES = 32
 OPTIMIZER_STEPS = MATCHES_PER_GENERATION // OPTIMIZER_BATCH_MATCHES
 PHASES = ("draft", "selection", "battle")
+BATTLE_V5 = "rnad-three-phase-features-v5"
+BATTLE_V6 = "rnad-three-phase-features-v6"
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 FORBIDDEN = frozenset((
@@ -94,6 +96,8 @@ def verify_manifest(manifest):
           ACTORS * SEEDS_PER_ACTOR, "Invalid independent seed window")
     _need(manifest.get("feature_schema") == POLICY_SCHEMA,
           "A legacy single-network feature schema is not an integrated policy")
+    _need(manifest.get("battle_feature_schema", BATTLE_V5) in (BATTLE_V5,BATTLE_V6),
+          "Unapproved versioned Battle feature schema")
     opp = manifest.get("opponents")
     _need(isinstance(opp, dict) and set(opp) ==
           {"historical", "fixed", "exploiter"}, "Wrong opponent categories")
@@ -166,7 +170,7 @@ def _valid_draft_codes(codes, pool_size):
     return True
 
 
-def _verify_events(record):
+def _verify_events(record, *, battle_schema=BATTLE_V5):
     events = record.get("events")
     rounds = record.get("rounds")
     action_counts = record.get("action_counts")
@@ -210,14 +214,15 @@ def _verify_events(record):
                   "Invalid canonical public selection 60 candidate contract")
             n = 60
         else:
+            state_width,action_width=(384,160) if battle_schema==BATTLE_V6 else (96,48)
             _need(set(p) == {"state", "actions"} and
                   isinstance(p["state"], list) and
-                  len(p["state"]) == 96 and
+                  len(p["state"]) == state_width and
                   all(type(x) in (int,float) and math.isfinite(x)
                       for x in p["state"]) and
                   isinstance(p["actions"], list) and p["actions"] and
-                  _matrix(p["actions"], len(p["actions"]), 48),
-                  "Invalid public v5 battle feature/action tensor")
+                  _matrix(p["actions"], len(p["actions"]), action_width),
+                  "Invalid public versioned battle feature/action tensor")
             n = len(p["actions"])
         index, behavior = e.get("action_index"), e.get("behavior_prob")
         pi, magnet = e.get("policy_pi"), e.get("magnet_pi")
@@ -299,7 +304,7 @@ def verify_actor(manifest, payload):
               row["score"][row["winner"]] == 4 and
               row["score"][1 - row["winner"]] < 4,
               "Incomplete, stale or incorrect authoritative Match metadata")
-        _verify_events(row)
+        _verify_events(row,battle_schema=manifest.get("battle_feature_schema",BATTLE_V5))
     expected = {(seed, seat) for seed in range(
         manifest["seed_start"] + actor_id * SEEDS_PER_ACTOR,
         manifest["seed_start"] + (actor_id + 1) * SEEDS_PER_ACTOR)

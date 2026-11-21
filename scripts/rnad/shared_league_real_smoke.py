@@ -43,7 +43,7 @@ def run(bootstrap, smoke, out):
             x.get("completed") is not True or
             x["score"][x["winner"]]!=4):
             raise ValueError("Fake or mismatched accepted real smoke")
-        _verify_events(x)
+        _verify_events(x, battle_schema=m.get("battle_feature_schema", "rnad-three-phase-features-v5"))
         role="fixed" if "frozen" in file.parts else "self"
         rows.append((x,role))
     if (len({x["match_id"] for x,_ in rows})!=4 or
