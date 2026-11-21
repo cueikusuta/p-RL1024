@@ -1,0 +1,195 @@
+name: I5 A/B/C recover aggregate ONLY from 12288 already-completed Matches
+on:
+  push:
+    branches: [research/5-abc-matched-g198-aq-eval]
+    paths:
+      - .github/workflows/rnad-i5-abc-recover-aggregate-only.yml
+  workflow_dispatch: {}
+permissions: {}
+concurrency:
+  group: i5-abc-existing-evidence-aggregate-only
+  cancel-in-progress: false
+jobs:
+  reference_g195:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 32e822ce1e78325e01bd1979e840d9429a635535
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22'}
+      - name: Pin original Run and download existing 48 shards without unsupported --merge-multiple
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 32e822ce1e78325e01bd1979e840d9429a635535
+          gh api repos/cueikusuta/p-RL1024/actions/runs/44921457899 \
+            --jq '{id,head_sha,status,conclusion}' > frozen-run.json
+          jq -e '.id==44921457899 and .head_sha=="32e822ce1e78325e01bd1979e840d9429a635535" and .status=="completed"' frozen-run.json
+          gh run download 44921457899 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-abc-frozen-plan-and-bundles --dir frozen
+          mkdir -p raw evidence
+          gh run download 44921457899 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-abc-paired-*-part-*' --dir raw
+          python - <<'PY'
+          import json,hashlib,shutil
+          from pathlib import Path
+          root=Path("raw")
+          all_files=list(root.rglob("*.json"))
+          required={f"abc-{m}-{i}.json" for m in "ABC" for i in range(16)}
+          assert len(all_files)==len(required)==48, (len(all_files),len(required))
+          assert {p.name for p in all_files}==required, "missing or duplicate shard"
+          for p in all_files:
+              assert p.parent.name==f"rnad-i5-abc-paired-{p.name[4]}-part-{p.stem.split('-')[-1]}",p
+              shutil.copyfile(p,Path('evidence')/p.name)
+          frozen=Path("frozen")
+          index=json.loads((frozen/"sha256-index.json").read_text())
+          assert set(index)=={p.relative_to(frozen).as_posix()
+                for p in frozen.rglob("*") if p.is_file() and p.name!="sha256-index.json"}
+          for name,expected in index.items():
+              assert hashlib.sha256((frozen/name).read_bytes()).hexdigest()==expected
+          plan=json.loads((frozen/"plan.json").read_text())
+          assert plan["seed_start"]==120000001 and plan["seed_blocks"]==2048
+          assert plan["source_sha"]=="32e822ce1e78325e01bd1979e840d9429a635535"
+          assert plan["familywise_alpha"]==0.05 and len(plan["comparisons"])==3
+          PY
+      - name: Reference-only A G195 vs B/C G198 simultaneous 95pct inference
+        run: |
+          set -euo pipefail
+          node scripts/rnad/paired-league-eval.mjs frozen/plan.json reference-g195-report.json evidence/*.json
+          python - <<'PY'
+          import json
+          d=json.load(open("reference-g195-report.json"))
+          assert d["complete_four_win_matches"]==12288
+          assert d["independent_seed_blocks"]==2048 and d["distinct_models"]==3
+          assert d["familywise_alpha"]==0.05 and len(d["comparisons"])==3
+          assert d["champion_promoted"] is False
+          lines=["## Historical reference: A G195 versus B/C G198",
+            "This is NOT the matched-generation principal comparison.",
+            "All 12288 prior Match outcomes reused without regeneration.",
+            "3 prospective common AQ Bonferroni comparisons / 2048 seed pairs.",
+            "| Contrast | Delta | Simultaneous 95% CI | Significant gain |",
+            "|---|---:|---:|---|"]
+          for c in d["comparisons"]:
+              lo,hi=c["confidence_interval"]
+              lines.append(f"| {c['candidate_model_id']}−{c['baseline_model_id']} | {c['estimate']*100:+.3f}pp | [{lo*100:+.3f}, {hi*100:+.3f}]pp | {c['statistically_supported_gain']} |")
+          open("REFERENCE_SUMMARY.md","w").write("\n".join(lines)+"\n")
+          PY
+          cat REFERENCE_SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-abc-recovered-reference-g195-report
+          path: |
+            reference-g195-report.json
+            REFERENCE_SUMMARY.md
+            frozen/plan.json
+            frozen/audit.json
+            frozen-run.json
+          retention-days: 90
+          if-no-files-found: error
+  matched_g198:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 32e822ce1e78325e01bd1979e840d9429a635535
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22'}
+      - name: Verify both source Runs and collect 16 A198 plus unchanged 32 B/C result shards
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 32e822ce1e78325e01bd1979e840d9429a635535
+          gh api repos/cueikusuta/p-RL1024/actions/runs/44921849216 \
+            --jq '{id,head_sha,status,conclusion}' > a-run.json
+          gh api repos/cueikusuta/p-RL1024/actions/runs/44921457899 \
+            --jq '{id,head_sha,status,conclusion}' > bc-run.json
+          jq -e '.id==44921849216 and .head_sha=="a43c25ba4cfab51dbc1d5fe261fe4f035a5b52f9" and .status=="completed"' a-run.json
+          jq -e '.id==44921457899 and .head_sha=="32e822ce1e78325e01bd1979e840d9429a635535" and .status=="completed"' bc-run.json
+          gh run download 44921849216 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-abc-A198-matched-plan --dir matched
+          gh run download 44921457899 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-abc-frozen-plan-and-bundles --dir base
+          mkdir -p raw-A raw-BC evidence
+          gh run download 44921849216 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-abc-A198-paired-part-*' --dir raw-A
+          gh run download 44921457899 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-abc-paired-[BC]-part-*' --dir raw-BC
+          python - <<'PY'
+          import hashlib,json,shutil
+          from pathlib import Path
+          def flatten(root,models):
+              files=list(Path(root).rglob("*.json"))
+              required={f"abc-{m}-{i}.json" for m in models for i in range(16)}
+              assert len(files)==len(required) and {f.name for f in files}==required,(root,len(files),len(required))
+              for f in files:
+                  prefix="rnad-i5-abc-A198-paired-part-" if f.name.startswith("abc-A-") else "rnad-i5-abc-paired-"+f.name[4]+"-part-"
+                  assert f.parent.name==prefix+f.stem.split("-")[-1],f
+                  shutil.copyfile(f,Path("evidence")/f.name)
+          flatten("raw-A","A")
+          flatten("raw-BC","BC")
+          matched=json.loads(Path("matched/plan.json").read_text())
+          old=json.loads(Path("base/plan.json").read_text())
+          assert matched["source_sha"]==old["source_sha"]=="32e822ce1e78325e01bd1979e840d9429a635535"
+          assert matched["engine_sha"]==old["engine_sha"]
+          assert matched["seed_start"]==old["seed_start"]==120000001
+          assert matched["seed_blocks"]==old["seed_blocks"]==2048
+          assert matched["comparisons"]==old["comparisons"]
+          assert matched["familywise_alpha"]==old["familywise_alpha"]==0.05
+          assert matched["model_sha256_by_id"]["B"]==old["model_sha256_by_id"]["B"]
+          assert matched["model_sha256_by_id"]["C"]==old["model_sha256_by_id"]["C"]
+          assert matched["model_sha256_by_id"]["A"]!=old["model_sha256_by_id"]["A"]
+          index=json.loads(Path("base/sha256-index.json").read_text())
+          assert set(index)=={p.relative_to("base").as_posix()
+              for p in Path("base").rglob("*") if p.is_file() and p.name!="sha256-index.json"}
+          for name,expected in index.items():
+              assert hashlib.sha256((Path("base")/name).read_bytes()).hexdigest()==expected
+          audit=json.loads(Path("matched/audit.json").read_text())
+          assert audit["compared_models"]=={"A":"G198","B":"G198","C":"G198"}
+          assert audit["reuses_B_C_run"]==44921457899
+          PY
+      - name: PRINCIPAL same-G198 frozen AQ 2048 seed 3-contrast Bonferroni 95pct comparison
+        run: |
+          set -euo pipefail
+          node scripts/rnad/paired-league-eval.mjs matched/plan.json matched-g198-report.json evidence/*.json
+          python - <<'PY'
+          import json
+          d=json.load(open("matched-g198-report.json"))
+          assert d["complete_four_win_matches"]==12288
+          assert d["independent_seed_blocks"]==2048 and d["distinct_models"]==3
+          assert d["familywise_alpha"]==0.05 and len(d["comparisons"])==3
+          assert d["champion_promoted"] is False
+          lines=["## PRINCIPAL: A/B/C matched G198 against identical AQ-Base",
+            "Original 12288 four-win Matches reused. Zero new training or evaluation Matches.",
+            "2048 independent seed blocks, both seats, 3 Bonferroni contrasts.",
+            "B includes AQ in its training pool: this AQ benchmark is not a generalization test.",
+            "| Contrast | Delta | Simultaneous 95% CI | Significant gain |",
+            "|---|---:|---:|---|"]
+          for c in d["comparisons"]:
+              lo,hi=c["confidence_interval"]
+              lines.append(f"| {c['candidate_model_id']}−{c['baseline_model_id']} | {c['estimate']*100:+.3f}pp | [{lo*100:+.3f}, {hi*100:+.3f}]pp | {c['statistically_supported_gain']} |")
+          open("MATCHED_SUMMARY.md","w").write("\n".join(lines)+"\n")
+          PY
+          cat MATCHED_SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-abc-recovered-principal-g198-report
+          path: |
+            matched-g198-report.json
+            MATCHED_SUMMARY.md
+            matched/plan.json
+            matched/audit.json
+            a-run.json
+            bc-run.json
+          retention-days: 90
+          if-no-files-found: error
