@@ -1,0 +1,227 @@
+name: I5 A/B/C preregistered 2048 seed paired frozen AQ comparison
+on:
+  workflow_dispatch: {} # No automatic 12,288-Match rerun on a workflow maintenance commit
+permissions: {}
+concurrency:
+  group: rnad-i5-abc-frozen-aq-comparison
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify frozen A/B/C source artifacts and exact run identities
+        run: |
+          set -euo pipefail
+          for row in \
+            "A 44860357036 14702954785 rnad-i5-cont-next-bootstrap-after-g195" \
+            "B 44899166361 14706787396 rnad-i5-cont-next-bootstrap-after-g198" \
+            "C 44897382403 14706377232 rnad-i5-cont-next-bootstrap-after-g198"; do
+            set -- $row
+            label="$1"; run="$2"; artifact_id="$3"; name="$4"
+            gh api "repos/cueikusuta/p-RL1024/actions/artifacts/$artifact_id" \
+              --jq '{id,name,expired,workflow_run}' > "original-$label.json"
+            jq -e --argjson id "$artifact_id" --argjson run "$run" --arg name "$name" \
+              '.id==$id and .workflow_run.id==$run and .name==$name and .expired==false' \
+              "original-$label.json" >/dev/null
+            success=false
+            for attempt in 1 2 3 4 5 6 7; do
+              rm -rf "source-$label";mkdir "source-$label"
+              if gh run download "$run" --repo cueikusuta/p-RL1024 \
+                   --name "$name" --dir "source-$label"; then
+                success=true;break
+              fi
+              sleep "$(( attempt * 12 ))"
+            done
+            test "$success" = true
+            (cd "source-$label" && sha256sum -c file-pins.sha256)
+          done
+      - name: Seal immutable actor head bytes and preregister all models/seed family
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/rnad/prepare_abc_frozen_eval.py
+          python -m scripts.rnad.prepare_abc_frozen_eval \
+            --a source-A --b source-B --c source-C --out frozen
+          node --input-type=module -e \
+            "import {readFileSync} from 'node:fs';import {verifyPlan} from './scripts/rnad/paired-league-eval.mjs';verifyPlan(JSON.parse(readFileSync('frozen/plan.json')));"
+          test "$(jq -r '.seed_start' frozen/plan.json)" = 120000001
+          test "$(jq -r '.seed_blocks' frozen/plan.json)" = 2048
+          test "$(jq -r '.comparisons | length' frozen/plan.json)" = 3
+          test "$(jq -r '.familywise_alpha' frozen/plan.json)" = 0.05
+          test "$(jq -r '.stage' frozen/plan.json)" = final
+          test "$(jq -r '.source_sha' frozen/plan.json)" = "$(git rev-parse HEAD)"
+          jq '{models,seed_start,seed_blocks,comparisons}' frozen/plan.json \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Separate one-seed execution smoke, never included in heldout evidence
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          plan=json.load(open("frozen/plan.json"))
+          plan["stage"]="development"
+          plan["independent_holdout_precommitted"]=False
+          plan["seed_start"]=120010001
+          plan["seed_blocks"]=128
+          with open("smoke-plan.json","w") as file:
+              json.dump(plan,file,sort_keys=True)
+          PY
+          for model in A B C; do
+            node scripts/rnad/paired-league-run.mjs \
+              --plan smoke-plan.json --model-dir "frozen/$model" \
+              --model-id "$model" --part 0 --parts 128 \
+              --out "smoke-$model.json"
+            test "$(jq -r '.matches' "smoke-$model.json")" -eq 2
+            test "$(jq -r '.training_during_evaluation' "smoke-$model.json")" = false
+          done
+          echo 'A/B/C all accepted a complete four-win two-seat smoke on independent non-holdout seed' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-abc-frozen-plan-and-bundles
+          path: frozen/
+          retention-days: 30
+          if-no-files-found: error
+  paired:
+    needs: preflight
+    if: needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        model: [A, B, C]
+        part: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22'}
+      - name: Fetch and SHA-verify preregistered exact model bundle
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7; do
+            rm -rf frozen
+            if gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+                --name rnad-i5-abc-frozen-plan-and-bundles --dir frozen; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            sleep "$(( attempt * 12 ))"
+          done
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('frozen')
+          index=json.loads((root/'sha256-index.json').read_text())
+          assert set(index)=={p.relative_to(root).as_posix()
+              for p in root.rglob('*') if p.is_file() and p.name!='sha256-index.json'}
+          for name,digest in index.items():
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest
+          plan=json.loads((root/'plan.json').read_text())
+          import subprocess
+          assert plan["source_sha"]==subprocess.check_output(
+              ['git','rev-parse','HEAD'],text=True).strip()
+          assert len(plan["comparisons"])==3 and plan["seed_blocks"]==2048
+          PY
+      - name: Exactly 128 shared independent seeds / 256 seat-swapped complete Matches
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          node scripts/rnad/paired-league-run.mjs \
+            --plan frozen/plan.json \
+            --model-dir frozen/${{ matrix.model }} \
+            --model-id ${{ matrix.model }} \
+            --part ${{ matrix.part }} --parts 16 \
+            --out evidence/abc-${{ matrix.model }}-${{ matrix.part }}.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-abc-paired-${{ matrix.model }}-part-${{ matrix.part }}
+          path: evidence/*.json
+          retention-days: 30
+          if-no-files-found: error
+  aggregate:
+    needs: [preflight,paired]
+    if: needs.preflight.result == 'success' && needs.paired.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22'}
+      - name: Obtain exact preregistered comparison plan and every immutable match shard
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+             --name rnad-i5-abc-frozen-plan-and-bundles --dir frozen
+          mkdir -p raw-artifacts evidence
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+             --pattern 'rnad-i5-abc-paired-*-part-*' --dir raw-artifacts
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          files=list(Path('raw-artifacts').rglob('*.json'))
+          expected={f'abc-{m}-{i}.json' for m in ('A','B','C') for i in range(16)}
+          assert len(files)==48 and {p.name for p in files}==expected
+          for p in files:
+              assert p.parent.name=='rnad-i5-abc-paired-'+p.name[4]+'-part-'+p.stem.split('-')[-1]
+              shutil.copyfile(p,Path('evidence')/p.name)
+          PY
+      - name: Final N-only 95% Bonferroni 3-comparison paired seed-block inference
+        run: |
+          set -euo pipefail
+          node scripts/rnad/paired-league-eval.mjs \
+            frozen/plan.json final-report.json evidence/*.json
+          python - <<'PY'
+          import json
+          p=json.load(open('frozen/plan.json'))
+          r=json.load(open('final-report.json'))
+          assert r['complete_four_win_matches']==12288
+          assert r['independent_seed_blocks']==2048
+          assert r['distinct_models']==3
+          assert r['familywise_alpha']==0.05
+          assert len(r['comparisons'])==3
+          assert r['champion_promoted'] is False
+          lines=['## A/B/C full 2048 seed × two-seat comparison',
+            '- AQ-Base-001 is one common frozen opponent',
+            '- No new training and no automatic Champion promotion',
+            '- A is G195; B/C received 3 extra generations',
+            '- Each pair is one seed block; Bonferroni 95% over 3 comparisons',
+            '| Comparison | Win rate difference | simultaneous 95% CI | Supported positive gain? |',
+            '|---|---:|---:|---|']
+          for c in r['comparisons']:
+              z=c['estimate']
+              lo,hi=c['confidence_interval']
+              lines.append(f"| {c['candidate_model_id']}−{c['baseline_model_id']} | "
+                           f"{z*100:+.3f}pp | [{lo*100:+.3f}, {hi*100:+.3f}]pp | "
+                           f"{c['statistically_supported_gain']} |")
+          with open('SUMMARY.md','w') as o:o.write('\n'.join(lines)+'\n')
+          PY
+          cat SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-abc-final-paired-comparison-report
+          path: |
+            final-report.json
+            SUMMARY.md
+            frozen/plan.json
+            frozen/audit.json
+          retention-days: 90
+          if-no-files-found: error
