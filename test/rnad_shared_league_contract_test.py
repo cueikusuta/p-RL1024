@@ -8,7 +8,7 @@ from scripts.rnad.shared_league_contract import (
     ACTOR_SCHEMA, MATCH_SCHEMA, POLICY_SCHEMA, SCHEMA, _opponent,
     _matrix, _valid_draft_codes, _SELECTION_TRIPLES,
     actor_role, canonical_hash, verify_actor, verify_generation,
-    verify_manifest,
+    verify_manifest, PROFILE_B, PROFILE_B_FIXED, expected_actor_roles,
 )
 
 
@@ -151,6 +151,41 @@ class SharedLeagueContractTest(unittest.TestCase):
         self.assertEqual(report["optimizer_steps_one_epoch"], OPTIMIZER_STEPS)
         self.assertEqual(report["opponent_roles"],
                          {"self": 8, "historical": 10, "fixed": 2})
+
+    def test_combined_bc_v6_fixed_four_each_exact_quota_and_all_tensors(self):
+        m=manifest()
+        m["battle_feature_schema"]="rnad-three-phase-features-v6"
+        m["league_opponent_profile"]=PROFILE_B
+        m["opponents"]["fixed"]=[
+            {"id":ident,"sha256":str(i)*64}
+            for i,ident in enumerate(PROFILE_B_FIXED,1)]
+        self.assertEqual(expected_actor_roles(m),
+                         {"self":8,"historical":8,"fixed":4})
+        actor_rows=[payload(m,i) for i in range(ACTORS)]
+        for actor in actor_rows:
+            for match in actor["matches"]:
+                for ev in match["events"]:
+                    if ev["phase"]=="battle":
+                        ev["phase_input"]={
+                            "state":[.2]*384,
+                            "actions":[[.1]*160,[.2]*160]}
+        report=verify_generation(m,actor_rows)
+        self.assertEqual(report["opponent_roles"],
+                         {"self":8,"historical":8,"fixed":4})
+        self.assertEqual({x["opponent_id"] for x in actor_rows[16:]},
+                         set(PROFILE_B_FIXED))
+        incorrect=copy.deepcopy(m)
+        incorrect["battle_feature_schema"]="rnad-three-phase-features-v5"
+        with self.assertRaisesRegex(ValueError,"v6"):
+            verify_manifest(incorrect)
+        incorrect=copy.deepcopy(m)
+        incorrect["opponents"]["fixed"][1]["id"]="fixed-base128"
+        with self.assertRaisesRegex(ValueError,"four unique"):
+            verify_manifest(incorrect)
+        bad=copy.deepcopy(actor_rows)
+        bad[16]["matches"][0]["events"][-1]["phase_input"]["actions"][0].pop()
+        with self.assertRaisesRegex(ValueError,"versioned battle"):
+            verify_generation(m,bad)
 
     def test_actual_exploiter_role_only_if_immutable_registry_populated(self):
         m = manifest(exploiter=True)
