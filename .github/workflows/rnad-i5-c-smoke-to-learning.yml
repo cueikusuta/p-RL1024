@@ -119,6 +119,9 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
   production_g196:
+    permissions:
+      contents: read
+      actions: read
     needs: actual_four_win_smoke
     if: needs.actual_four_win_smoke.result == 'success'
     uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
@@ -126,6 +129,9 @@ jobs:
       generation: 196
       bootstrap_artifact: rnad-i5-c-g196-smoke-approved-bootstrap
   production_g197:
+    permissions:
+      contents: read
+      actions: read
     needs: production_g196
     if: needs.production_g196.result == 'success'
     uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
@@ -133,6 +139,9 @@ jobs:
       generation: 197
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g196
   production_g198:
+    permissions:
+      contents: read
+      actions: read
     needs: production_g197
     if: needs.production_g197.result == 'success'
     uses: ./.github/workflows/rnad-i5-shared-generation-reusable.yml
