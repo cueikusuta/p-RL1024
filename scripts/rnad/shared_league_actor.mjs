@@ -18,6 +18,8 @@ import {runRnadAcceptanceSmoke,verifiedRunningSourceSha}
   from '../dev/simulator/rnad-match.js';
 import {encodeRnadThreePhaseDecisionV5} from
   '../../src/ml/rnad-phase-features-v5.js';
+import {encodeRnadThreePhaseDecisionV6} from
+  '../../src/ml/rnad-phase-features-v6.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
 
 const ACTOR_SCHEMA='rnad-shared-league-actor-v1';
@@ -114,8 +116,8 @@ function readBundle(directory){
   checkASelectionParity(selection);
   const battlePayload=JSON.parse(readFileSync(verified.battle));
   const battle=new PersistentRNADInference(battlePayload);
-  assert(battle.featureSchema==='rnad-three-phase-features-v5',
-    'Only v5 battle expert is supported');
+  assert(['rnad-three-phase-features-v5','rnad-three-phase-features-v6']
+    .includes(battle.featureSchema),'Unsupported versioned Battle head');
   const values=JSON.parse(readFileSync(verified.values));
   assert(values.schema==='rnad-integrated-value-heads-v1'&&
     values.policy_id===p.policy_id&&values.generation===p.generation,
@@ -146,6 +148,32 @@ function sample(p,rng){
   return p.length-1;
 }
 
+// Only committed seat-visible observations may be carried into a future Battle
+// decision. This cache is fresh for every Match session and never sees raw Match.
+function publicFoeSnapshot(obs){
+  if(obs.phase!=='battle'||!obs.opponent?.speciesId)return null;
+  const p=obs.opponent,seen=p.publicObservation??{};
+  const list=key=>Array.isArray(seen[key])?[...seen[key]]:[];
+  return {speciesId:p.speciesId,appearanceId:seen.appearanceId??null,
+    types:Array.isArray(p.types)?[...p.types]:[],
+    hpPercent:p.hpPercent,status:p.status??null,
+    usedMoves:list('usedMoves'),observedItemIds:list('observedItemIds'),
+    observedAbilityIds:list('observedAbilityIds'),lastSeen:0};
+}
+function appendPublicFoe(history,foe){
+  if(!foe)return history;
+  const identity=p=>p.appearanceId||p.speciesId;
+  const previous=history.find(p=>identity(p)===identity(foe));
+  const combined=previous?{...foe,
+    usedMoves:[...new Set([...previous.usedMoves,...foe.usedMoves])],
+    observedItemIds:[...new Set([...previous.observedItemIds,...foe.observedItemIds])],
+    observedAbilityIds:[...new Set([...previous.observedAbilityIds,...foe.observedAbilityIds])],
+    hpPercent:foe.hpPercent??previous.hpPercent,
+    status:foe.status??previous.status,
+    types:foe.types.length?foe.types:previous.types}:foe;
+  return [combined,...history.filter(p=>identity(p)!==identity(foe))]
+    .slice(0,3).map((p,i)=>({...p,lastSeen:i}));
+}
 export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false}){
   assert(finite(epsilon)&&epsilon>0&&epsilon<=.1,'Invalid behavior epsilon');
   const legacy=legacyPath!==null;
@@ -155,11 +183,16 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
     main.p.generation===magnet.p.generation,'Main/Magnet generation mismatch');
   const saved=[];
   let pending=null;
+  let publicFoes=[];
   const core={
     choose({observation,legalActions,seat,round,rng}){
       assert(pending===null,'Unaccepted policy proposal');
       assert([0,1].includes(seat)&&['draft','selection','battle'].includes(observation.phase),
         'Illegal seat/phase');
+      const acceptedPublic=publicFoeSnapshot(observation);
+      if(!legacy&&observation.phase==='battle'&&
+         main.battle.featureSchema==='rnad-three-phase-features-v6')
+        observation={...observation,publicOpponentHistory:publicFoes.map(p=>({...p}))};
       let logits,ref,value,phaseInput;
       if(legacy){
         const x=main.inferProjected(observation,legalActions,seat);
@@ -193,7 +226,8 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
         const a=main.battle.inferProjected(observation,legalActions,seat);
         const m=magnet.battle.inferProjected(observation,legalActions,seat);
         logits=a.logits;ref=m.logits;value=a.value;
-        phaseInput=encodeForLearner(observation,legalActions);
+        phaseInput=encodeForLearner(observation,legalActions,undefined,
+          main.battle.featureSchema);
       }
       assert(logits.length===legalActions.length&&
         ref.length===legalActions.length&&finite(value),'Bad model/legal candidates');
@@ -203,7 +237,7 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
       pending={seat,round,phase:observation.phase,
         action:legalActions[ix],index:ix,phase_input:phaseInput,
         policy_pi:pi,magnet_pi:mp,
-        predicted_value:value,behavior_prob:probs[ix]};
+        predicted_value:value,behavior_prob:probs[ix],acceptedPublic};
       return {action:legalActions[ix],behaviorLogProbability:Math.log(probs[ix]),
         referenceLogProbability:Math.log(mp[ix]),predictedValue:value};
     },
@@ -211,7 +245,11 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
       const p=pending;
       assert(p&&p.seat===seat&&p.round===round&&p.phase===phase&&
         same(p.action,action),'No matching accepted behavior');
-      saved.push(p);pending=null;
+      saved.push(p);
+      if(!legacy&&phase==='battle'&&
+         main.battle.featureSchema==='rnad-three-phase-features-v6')
+        publicFoes=appendPublicFoe(publicFoes,p.acceptedPublic);
+      pending=null;
     }
   };
   // The ordinary switch-loop guard filters only authoritative legal support,
@@ -221,7 +259,7 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
   func.accepted=args=>{guard.accepted(args);core.accepted(args);};
   return {func,saved,get pending(){return pending;}};
 }
-function encodeForLearner(obs,legal,precomputed){
+function encodeForLearner(obs,legal,precomputed,battleSchema='rnad-three-phase-features-v5'){
   if(obs.phase==='draft'){
     const a=precomputed??encodeOwnDraftPool(obs,legal);
     // Reuse exactly the same own-only public candidate extras validated
@@ -240,7 +278,9 @@ function encodeForLearner(obs,legal,precomputed){
       own_num:a.own_numeric,foe_num:a.foe_numeric,
       legal:a.legal};
   }
-  const a=encodeRnadThreePhaseDecisionV5(obs,legal);
+  const a=battleSchema==='rnad-three-phase-features-v6'?
+    encodeRnadThreePhaseDecisionV6(obs,legal):
+    encodeRnadThreePhaseDecisionV5(obs,legal);
   return {state:a.state,actions:a.actions};
 }
 export function createIntegratedAcceptedMatch({
