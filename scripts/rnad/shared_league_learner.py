@@ -27,7 +27,7 @@ from scripts.rnad.shared_league_bootstrap import (
 )
 from scripts.rnad.shared_league_contract import (
     OPTIMIZER_BATCH_MATCHES, OPTIMIZER_STEPS, verify_actor,
-    verify_manifest, canonical_hash,
+    verify_manifest, canonical_hash, expected_actor_roles,
 )
 from scripts.rnad.train import current_git_sha, frozen_engine_sha
 from scripts.rnad.two_player import rnad_targets, neurd_policy_loss
@@ -331,10 +331,7 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
         workers=prep_workers, fast_json=fast_json, codec=prep_codec,
         profile=profile_staging,
     )
-    expected_roles = {"self": 8, "historical": 8,
-                      "fixed": 2, "exploiter": 2}
-    if not manifest["opponents"]["exploiter"]:
-        expected_roles["historical"] += expected_roles.pop("exploiter")
+    expected_roles = expected_actor_roles(manifest)
     if (len(match_ids) != 1280 or
         set(roles) != set(expected_roles) or
         dict(roles) != expected_roles):

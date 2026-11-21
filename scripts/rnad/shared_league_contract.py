@@ -26,6 +26,9 @@ MATCHES_PER_GENERATION = ACTORS * MATCHES_PER_ACTOR
 OPTIMIZER_BATCH_MATCHES = 32
 OPTIMIZER_STEPS = MATCHES_PER_GENERATION // OPTIMIZER_BATCH_MATCHES
 PHASES = ("draft", "selection", "battle")
+PROFILE_B = "rnad-i5-opponents-b-v1"
+PROFILE_B_FIXED = ("fixed-aqbase001", "fixed-coretrioaq001",
+                   "fixed-base256", "fixed-c005")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 FORBIDDEN = frozenset((
@@ -53,12 +56,14 @@ def canonical_hash(value):
     ).encode("utf-8")).hexdigest()
 
 
-def actor_role(i, *, has_exploiter):
+def actor_role(i, *, has_exploiter, profile=None):
     _need(type(i) is int and 0 <= i < ACTORS, "Invalid actor ID")
     if i < 8:
         return "self"
     if i < 16:
         return "historical"
+    if profile == PROFILE_B:
+        return "fixed"
     if i < 18:
         return "fixed"
     return "exploiter" if has_exploiter else "historical"
@@ -66,7 +71,8 @@ def actor_role(i, *, has_exploiter):
 
 def _opponent(manifest, actor_id):
     pool = manifest["opponents"]
-    role = actor_role(actor_id, has_exploiter=bool(pool["exploiter"]))
+    role = actor_role(actor_id, has_exploiter=bool(pool["exploiter"]),
+                      profile=manifest.get("league_opponent_profile"))
     if role == "self":
         return role, {"id": manifest["policy_id"] + ":self",
                       "sha256": manifest["main_sha256"]}
@@ -94,6 +100,8 @@ def verify_manifest(manifest):
           ACTORS * SEEDS_PER_ACTOR, "Invalid independent seed window")
     _need(manifest.get("feature_schema") == POLICY_SCHEMA,
           "A legacy single-network feature schema is not an integrated policy")
+    profile=manifest.get("league_opponent_profile")
+    _need(profile in (None,PROFILE_B), "Unknown frozen opponent profile")
     opp = manifest.get("opponents")
     _need(isinstance(opp, dict) and set(opp) ==
           {"historical", "fixed", "exploiter"}, "Wrong opponent categories")
@@ -110,6 +118,11 @@ def verify_manifest(manifest):
                   _sha64(entry["sha256"]) and
                   entry["id"] not in ids, "Invalid frozen opponent registry")
             ids.add(entry["id"])
+    if profile == PROFILE_B:
+        _need(not opp["exploiter"] and
+              len(opp["fixed"]) == 4 and
+              set(entry["id"] for entry in opp["fixed"]) == set(PROFILE_B_FIXED),
+              "B profile requires four unique approved fixed policies")
     _need(manifest.get("optimizer_batch_matches") == OPTIMIZER_BATCH_MATCHES and
           manifest.get("optimizer_steps") == OPTIMIZER_STEPS and
           manifest.get("actor_count") == ACTORS and
@@ -309,6 +322,20 @@ def verify_actor(manifest, payload):
             for seed, seat in observed}
 
 
+def expected_actor_roles(manifest):
+    """Single authority for manifest-dependent 20 Actor quotas."""
+    profile = manifest.get("league_opponent_profile")
+    if profile == PROFILE_B:
+        _need(not manifest["opponents"]["exploiter"] and
+              len(manifest["opponents"]["fixed"]) == 4,
+              "B profile must have exactly four fixed opponents")
+        return {"self": 8, "historical": 8, "fixed": 4}
+    _need(profile is None, "Unknown opponent league profile")
+    if manifest["opponents"]["exploiter"]:
+        return {"self": 8, "historical": 8, "fixed": 2, "exploiter": 2}
+    return {"self": 8, "historical": 10, "fixed": 2}
+
+
 def verify_generation(manifest, actor_payloads):
     verify_manifest(manifest)
     _need(isinstance(actor_payloads, list) and len(actor_payloads) == ACTORS,
@@ -328,10 +355,8 @@ def verify_generation(manifest, actor_payloads):
     _need(ids == set(range(ACTORS)) and
           len(match_ids) == MATCHES_PER_GENERATION,
           "Missing actor or incomplete generation")
-    expected_roles = {"self": 8, "historical": 8, "fixed": 2, "exploiter": 2}
-    if not manifest["opponents"]["exploiter"]:
-        expected_roles["historical"] += expected_roles.pop("exploiter")
-    _need(dict(roles) == expected_roles, "Opponent category quota mismatch")
+    _need(dict(roles) == expected_actor_roles(manifest),
+          "Opponent category quota mismatch")
     return {
         "generation": manifest["generation"],
         "independent_seed_clusters": ACTORS * SEEDS_PER_ACTOR,

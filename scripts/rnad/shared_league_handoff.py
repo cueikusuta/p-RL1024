@@ -256,8 +256,9 @@ def transition(*, previous_bootstrap, previous_result, out,
                 re.fullmatch(r"fixed-[a-z0-9]+",ident),
                 "Unexpected frozen legacy identifier")
         name=ident.removeprefix("fixed-")
-        source=prev_root/"fixed"/(name+"-v3.json")
-        dest=out_root/"fixed"/(name+"-v3.json")
+        suffix="-v1.json" if name in ("aqbase001","coretrioaq001") else "-v3.json"
+        source=prev_root/"fixed"/(name+suffix)
+        dest=out_root/"fixed"/(name+suffix)
         _assert(digest(source)==entry["sha256"],
                 "Frozen fixed benchmark bytes changed")
         _copy_immutable_file(source,dest)
