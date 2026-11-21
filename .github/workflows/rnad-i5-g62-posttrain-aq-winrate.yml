@@ -67,9 +67,14 @@ jobs:
                   m=re.fullmatch(regex,name)
                   if m:
                       g=int(m.group(1))
-                      if not 62<=g<=160 or g in target:
-                          raise ValueError('Duplicate/unapproved complete generation artifact')
-                      target[g]=(int(ident),name)
+                      if not 62<=g<=160:
+                          raise ValueError('Unapproved complete generation artifact')
+                      # A recovered/retried job may publish multiple immutable
+                      # artifacts with the same logical generation. Prefer the
+                      # latest artifact ID, then verify its full SHA-pinned
+                      # contents against the successor handoff before use.
+                      if g not in target or int(ident)>target[g][0]:
+                          target[g]=(int(ident),name)
           if not results or not boots or max(results)!=max(boots):
               raise ValueError('Missing last Learner or successor handoff')
           g=max(results)
