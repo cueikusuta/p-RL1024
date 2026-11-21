@@ -1,5 +1,8 @@
 name: I5 G62 final AQ-Base win rate (auto)
 on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/rnad-i5-g62-posttrain-aq-winrate.yml]
   workflow_run:
     workflows:
       - I5 G62 onward verified 10-hour league continuation
@@ -17,10 +20,10 @@ jobs:
   prepare:
     if: >-
       github.repository == 'cueikusuta/p-RL1024' &&
-      github.event.workflow_run.id == 44770410066 &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_sha == '02b7c60b83b899985082554149a44b22964b252b' &&
-      github.event.workflow_run.head_branch == 'research/5-g49-strength-continuation'
+      (github.event_name == 'push' || github.event.workflow_run.id == 44770410066) &&
+      (github.event_name == 'push' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name == 'push' || github.event.workflow_run.head_sha == '02b7c60b83b899985082554149a44b22964b252b') &&
+      (github.event_name == 'push' || github.event.workflow_run.head_branch == 'research/5-g49-strength-continuation')
     runs-on: ubuntu-latest
     timeout-minutes: 50
     permissions: {contents: read, actions: read}
