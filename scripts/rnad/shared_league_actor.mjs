@@ -21,6 +21,22 @@ import {encodeRnadThreePhaseDecisionV5} from
 import {encodeRnadThreePhaseDecisionV6} from
   '../../src/ml/rnad-phase-features-v6.js';
 import provenance from '../../provenance/manifest.json' with {type:'json'};
+import {chooseCoreTrioTeam} from '../../src/ai/draft-core-trio.js';
+import {chooseStrategyTeam} from '../../src/ai/team-assessment.js';
+import {chooseTacticalSelection} from '../../src/ai/selection-tactical.js';
+import {rankStrategyV2Actions,chooseStrategyV2Action,
+  commitStrategyV2Choice} from '../../aq-runtime/src/ai/strategy-v2.js';
+import {chooseFrozenAQBase} from
+  '../../aq-runtime/scripts/dev/simulator/rl-linear-aq-base-opponent.js';
+import {createI877AntiStall} from
+  '../../aq-runtime/src/ai/v3-research-anti-stall.js';
+import {assessCompactMatchup,assessMatchup}
+  from '../../src/ai/matchup-assessment.js';
+import {createOpponent,weightsSha256 as AQ_WEIGHTS_SHA}
+  from '../../models/aq-base.mjs';
+import {playableSets} from '../../src/production-runtime.js';
+import data from '../../data/catalog/battle-data.json' with {type:'json'};
+
 
 const ACTOR_SCHEMA='rnad-shared-league-actor-v1';
 const MATCH_SCHEMA='rnad-integrated-three-phase-accepted-match-v1';
@@ -174,6 +190,159 @@ function appendPublicFoe(history,foe){
   return [combined,...history.filter(p=>identity(p)!==identity(foe))]
     .slice(0,3).map((p,i)=>({...p,lastSeen:i}));
 }
+// A fixed AQ policy is deterministic before exploration. The *actual* behavior
+// samples (1-epsilon) of that exact policy plus epsilon uniformly over all
+// engine-legal actions; its recorded pi/magnet/mu are the real sampling law.
+const AQ_V2_WEIGHTS=Object.freeze({blend:.28,exposure:.75,continuation:.4});
+export function approvedFixedSession(config,epsilon=.02,trajectoryBattleSchema='rnad-three-phase-features-v5'){
+  assert(['rnad-three-phase-features-v5','rnad-three-phase-features-v6'].includes(trajectoryBattleSchema),
+    'Unapproved fixed accepted trajectory Battle schema');
+  assert(config?.schema==='rnad-i5-authorized-fixed-opponent-v1'&&
+    ['aqbase001','coretrioaq001'].includes(config.kind)&&
+    config.aq_model_sha256===AQ_WEIGHTS_SHA&&
+    config.core_trio_source_sha256===fileSha(
+      new URL('../../src/ai/draft-core-trio.js',import.meta.url))&&
+    config.source_git_sha===verifiedRunningSourceSha()&&
+    config.research_only===true&&config.epsilon===epsilon,
+    'Unapproved AQ/Core-Trio fixed opponent identity/source/epsilon');
+  const aq=createOpponent();
+  assert(aq.modelSha256===AQ_WEIGHTS_SHA,
+    'Frozen AQ-Base weights did not match approved baseline');
+  const saved=[];
+  let publicFoes=[];
+  // Exact AQ runner constructs anti-stall across the full four-win Match.
+  let pending=null,round=null,ownSets=[],memory={},belief=null;
+  const guard=createI877AntiStall({maxNonAttacks:5});
+  let scores=[0,0];
+  function equivalentAuthorityAction(legal,intended,phase){
+    if(phase==='battle')return same(legal,intended);
+    if(!Array.isArray(legal)||!Array.isArray(intended)||
+       legal.length!==intended.length)return false;
+    // Draft order is immaterial. Selection lead order is material, but the
+    // final two reserves are an unordered set in the legal enumeration.
+    if(phase==='selection'&&legal[0]!==intended[0])return false;
+    const start=phase==='selection'?1:0;
+    const x=legal.slice(start),y=intended.slice(start);
+    return new Set(x).size===x.length&&new Set(y).size===y.length&&
+      x.every(id=>y.includes(id));
+  }
+  function choose({observation,legalActions,seat,rng,publicView}){
+    const acceptedPublic=publicFoeSnapshot(observation);
+    if(observation.phase==='battle'&&trajectoryBattleSchema==='rnad-three-phase-features-v6')
+      observation={...observation,publicOpponentHistory:publicFoes.map(p=>({...p}))};
+    assert(!pending&&observation?.seat===seat&&
+      publicView?.self&&['draft','selection','battle'].includes(observation.phase),
+      'Fixed opponent requires trusted seat-public view');
+    let intended,postAccept=null;
+    if(observation.phase==='draft'){
+      round=observation.round;
+      scores=Array.isArray(publicView.score)?[...publicView.score]:[0,0];
+      ownSets=[];memory={};belief=null;publicFoes=[];
+      intended=config.kind==='coretrioaq001'?
+        chooseCoreTrioTeam(publicView,{data,catalog:playableSets}):
+        chooseStrategyTeam(publicView,{data,fastDraftValidation:true});
+    }else if(observation.phase==='selection'){
+      intended=chooseTacticalSelection(publicView,{data,sets:playableSets});
+      // epsilon exploration may legally accept a different selection from
+      // the AQ proposal. Never bind private own team to the unaccepted pick.
+      postAccept=(action)=>{
+        const selected=action.map(id=>
+          publicView.self.team.find(p=>p.instanceId===id));
+        assert(selected.length===3&&selected.every(Boolean),
+          'Accepted fixed selection omitted a real own set');
+        ownSets=selected;
+      };
+    }else{
+      const current=publicView.self.team?.[publicView.self.active];
+      assert(current&&ownSets.length===3,'Missing own accepted fixed team');
+      const assessed=assessCompactMatchup(publicView,{
+        ownSet:ownSets[publicView.self.active],catalog:playableSets,
+        data,previousBelief:belief});
+      belief=assessed.beliefState;
+      const options={data,memory,matchup:assessed.assessment,
+        roundWins:scores[seat]};
+      const switchMatchups=publicView.self.team.map((member,index)=>{
+        if(member.hp<=0)return null;
+        if(index===publicView.self.active)return assessed.assessment;
+        return assessMatchup({
+          ownSet:ownSets[index],own:member,
+          opponentBelief:assessed.beliefState.belief,
+          opponentPublic:publicView.opponent,
+          catalog:playableSets,data,field:publicView.field});
+      });
+      options.ownMatchups=switchMatchups;
+      options.switchMatchups=switchMatchups;
+      if(publicView.requestType==='turn'){
+        const ranking=rankStrategyV2Actions(publicView,{
+          ...options,variant:'strategy-v2-e',
+          catalog:playableSets,weights:AQ_V2_WEIGHTS});
+        const legal=ranking.rows.map(row=>row.action);
+        const values=ranking.rows.map(row=>row.score);
+        const chosen=chooseFrozenAQBase(aq.model,publicView,legal,values,{
+          data,roundWins:scores[seat],roundLosses:scores[1-seat]});
+        const k=guard.choose(chosen.candidates,chosen.selectedIndex).index;
+        intended=legal[k];
+        postAccept=(action)=>{
+          const supported=ranking.rows.some(row=>
+            row.action.kind===action.kind&&
+            row.action.index===action.index&&
+            Boolean(row.action.mega)===Boolean(action.mega)&&
+            row.action.targetIndex===action.targetIndex);
+          if(!supported){
+            // epsilon exploration can choose an AUTHORITY-legal action outside
+            // V2's narrower public rank. Do not pretend AQ actually proposed
+            // that action; clear tactical memory instead of forging a V2 commit.
+            memory={};
+            return;
+          }
+          commitStrategyV2Choice(publicView,{
+            ...options,variant:'strategy-v2-e'},ranking,action);
+        };
+      }else{
+        intended=chooseStrategyV2Action(publicView,{
+          ...options,variant:'strategy-v2-e',
+          catalog:playableSets,weights:AQ_V2_WEIGHTS});
+      }
+    }
+    const index=legalActions.findIndex(a=>equivalentAuthorityAction(a,intended,observation.phase));
+    assert(index>=0,'AQ/Core-Trio proposed nonauthoritative action');
+    // The frozen AQ decision is essentially deterministic. Keep an explicit
+    // tiny positive legal-action policy support for finite NeuRD log ratios;
+    // actual behavior (mu) is the approved 2% epsilon-uniform mixture.
+    const n=legalActions.length;
+    const smoothing=1e-7;
+    const policy=new Array(n).fill(smoothing/n);
+    policy[index]+=1-smoothing;
+    const probabilities=policy.map(p=>(1-epsilon)*p+epsilon/n);
+    const chosen=sample(probabilities,rng);
+    const acceptedAction=legalActions[chosen];
+    const phaseInput=encodeForLearner(observation,legalActions,undefined,trajectoryBattleSchema);
+    pending={seat,round:observation.round??round,phase:observation.phase,
+      action:acceptedAction,index:chosen,phase_input:phaseInput,
+      behavior_prob:probabilities[chosen],policy_pi:policy,
+      magnet_pi:[...policy],predicted_value:0,postAccept,acceptedPublic};
+    return {action:acceptedAction,
+      behaviorLogProbability:Math.log(probabilities[chosen]),
+      referenceLogProbability:Math.log(policy[chosen]),
+      predictedValue:0};
+  }
+  const func=choose;
+  // The extra seat-public view is supplied only by the authority's phase
+  // runner, never by the actor collector or the trainable Main.
+  func.requiresSeatPublicView=true;
+  func.accepted=({seat,phase,action})=>{
+    const p=pending;
+    assert(p&&p.seat===seat&&p.phase===phase&&same(p.action,action),
+      'Frozen benchmark moved without an accepted authority receipt');
+    p.postAccept?.(action);
+    saved.push(p);
+    if(phase==='battle'&&trajectoryBattleSchema==='rnad-three-phase-features-v6')
+      publicFoes=appendPublicFoe(publicFoes,p.acceptedPublic);
+    pending=null;
+  };
+  return {func,saved,get pending(){return pending;}};
+}
+
 export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false,trajectoryBattleSchema=null}){
   assert(finite(epsilon)&&epsilon>0&&epsilon<=.1,'Invalid behavior epsilon');
   const legacy=legacyPath!==null;
@@ -291,7 +460,7 @@ function encodeForLearner(obs,legal,precomputed,battleSchema='rnad-three-phase-f
 export function createIntegratedAcceptedMatch({
   seed,learnerSeat,generation,actorId,policyId,
   mainDir,magnetDir,opponentDir=null,
-  legacyOpponent=null,legacyOpponentSha=null,
+  legacyOpponent=null,legacyOpponentSha=null,fixedConfig=null,
   role='self',mainSha,magnetSha,opponentSha,
   epsilon=.02
 }){
@@ -313,12 +482,15 @@ export function createIntegratedAcceptedMatch({
     fileSha(join(magnetDir,'manifest.json'))===magnetSha,
     'Actor main/magnet SHA not bound to generation');
   if(role!=='self')assert(
+    fixedConfig?fileSha(fixedConfig)===opponentSha:
     legacyOpponent?fileSha(legacyOpponent)===opponentSha:
       fileSha(join(opponentDir,'manifest.json'))===opponentSha,
     'Frozen opponent does not match generation registry');
   const other=role==='self'?
     session({modelDir:mainDir,magnetDir,epsilon,
       trajectoryBattleSchema:battleSchema}):
+    fixedConfig?
+    approvedFixedSession(JSON.parse(readFileSync(fixedConfig)),epsilon,battleSchema):
     legacyOpponent?
     session({legacyPath:legacyOpponent,legacySha:legacyOpponentSha,epsilon,
       trajectoryBattleSchema:battleSchema}):
@@ -386,6 +558,7 @@ if(process.argv[1]?.endsWith('/shared_league_actor.mjs')){
       generation:meta.generation,actorId:meta.actor_id,
       policyId:meta.policy_id,mainDir:a.main,magnetDir:a.magnet,
       opponentDir:a.opponent??null,legacyOpponent:a.legacy??null,
+      fixedConfig:a['fixed-config']??null,
       legacyOpponentSha:meta.legacy_sha256??null,role:meta.role,
       mainSha:meta.main_sha256,magnetSha:meta.magnet_sha256,
       opponentSha:meta.opponent_sha256});
