@@ -354,24 +354,24 @@ jobs:
           if-no-files-found: error
 
   cleanup:
-    name: "g\${{ inputs.generation }} bounded storage cleanup after verified handoff"
+    name: "g${{ inputs.generation }} bounded storage cleanup after verified handoff"
     needs: learner
-    if: \${{ needs.learner.result == 'success' }}
+    if: ${{ needs.learner.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     continue-on-error: true
     permissions: {actions: write}
     env:
-      GH_TOKEN: \${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Delete ONLY consumed Actor shards and obsolete B+C intermediate checkpoint artifacts
         run: |
           set -euo pipefail
-          gh api 'repos/cueikusuta/p-RL1024/actions/runs/\${{ github.run_id }}/artifacts?per_page=100' \
+          gh api 'repos/cueikusuta/p-RL1024/actions/runs/${{ github.run_id }}/artifacts?per_page=100' \
             --paginate --jq '.artifacts[] | [.id,.name,.expired] | @tsv' > artifacts.tsv
           python - <<'PY'
           from pathlib import Path
-          g=int("\${{ inputs.generation }}")
+          g=int("${{ inputs.generation }}")
           entries={}
           for line in Path("artifacts.tsv").read_text().splitlines():
               ident,name,expired=line.split("\t")
