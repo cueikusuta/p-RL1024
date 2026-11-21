@@ -32,5 +32,6 @@ jobs:
       - name: Run feature and strict fixed-opponent contract tests
         run: |
           set -euo pipefail
+          python -m py_compile scripts/rnad/prepare_b_opponent_profile.py scripts/rnad/shared_league_handoff.py scripts/rnad/shared_league_collect.py
           python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
           node --test test/rnad-b-fixed-opponent.test.js
