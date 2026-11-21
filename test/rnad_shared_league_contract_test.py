@@ -5,7 +5,7 @@ import unittest
 
 from scripts.rnad.shared_league_contract import (
     ACTORS, MATCHES_PER_GENERATION, OPTIMIZER_STEPS, SEEDS_PER_ACTOR,
-    ACTOR_SCHEMA, MATCH_SCHEMA, POLICY_SCHEMA, SCHEMA, _opponent,
+    ACTOR_SCHEMA, MATCH_SCHEMA, POLICY_SCHEMA, SCHEMA, PROFILE_B, PROFILE_B_FIXED, _opponent,
     _matrix, _valid_draft_codes, _SELECTION_TRIPLES,
     actor_role, canonical_hash, verify_actor, verify_generation,
     verify_manifest,
@@ -151,6 +151,22 @@ class SharedLeagueContractTest(unittest.TestCase):
         self.assertEqual(report["optimizer_steps_one_epoch"], OPTIMIZER_STEPS)
         self.assertEqual(report["opponent_roles"],
                          {"self": 8, "historical": 10, "fixed": 2})
+
+    def test_b_profile_assigns_exactly_four_pinned_fixed_opponents(self):
+        m=manifest()
+        m["league_opponent_profile"]=PROFILE_B
+        m["opponents"]["fixed"]=[
+            {"id":ident, "sha256":str(i)*64}
+            for i,ident in enumerate(PROFILE_B_FIXED,1)]
+        report=verify_generation(m,[payload(m,i) for i in range(ACTORS)])
+        self.assertEqual(report["opponent_roles"],
+                         {"self":8,"historical":8,"fixed":4})
+        self.assertEqual({payload(m,i)["opponent_id"] for i in range(16,20)},
+                         set(PROFILE_B_FIXED))
+        corrupted=copy.deepcopy(m)
+        corrupted["opponents"]["fixed"][0]["id"]="fixed-base128"
+        with self.assertRaisesRegex(ValueError,"four unique"):
+            verify_manifest(corrupted)
 
     def test_actual_exploiter_role_only_if_immutable_registry_populated(self):
         m = manifest(exploiter=True)
