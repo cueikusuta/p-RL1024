@@ -271,18 +271,24 @@ export function approvedFixedSession(config,epsilon=.02){
     }
     const index=legalActions.findIndex(a=>equivalentAuthorityAction(a,intended,observation.phase));
     assert(index>=0,'AQ/Core-Trio proposed nonauthoritative action');
-    const n=legalActions.length,probabilities=new Array(n).fill(epsilon/n);
-    probabilities[index]+=1-epsilon;
+    // The frozen AQ decision is essentially deterministic. Keep an explicit
+    // tiny positive legal-action policy support for finite NeuRD log ratios;
+    // actual behavior (mu) is the approved 2% epsilon-uniform mixture.
+    const n=legalActions.length;
+    const smoothing=1e-7;
+    const policy=new Array(n).fill(smoothing/n);
+    policy[index]+=1-smoothing;
+    const probabilities=policy.map(p=>(1-epsilon)*p+epsilon/n);
     const chosen=sample(probabilities,rng);
     const acceptedAction=legalActions[chosen];
     const phaseInput=encodeForLearner(observation,legalActions);
     pending={seat,round:observation.round??round,phase:observation.phase,
       action:acceptedAction,index:chosen,phase_input:phaseInput,
-      behavior_prob:probabilities[chosen],policy_pi:probabilities,
-      magnet_pi:[...probabilities],predicted_value:0,postAccept};
+      behavior_prob:probabilities[chosen],policy_pi:policy,
+      magnet_pi:[...policy],predicted_value:0,postAccept};
     return {action:acceptedAction,
       behaviorLogProbability:Math.log(probabilities[chosen]),
-      referenceLogProbability:Math.log(probabilities[chosen]),
+      referenceLogProbability:Math.log(policy[chosen]),
       predictedValue:0};
   }
   const func=choose;
