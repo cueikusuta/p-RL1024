@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {projectRnadObservation} from '../src/ml/legal-action-adapter.js';
+import {playableSets} from '../src/production-runtime.js';
 import {encodeRnadThreePhaseDecisionV5} from '../src/ml/rnad-phase-features-v5.js';
 import {encodeRnadThreePhaseDecisionV6,RNAD_V6_STATE_FEATURES,
   RNAD_V6_ACTION_FEATURES}
@@ -55,6 +56,23 @@ test('v6 changes only Battle-visible fields when public information changes',()=
     types:['Water'],hpPercent:50,status:'brn',lastSeen:2,
     usedMoves:['surf'],observedAbilityIds:[],observedItemIds:[]}];
   assert.notDeepEqual(va.state,encodeRnadThreePhaseDecisionV6(c,actions).state);
+});
+test('v6 damage-band features react to only public species, HP and own power',()=>{
+  const a=obs();
+  a.opponent.speciesId=playableSets.find(p=>p.speciesId)?.speciesId;
+  a.opponent.types=['Grass'];
+  a.opponent.hpPercent=80;
+  const x=encodeRnadThreePhaseDecisionV6(a,actions);
+  // index 93/94: broad lower/upper own move damage ratio proxies.
+  assert.ok(x.actions[0][93]>0);
+  assert.ok(x.actions[0][94]>=x.actions[0][93]);
+  const b=structuredClone(a);
+  b.opponent.hpPercent=25;
+  const y=encodeRnadThreePhaseDecisionV6(b,actions);
+  assert.ok(y.actions[0][93]>=x.actions[0][93]);
+  const c=structuredClone(a);
+  c.opponent.hiddenTeam=[{stats:{def:999,spd:999}}];
+  assert.deepEqual(encodeRnadThreePhaseDecisionV6(c,actions),x);
 });
 test('v6 rejects oversized history and non-Battle input',()=>{
   const a=obs();
