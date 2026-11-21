@@ -322,6 +322,20 @@ def verify_actor(manifest, payload):
             for seed, seat in observed}
 
 
+def expected_actor_roles(manifest):
+    """Single authority for manifest-dependent 20 Actor quotas."""
+    profile = manifest.get("league_opponent_profile")
+    if profile == PROFILE_B:
+        _need(not manifest["opponents"]["exploiter"] and
+              len(manifest["opponents"]["fixed"]) == 4,
+              "B profile must have exactly four fixed opponents")
+        return {"self": 8, "historical": 8, "fixed": 4}
+    _need(profile is None, "Unknown opponent league profile")
+    if manifest["opponents"]["exploiter"]:
+        return {"self": 8, "historical": 8, "fixed": 2, "exploiter": 2}
+    return {"self": 8, "historical": 10, "fixed": 2}
+
+
 def verify_generation(manifest, actor_payloads):
     verify_manifest(manifest)
     _need(isinstance(actor_payloads, list) and len(actor_payloads) == ACTORS,
@@ -341,13 +355,8 @@ def verify_generation(manifest, actor_payloads):
     _need(ids == set(range(ACTORS)) and
           len(match_ids) == MATCHES_PER_GENERATION,
           "Missing actor or incomplete generation")
-    if manifest.get("league_opponent_profile") == PROFILE_B:
-        expected_roles = {"self":8, "historical":8, "fixed":4}
-    else:
-        expected_roles = {"self":8, "historical":8, "fixed":2, "exploiter":2}
-        if not manifest["opponents"]["exploiter"]:
-            expected_roles["historical"] += expected_roles.pop("exploiter")
-    _need(dict(roles) == expected_roles, "Opponent category quota mismatch")
+    _need(dict(roles) == expected_actor_roles(manifest),
+          "Opponent category quota mismatch")
     return {
         "generation": manifest["generation"],
         "independent_seed_clusters": ACTORS * SEEDS_PER_ACTOR,
