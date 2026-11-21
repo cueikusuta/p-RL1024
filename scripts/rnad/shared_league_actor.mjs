@@ -165,7 +165,7 @@ function sample(p,rng){
 // samples (1-epsilon) of that exact policy plus epsilon uniformly over all
 // engine-legal actions; its recorded pi/magnet/mu are the real sampling law.
 const AQ_V2_WEIGHTS=Object.freeze({blend:.28,exposure:.75,continuation:.4});
-function approvedFixedSession(config,epsilon=.02){
+export function approvedFixedSession(config,epsilon=.02){
   assert(config?.schema==='rnad-i5-authorized-fixed-opponent-v1'&&
     ['aqbase001','coretrioaq001'].includes(config.kind)&&
     config.aq_model_sha256===AQ_WEIGHTS_SHA&&
