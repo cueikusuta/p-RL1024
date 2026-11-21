@@ -8,7 +8,7 @@ from scripts.rnad.shared_league_contract import (
     ACTOR_SCHEMA, MATCH_SCHEMA, POLICY_SCHEMA, SCHEMA, PROFILE_B, PROFILE_B_FIXED, _opponent,
     _matrix, _valid_draft_codes, _SELECTION_TRIPLES,
     actor_role, canonical_hash, verify_actor, verify_generation,
-    verify_manifest,
+    verify_manifest, expected_actor_roles,
 )
 
 
@@ -151,6 +151,24 @@ class SharedLeagueContractTest(unittest.TestCase):
         self.assertEqual(report["optimizer_steps_one_epoch"], OPTIMIZER_STEPS)
         self.assertEqual(report["opponent_roles"],
                          {"self": 8, "historical": 10, "fixed": 2})
+
+    def test_learner_role_expectation_uses_same_contract_as_actor_validation(self):
+        standard = manifest()
+        self.assertEqual(expected_actor_roles(standard),
+                         {"self":8, "historical":10, "fixed":2})
+        exploiter = manifest(exploiter=True)
+        self.assertEqual(expected_actor_roles(exploiter),
+                         {"self":8, "historical":8, "fixed":2, "exploiter":2})
+        b = manifest()
+        b["league_opponent_profile"] = PROFILE_B
+        b["opponents"]["fixed"] = [
+            {"id": ident, "sha256": str(i)*64}
+            for i,ident in enumerate(PROFILE_B_FIXED,1)]
+        self.assertEqual(expected_actor_roles(b),
+                         {"self":8, "historical":8, "fixed":4})
+        self.assertEqual(expected_actor_roles(b),
+                         verify_generation(b,[payload(b,i) for i in range(ACTORS)])
+                         ["opponent_roles"])
 
     def test_b_profile_assigns_exactly_four_pinned_fixed_opponents(self):
         m=manifest()
