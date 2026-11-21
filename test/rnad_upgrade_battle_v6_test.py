@@ -38,6 +38,57 @@ def initialized():
     return old,new,checkpoint
 
 
+class V6IntegratedModelTest(unittest.TestCase):
+    def test_full_integrated_v6_reuses_draft_selection_heads_and_backpropagates(self):
+        from scripts.rnad.integrated_policy_v1 import IntegratedPolicyV1
+        from scripts.rnad.neural import THREE_PHASE_FEATURE_SCHEMA_V6, export_json
+        from scripts.rnad.train_selection_specialist import TRIPLES
+        from scripts.rnad.train_draft_deepsets import FEATURE_WIDTH
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        import json
+        vocab={'sizes': {key:3 for key in
+                         ('species','names','abilities','items','moves','types')}}
+        model=IntegratedPolicyV1(vocab,
+              battle_schema=THREE_PHASE_FEATURE_SCHEMA_V6)
+        self.assertEqual(model.battle.state_features,384)
+        self.assertEqual(model.battle.action_features,160)
+        draft={'pool':torch.randn(6,FEATURE_WIDTH),
+               'extra':torch.randn(1,4)}
+        selection={'own_cat':torch.zeros(1,6,9,dtype=torch.long),
+                   'foe_cat':torch.zeros(1,6,3,dtype=torch.long),
+                   'own_num':torch.randn(1,6,16),
+                   'foe_num':torch.randn(1,6,6)}
+        battle={'state':torch.randn(1,384)}
+        seq=[
+            ('draft',draft,torch.tensor([[0,1,2,3,4,5]],dtype=torch.long),None),
+            ('selection',selection,TRIPLES,None),
+            ('battle',battle,torch.randn(1,4,160),model.initial_memory()),
+        ]
+        values=[]
+        for phase,view,actions,mem in seq:
+            logits,critic,next_mem=model(phase,view,actions,mem)
+            self.assertTrue(torch.isfinite(logits).all())
+            self.assertTrue(torch.isfinite(critic).all())
+            values.append(logits.mean()+critic)
+        sum(values).backward()
+        for tensor in (model.battle.state_proj.weight,
+                       model.battle.policy_hidden.weight,
+                       model.selection_value[0].weight,
+                       model.draft_value[0].weight):
+            self.assertIsNotNone(tensor.grad)
+            self.assertTrue(torch.isfinite(tensor.grad).all())
+        with TemporaryDirectory() as temp:
+            target=Path(temp)/'battle.json'
+            export_json(model.battle,target,
+                        feature_schema=THREE_PHASE_FEATURE_SCHEMA_V6)
+            payload=json.loads(target.read_text())
+            self.assertEqual((payload['state_features'],
+                              payload['action_features']),(384,160))
+            self.assertEqual(payload['feature_schema'],
+                             THREE_PHASE_FEATURE_SCHEMA_V6)
+
+
 class UpgradeTest(unittest.TestCase):
     def test_expands_all_three_heads_and_optimizer_without_changing_prefix(self):
         old,new,original=initialized()
