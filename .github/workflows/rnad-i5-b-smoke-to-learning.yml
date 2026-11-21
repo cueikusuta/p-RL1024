@@ -31,6 +31,10 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Regression gate before authority smoke (second attempt)
+        run: |
+          set -euo pipefail
+          node --test test/rnad-b-fixed-opponent.test.js
       - name: Validate immutable completed G195 baseline and fetch without modifying it
         run: |
           set -euo pipefail
