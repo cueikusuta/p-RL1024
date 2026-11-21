@@ -178,6 +178,18 @@ export function approvedFixedSession(config,epsilon=.02){
   const saved=[];
   let pending=null,round=null,ownSets=[],memory={},belief=null,guard=null;
   let scores=[0,0];
+  function equivalentAuthorityAction(legal,intended,phase){
+    if(phase==='battle')return same(legal,intended);
+    if(!Array.isArray(legal)||!Array.isArray(intended)||
+       legal.length!==intended.length)return false;
+    // Draft order is immaterial. Selection lead order is material, but the
+    // final two reserves are an unordered set in the legal enumeration.
+    if(phase==='selection'&&legal[0]!==intended[0])return false;
+    const start=phase==='selection'?1:0;
+    const x=legal.slice(start),y=intended.slice(start);
+    return new Set(x).size===x.length&&new Set(y).size===y.length&&
+      x.every(id=>y.includes(id));
+  }
   function choose({observation,legalActions,seat,rng,publicView}){
     assert(!pending&&observation?.seat===seat&&
       publicView?.self&&['draft','selection','battle'].includes(observation.phase),
@@ -234,7 +246,7 @@ export function approvedFixedSession(config,epsilon=.02){
           catalog:playableSets,weights:AQ_V2_WEIGHTS});
       }
     }
-    const index=legalActions.findIndex(a=>same(a,intended));
+    const index=legalActions.findIndex(a=>equivalentAuthorityAction(a,intended,observation.phase));
     assert(index>=0,'AQ/Core-Trio proposed nonauthoritative action');
     const n=legalActions.length,probabilities=new Array(n).fill(epsilon/n);
     probabilities[index]+=1-epsilon;
