@@ -20,7 +20,8 @@ from scripts.rnad.train_draft_deepsets import DeepSetsDraft, FEATURE_WIDTH
 from scripts.rnad.selection_ab import DecomposedTeacher, TRIPLES
 from scripts.rnad.neural import (
     RNADNetwork, THREE_PHASE_FEATURE_SCHEMA_V5,
-    STATE_FEATURES_V5, ACTION_FEATURES_V5,
+    THREE_PHASE_FEATURE_SCHEMA_V6, STATE_FEATURES_V5, ACTION_FEATURES_V5,
+    STATE_FEATURES_V6, ACTION_FEATURES_V6,
     load_exported_json,
 )
 
@@ -62,8 +63,12 @@ class IntegratedPolicyV1(nn.Module):
     seat *managed by the caller*. A Match runner must reset all such memories
     between Matches/rounds as appropriate and only advance after acceptance.
     """
-    def __init__(self, public_vocab):
+    def __init__(self, public_vocab, *, battle_schema=THREE_PHASE_FEATURE_SCHEMA_V5):
         super().__init__()
+        _fail(battle_schema in (THREE_PHASE_FEATURE_SCHEMA_V5,
+                                THREE_PHASE_FEATURE_SCHEMA_V6),
+              "Unknown versioned Battle feature schema")
+        self.battle_schema = battle_schema
         _fail(isinstance(public_vocab, dict) and
               isinstance(public_vocab.get("sizes"), dict) and
               all(type(public_vocab["sizes"].get(k)) is int and
@@ -74,8 +79,9 @@ class IntegratedPolicyV1(nn.Module):
         self.policy_schema = SCHEMA
         self.draft = DeepSetsDraft()
         self.selection = DecomposedTeacher(public_vocab)
-        self.battle = RNADNetwork(state_features=STATE_FEATURES_V5,
-                                  action_features=ACTION_FEATURES_V5)
+        self.battle = RNADNetwork(
+            state_features=STATE_FEATURES_V6 if battle_schema==THREE_PHASE_FEATURE_SCHEMA_V6 else STATE_FEATURES_V5,
+            action_features=ACTION_FEATURES_V6 if battle_schema==THREE_PHASE_FEATURE_SCHEMA_V6 else ACTION_FEATURES_V5)
         self.draft_value = nn.Sequential(
             nn.Linear(48 + 4, 64), nn.ReLU(), nn.Linear(64, 1),
             nn.Tanh())
@@ -150,11 +156,11 @@ class IntegratedPolicyV1(nn.Module):
             state = seat_scoped["state"]
             candidates = legal_actions
             _fail(isinstance(state, torch.Tensor) and
-                  state.ndim == 2 and tuple(state.shape) == (1, STATE_FEATURES_V5) and
+                  state.ndim == 2 and tuple(state.shape) == (1, self.battle.state_features) and
                   isinstance(candidates, torch.Tensor) and
                   candidates.ndim == 3 and candidates.shape[0] == 1 and
                   candidates.shape[1] > 0 and
-                  candidates.shape[2] == ACTION_FEATURES_V5 and
+                  candidates.shape[2] == self.battle.action_features and
                   isinstance(per_seat_memory, torch.Tensor) and
                   tuple(per_seat_memory.shape) == (1, self.battle.hidden_size),
                   "Invalid seat-local battle tensor or recurrent memory")
