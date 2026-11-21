@@ -208,9 +208,15 @@ export function approvedFixedSession(config,epsilon=.02){
         chooseStrategyTeam(publicView,{data,fastDraftValidation:true});
     }else if(observation.phase==='selection'){
       intended=chooseTacticalSelection(publicView,{data,sets:playableSets});
-      const chosen=intended.map(id=>publicView.self.team.find(p=>p.instanceId===id));
-      assert(chosen.every(Boolean),'Unverifiable own fixed selection');
-      postAccept=()=>{ownSets=chosen;};
+      // epsilon exploration may legally accept a different selection from
+      // the AQ proposal. Never bind private own team to the unaccepted pick.
+      postAccept=(action)=>{
+        const selected=action.map(id=>
+          publicView.self.team.find(p=>p.instanceId===id));
+        assert(selected.length===3&&selected.every(Boolean),
+          'Accepted fixed selection omitted a real own set');
+        ownSets=selected;
+      };
     }else{
       const current=publicView.self.team?.[publicView.self.active];
       assert(current&&ownSets.length===3,'Missing own accepted fixed team');
