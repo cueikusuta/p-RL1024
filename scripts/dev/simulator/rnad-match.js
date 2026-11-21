@@ -94,7 +94,13 @@ export function runRnadAcceptanceSmoke({
             requestType:observation.requestType??null};
           const legalActions=rnadLegalActions(view);
           const choose=seatPhasePolicy??policy;
-          const proposed=choose({observation,legalActions,round,seat,rng});
+          // Only a repository-owned, explicitly marked fixed benchmark may use
+           // the authority-projected *seat-public* view for exact AQ logic.
+           // Main and trajectory collectors still receive the strict observation.
+           const proposed=seatPhasePolicy?.requiresSeatPublicView===true?
+             choose({observation,legalActions,round,seat,rng,
+               publicView:view}):
+             choose({observation,legalActions,round,seat,rng});
           if(!proposed||typeof proposed!=='object'||
             !Object.hasOwn(proposed,'action'))
             throw new TypeError('Policy must return an action and logged probabilities');
