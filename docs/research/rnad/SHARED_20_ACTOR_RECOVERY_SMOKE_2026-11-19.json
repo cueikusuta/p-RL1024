@@ -1,0 +1,14 @@
+{
+  "schema": "rnad-i5-20-actor-transport-fault-injection-v1",
+  "source_sha": "d7e9507e56972d8a24f2e29d01aab0ebb6449191",
+  "parallel_logical_actors": 20,
+  "deliberately_missing_original_actor": 16,
+  "repair_only_missing": true,
+  "expected_original_immutable_artifacts": 19,
+  "expected_recovered_artifacts": 1,
+  "expected_verified_artifacts": 20,
+  "real_matches_generated": 0,
+  "optimizer_steps": 0,
+  "training_weights_mutated": false,
+  "research_only": true
+}

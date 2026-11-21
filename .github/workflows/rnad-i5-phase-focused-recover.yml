@@ -1,0 +1,62 @@
+name: RNAD I5 recover already completed phase-only AQ comparison
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/PHASE_FOCUS_RECOVERY_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-phase-focus-report-recovery
+  cancel-in-progress: false
+jobs:
+  recover:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Check accepted receipt validation and manifest
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-phase-focused-recovery.test.js test/rnad-v4-phase-ablation.test.js
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('docs/research/rnad/PHASE_FOCUS_RECOVERY_MANIFEST.json','utf8'));
+          if(r.schema!=='rnad-i5-focused-summary-recovery-v1'||
+             r.run_id!==43964217094||r.iteration!==1)
+            throw new Error('Only the original exact-AQ Match artifact may be reprocessed');
+          JS
+      - name: Reuse existing successful Match records, NO training or simulation
+        run: |
+          set -euo pipefail
+          mkdir -p input output
+          gh run download 43964217094 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-phase-focused-43964217094 --dir input
+          test -f input/results/all-all-v3.json
+          test -f input/results/all-selection-v4.json
+          test -f input/results/selection-only-all-v3.json
+          test -f input/results/selection-only-selection-v4.json
+          node scripts/rnad/recover-phase-focused-eval.mjs input/results output/summary.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          const d=JSON.parse(readFileSync('output/summary.json'));
+          if(d.evaluated_source_sha!=='7a2a3cdba6b1b5a4b552038bba49f1409f8e6eac'||
+             d.paired_seed_start<1||d.independent_seeds!==16||
+             d.matches_per_arm!==32||d.strength_established||d.champion_promoted||
+             !d.evidence_reused_not_retrained)
+            throw new Error('Untrusted or promoted phase-only recovery receipt');
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-recovered-phase-ab-${{ github.run_id }}
+          path: output/
+          retention-days: 30
+          if-no-files-found: warn

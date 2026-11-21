@@ -1,0 +1,314 @@
+name: RNAD-002 exact full-state generation 512 to 1024 and paired evaluation
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-002-generation512-to1024-i5
+  cancel-in-progress: false
+jobs:
+  continue-training:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest # GitHub-hosted only
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: cueikusuta/p-RL1024
+      ROOT: artifacts/g1024
+      RNAD_SOURCE_PIN: 14976f08db19606d4f9787ad6a4dc7a814d8d850
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout exact original optimizer checkpoint code, not present PR HEAD
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 14976f08db19606d4f9787ad6a4dc7a814d8d850
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Pin CPU dependencies and verify immutable game
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          test "$(git rev-parse HEAD)" = "$RNAD_SOURCE_PIN"
+          node scripts/verify-snapshot.mjs
+      - name: Download source teacher, verified generation 512 full optimizer and distinct 2048-game improvement evidence
+        run: |
+          mkdir -p "$ROOT/origin" "$ROOT/source" "$ROOT/vs256"
+          gh run download 43703479004 --repo "$GH_REPO" \
+            --name rnad-002-basic-teacher-43703479004-1 --dir "$ROOT/origin"
+          gh run download 43706288860 --repo "$GH_REPO" \
+            --name rnad-002-generations-43706288860-1 --dir "$ROOT/source"
+          gh run download 43736580742 --repo "$GH_REPO" \
+            --name rnad-512-vs256-43736580742 --dir "$ROOT/vs256"
+          test -s "$ROOT/origin/teacher/trained-model.json"
+          test -s "$ROOT/source/selfplay/checkpoints/latest.json"
+          test -s "$ROOT/source/generations/generation-512.json"
+          test -s "$ROOT/source/generations/model-u256.json"
+          test -s "$ROOT/source/generations/model-u512.json"
+      - name: Verify 512 full-state bytes, pinned source, exact teacher and 2048-game eligibility
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,shutil
+          from pathlib import Path
+          from scripts.rnad.neural import RNADNetwork,load_exported_json,THREE_PHASE_FEATURE_SCHEMA
+          from scripts.rnad.train import state_hash
+          r=Path(os.environ['ROOT']);src=r/'source';origin=r/'origin'
+          pin=os.environ['RNAD_SOURCE_PIN']
+          h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          qs=list((r/'vs256').rglob('eval512-vs256-summary.json'))
+          if len(qs)!=1:raise ValueError('Missing unique independent paired evaluation artifact')
+          quality=json.loads(qs[0].read_text())
+          if (quality.get('schema')!='rnad-512-vs-256-paired-eval-v1' or
+              quality.get('matches')!=2048 or quality.get('independent_seeds')!=1024 or
+              quality.get('wins_512')!=1441 or
+              quality.get('improvement_statistically_confirmed') is not True or
+              quality['paired_hoeffding95'][0]<=.5):
+              raise ValueError('Prior 512>256 independent gate not established')
+          train=src/'selfplay'
+          i=json.loads((train/'checkpoints/latest.json').read_text())
+          md=i['metadata']
+          g=json.loads((src/'generations/generation-512.json').read_text())
+          old=json.loads((src/'generations/progress.json').read_text())
+          report=json.loads((train/'report.json').read_text())
+          teacher=origin/'teacher/trained-model.json'
+          checkpoint=train/'checkpoints'/i['checkpoint_file']
+          model512=src/'generations/model-u512.json'
+          model256=src/'generations/model-u256.json'
+          if not (old['source_sha']==pin and
+              old['snapshots'][-1]['generation']==256 and
+              report['source_sha']==pin and report['completed_matches']==512 and
+              report['updates']==512 and
+              md['source_sha']==md['training_code_sha']==pin and
+              md['model_id']=='RNAD-002-3phase' and
+              md['observation_schema_version']==THREE_PHASE_FEATURE_SCHEMA and
+              md['regularization_eta']==.2 and md['magnet_period']==4 and
+              md['initial_seed']==975361 and md['next_match_seed']==975873 and
+              md['completed_matches']==md['updates']==512 and
+              len(set(md['completed_match_ids']))==512 and
+              md['initialization_sha256']==h(teacher) and
+              g['completed_matches']==512 and
+              g['checkpoint_sha256']==i['checkpoint_sha256'] and
+              i['checkpoint_sha256']==h(checkpoint) and
+              quality['model512_sha256']==h(model512) and
+              quality['model256_sha256']==h(model256)):
+              raise ValueError('Invalid or unbound 512 full-state continuation')
+          model=RNADNetwork()
+          load_exported_json(model,model512,
+              expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA)
+          if state_hash(model)!=g['model_sha256']:
+              raise ValueError('Stored 512 model weights differ')
+          teacher_model=RNADNetwork()
+          load_exported_json(teacher_model,teacher,
+              expected_feature_schema=THREE_PHASE_FEATURE_SCHEMA)
+          (src/'teacher').mkdir(exist_ok=True)
+          shutil.copyfile(teacher,src/'teacher/trained-model.json')
+          print(json.dumps({'accepted_decisions':md['accepted_decisions'],
+              'complete_generation':512,'next_seed':md['next_match_seed'],
+              'source_sha':pin,'paired512_wins':quality['wins_512'],
+              'checkpoint_sha256':i['checkpoint_sha256']}),flush=True)
+          PY
+      - name: Continue exact magnet, optimizer, scheduler and RNG state to generations 768 and 1024
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,shutil
+          from pathlib import Path
+          from scripts.rnad.train import train,current_git_sha
+          root=Path(os.environ['ROOT'])/'source'
+          folder=root/'selfplay';teacher=root/'teacher/trained-model.json'
+          indexfile=folder/'checkpoints/latest.json';out=root/'generations'
+          last=json.loads(indexfile.read_text())['metadata']['accepted_decisions']
+          results=[]
+          for goal in (768,1024):
+              while True:
+                  before=json.loads(indexfile.read_text())['metadata']['completed_matches']
+                  if before>=goal:break
+                  if before<512 or before%16:raise ValueError('Wrong generation boundary')
+                  report=train(seed=975361,matches=16,out=str(folder),
+                      resume=True,three_phase=True,initial_model=str(teacher),
+                      eta=.2,magnet_period=4)
+                  i=json.loads(indexfile.read_text());md=i['metadata']
+                  matchids=['rnad-match-'+str(n)
+                      for n in range(975361+before,975377+before)]
+                  if (md['completed_matches']!=before+16 or
+                      md['updates']!=before+16 or
+                      report['completed_matches']!=before+16 or
+                      report['updates']!=before+16 or
+                      md['next_match_seed']!=975361+before+16 or
+                      md['accepted_decisions']<=last or
+                      md['completed_match_ids'][before:]!=matchids or
+                      len(set(md['completed_match_ids']))!=before+16 or
+                      md['source_sha']!=current_git_sha() or
+                      report['model_id']!='RNAD-002-3phase' or
+                      report['feature_schema']!='rnad-three-phase-features-v1' or
+                      report['last_match_checkpoint_sha']!=i['checkpoint_sha256']):
+                      raise ValueError('Untrusted generation continuation')
+                  pt=folder/'checkpoints'/i['checkpoint_file']
+                  if hashlib.sha256(pt.read_bytes()).hexdigest()!=i['checkpoint_sha256']:
+                      raise ValueError('Corrupt complete optimizer checkpoint')
+                  last=md['accepted_decisions']
+                  for stale in (folder/'checkpoints').glob('checkpoint-u*.pt'):
+                      if stale.name!=i['checkpoint_file']:stale.unlink()
+                  print(json.dumps({'completed_matches':before+16,
+                      'accepted_decisions':last,'model_sha256':report['model_sha256'],
+                      'checkpoint_sha256':i['checkpoint_sha256']}),flush=True)
+              if before!=goal:raise ValueError('Overshot verified generation')
+              shutil.copyfile(folder/'final-model.json',out/f'model-u{goal}.json')
+              shutil.copyfile(folder/'checkpoints'/i['checkpoint_file'],
+                              out/i['checkpoint_file'])
+              results.append({'generation':goal,'model_sha256':report['model_sha256'],
+                  'checkpoint_sha256':i['checkpoint_sha256'],
+                  'accepted_decisions':last})
+              (out/'new-generations.json').write_text(json.dumps({
+                  'schema':'rnad-002-full-1024-verified-v1',
+                  'origin_run_id':43706288860,
+                  'source_sha':current_git_sha(),'snapshots':results,
+                  'is_champion':False},indent=2)+'\n')
+              print('SAVED FULL GENERATION',goal,flush=True)
+          PY
+      - name: Pilot 512 new paired complete Matches (256 seeds) for large regressions
+        run: |
+          set -euo pipefail
+          root="$ROOT/source/generations"
+          for block in 0 1 2; do
+            count=100
+            if [[ "$block" == 2 ]]; then count=56; fi
+            node scripts/rnad/evaluate-direct.mjs \
+              --teacher "$root/model-u512.json" \
+              --rnad "$root/model-u1024.json" \
+              --seed "$((997701+block*100))" --pairs "$count" \
+              --out "$root/pilot-1024-$block.json"
+          done
+      - name: Validate pilot and only spend 2048-game evaluation budget if no large regression
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          g=Path(os.environ['ROOT'])/'source/generations'
+          t=hashlib.sha256((g/'model-u512.json').read_bytes()).hexdigest()
+          m=hashlib.sha256((g/'model-u1024.json').read_bytes()).hexdigest()
+          seen=set();wins=0
+          for block in range(3):
+              x=json.loads((g/f'pilot-1024-{block}.json').read_text())
+              if (x['schema']!='rnad-direct-neural-paired-match-v1' or
+                  x['teacher_model_sha256']!=t or x['rnad_model_sha256']!=m or
+                  x['source_sha']!=os.environ['RNAD_SOURCE_PIN'] or
+                  x['pairs']!=(56 if block==2 else 100) or
+                  x['matches']!=2*x['pairs'] or
+                  len(x['rows'])!=x['matches']):
+                  raise ValueError('Untrusted pilot run')
+              for row in x['rows']:
+                  key=(row['seed'],row['rnadSeat'])
+                  if (key in seen or key[0] not in range(997701,997957) or
+                      key[1] not in (0,1) or type(row['won']) is not bool or
+                      not 4<=row['rounds']<=64 or
+                      max(row['score'])!=4 or
+                      row['score'][key[1] if row['won'] else 1-key[1]]!=4):
+                      raise ValueError('Corrupt paired pilot')
+                  seen.add(key);wins+=int(row['won'])
+          if seen!={(n,seat) for n in range(997701,997957) for seat in (0,1)}:
+              raise ValueError('Missing pilot pairs')
+          p=wins/512
+          advance=p>=.48
+          out={'schema':'rnad-1024-vs-512-pilot-v1','matches':512,
+               'independent_seeds':256,'wins_1024':wins,
+               'win_rate_1024':p,'continue_to_independent_2048':advance,
+               'is_champion':False}
+          (g/'pilot-summary.json').write_text(json.dumps(out,indent=2)+'\n')
+          (g/'run-2048.txt').write_text('yes\n' if advance else 'no\n')
+          print(json.dumps(out),flush=True)
+          PY
+      - name: Evaluate 2048 complete Matches on independent new seeds if pilot was not a large regression
+        run: |
+          if [[ "$(cat "$ROOT/source/generations/run-2048.txt")" != yes ]]; then
+            echo "Withheld 2048 Matches: independent pilot indicated material regression"
+            exit 0
+          fi
+          set -euo pipefail
+          root="$ROOT/source/generations"
+          for block in $(seq 0 10); do
+            pairs=100
+            if [[ "$block" == 10 ]]; then pairs=24; fi
+            node scripts/rnad/evaluate-direct.mjs \
+              --teacher "$root/model-u512.json" --rnad "$root/model-u1024.json" \
+              --seed "$((998101+block*100))" --pairs "$pairs" \
+              --out "$root/paired-1024-$block.json"
+          done
+      - name: Validate disjoint 2048 real outcomes and preserve statistically conservative CI
+        run: |
+          python - <<'PY'
+          import hashlib,json,math,os
+          from pathlib import Path
+          g=Path(os.environ['ROOT'])/'source/generations'
+          if (g/'run-2048.txt').read_text().strip()!='yes':
+              print('Research gate stopped before 2048 independent matches')
+              raise SystemExit(0)
+          m=hashlib.sha256((g/'model-u1024.json').read_bytes()).hexdigest()
+          t=hashlib.sha256((g/'model-u512.json').read_bytes()).hexdigest()
+          seen=set();wins=0;seeds=set(range(998101,999125))
+          files=sorted(g.glob('paired-1024-*.json'))
+          if len(files)!=11:raise ValueError('Partial independent full-Match assessment')
+          for f in files:
+              report=json.loads(f.read_text())
+              rows=report['rows']
+              if (report['schema']!='rnad-direct-neural-paired-match-v1' or
+                  report['source_sha']!=os.environ['RNAD_SOURCE_PIN'] or
+                  report['teacher_model_sha256']!=t or
+                  report['rnad_model_sha256']!=m or
+                  report['model_feature_schema']!='rnad-three-phase-features-v1' or
+                  report['matches']!=2*report['pairs'] or
+                  len(rows)!=report['matches'] or
+                  report['wins']!=sum(x['won'] for x in rows)):
+                  raise ValueError('Corrupt 1024 generation evaluation')
+              for row in rows:
+                  key=(row['seed'],row['rnadSeat'])
+                  if (key in seen or key[0] not in seeds or key[1] not in (0,1) or
+                      type(row['won']) is not bool or
+                      not 4<=row['rounds']<=64 or len(row['score'])!=2 or
+                      max(row['score'])!=4 or
+                      row['score'][key[1] if row['won'] else 1-key[1]]!=4):
+                      raise ValueError('Reused seed or nonauthoritative outcome')
+                  seen.add(key);wins+=int(row['won'])
+          if seen!={(n,s) for n in seeds for s in (0,1)}:
+              raise ValueError('Incomplete independent paired seed coverage')
+          p=wins/2048;half=math.sqrt(math.log(40)/2048)
+          report={'schema':'rnad-1024-vs-512-paired-2048-v1',
+              'models':{'teacher512_sha256':t,'rnad1024_sha256':m},
+              'source_sha':os.environ['RNAD_SOURCE_PIN'],
+              'independent_seeds':1024,'matches':2048,'wins_1024':wins,
+              'win_rate_1024':p,
+              'seed_block_hoeffding_95pct':[max(0,p-half),min(1,p+half)],
+              'improvement_statistically_established':p-half>.5,
+              'champion_promoted':False}
+          (g/'final-1024-vs512.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report),flush=True)
+          PY
+      - name: Preserve full optimizer/magnet/teacher checkpoints and all evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-002-generation-1024-${{ github.run_id }}
+          path: |
+            artifacts/g1024/source/teacher/trained-model.json
+            artifacts/g1024/source/generations/model-u512.json
+            artifacts/g1024/source/generations/model-u768.json
+            artifacts/g1024/source/generations/model-u1024.json
+            artifacts/g1024/source/generations/new-generations.json
+            artifacts/g1024/source/generations/checkpoint-u*.pt
+            artifacts/g1024/source/generations/pilot-1024-*.json
+            artifacts/g1024/source/generations/pilot-summary.json
+            artifacts/g1024/source/generations/paired-1024-*.json
+            artifacts/g1024/source/generations/final-1024-vs512.json
+            artifacts/g1024/source/selfplay/report.json
+            artifacts/g1024/source/selfplay/checkpoints/latest.json
+            artifacts/g1024/source/selfplay/checkpoints/checkpoint-u*.pt
+          if-no-files-found: warn
+          retention-days: 30

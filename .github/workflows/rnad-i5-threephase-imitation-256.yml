@@ -1,0 +1,250 @@
+name: RNAD I5 3-phase imitation 256 teacher Match research
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/THREE_PHASE_IMITATION_256_LAUNCH_2026-11-17.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-3phase-imitation-256-one-batch
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read}
+    env: {OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1', PYTHONHASHSEED: '0'}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Validate frozen game and one-time disjoint 256/128 teacher plan
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/THREE_PHASE_IMITATION_256_LAUNCH_2026-11-17.json').read_text())
+          assert m['schema']=='rnad-i5-threephase-imitation-256-v1'
+          assert m['purpose']=='teacher-imitation-only'
+          assert m['train_seed']==2471001 and m['train_matches']==256
+          assert m['heldout_seed']==2472001 and m['heldout_matches']==128
+          assert m['draft_frozen_run']==44027700701
+          assert m['draft_frozen_soft128_sha256']=='4c50df5de8001988fa077283f0a2fa0ca964992d5e1782c4b279120e01b39825'
+          assert m['epoch_choices']==[4,6]
+          assert set(m)=={'schema','purpose','train_seed','train_matches','heldout_seed','heldout_matches','draft_frozen_run','draft_frozen_soft128_sha256','epoch_choices'}
+          t=set(range(2471001,2471257))
+          h=set(range(2472001,2472129))
+          assert not t.intersection(h)
+          print('One finite batch, no league, distinct seed blocks',flush=True)
+          PY
+      - name: Install pinned CPU training requirements and check loss/seed guards
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_draft_deepsets_test.py' -v
+          python -m unittest discover -s test -p 'rnad_draft_imitation_128_test.py' -v
+          python -m unittest discover -s test -p 'rnad_three_phase_imitation_256_test.py' -v
+  gather:
+    needs: preflight
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Restore and verify actual previous best 128-Match DeepSets model
+        run: |
+          set -euo pipefail
+          mkdir -p baseline
+          gh run download 44027700701 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-imitation-128-training-and-heldout --dir baseline
+          test -s baseline/soft128.json
+          printf '%s  %s\n' \
+            4c50df5de8001988fa077283f0a2fa0ca964992d5e1782c4b279120e01b39825 \
+            baseline/soft128.json | sha256sum -c -
+      - name: Export accepted v5 public-AQ teacher Match traces with exact six-mon draft choices
+        run: |
+          set -euo pipefail
+          mkdir -p traces/train traces/heldout
+          python - <<'PY'
+          import subprocess
+          for label,seed,n in [('train',2471001,256),('heldout',2472001,128)]:
+              for j in range(n):
+                  k=seed+j
+                  subprocess.run([
+                    'node','scripts/rnad/export-teacher.mjs',
+                    '--seed',str(k),
+                    '--out',f'traces/{label}/teacher-{k}.json',
+                    '--three-phase','true',
+                    '--teacher','aq-public-strategy-selection',
+                    '--features-v5','true',
+                    '--utility-labels','true',
+                    '--draft-review','true'
+                  ],check=True,stdout=subprocess.DEVNULL,timeout=480)
+                  if (j+1)%16==0:
+                      print(f'authority accepted {label} {j+1}/{n}',flush=True)
+          PY
+          test "$(find traces/train -type f -name 'teacher-*.json' | wc -l)" -eq 256
+          test "$(find traces/heldout -type f -name 'teacher-*.json' | wc -l)" -eq 128
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-3phase-256-accepted-teacher-data
+          path: |
+            traces/
+            baseline/soft128.json
+          retention-days: 90
+          if-no-files-found: error
+  draft:
+    needs: gather
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read, actions: read}
+    env: {GH_TOKEN: '${{ github.token }}', OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1', PYTHONHASHSEED: '0'}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Pinned CPU Torch
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Acquire immutable accepted teacher Match dataset
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-3phase-256-accepted-teacher-data --dir input
+          test -s input/baseline/soft128.json
+      - name: Compare frozen128 with new256 4/6-epoch DeepSets on fresh independent teacher holdout
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.train_draft_imitation_256 \
+            --train-dir input/traces/train \
+            --heldout-dir input/traces/heldout \
+            --baseline input/baseline/soft128.json \
+            --out results/draft
+          cat results/draft/DRAFT_256.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-256-draft-imitation
+          path: results/draft/
+          retention-days: 90
+          if-no-files-found: warn
+  selection_battle:
+    needs: gather
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions: {contents: read, actions: read}
+    env: {GH_TOKEN: '${{ github.token }}', OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1', PYTHONHASHSEED: '0'}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Pinned CPU Torch and bounded gradient contracts
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_three_phase_imitation_256_test.py' -v
+      - name: Use identical 256 accepted teacher Matches and 128 heldout for both policies
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-3phase-256-accepted-teacher-data --dir input
+          test "$(find input/traces/train -name 'teacher-*.json' | wc -l)" -eq 256
+          test "$(find input/traces/heldout -name 'teacher-*.json' | wc -l)" -eq 128
+      - name: Train selection-focused v5 256Match teacher imitation with mixed hard and utility loss
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.train_teacher \
+            --three-phase --features-v5 --teacher aq-public-strategy-selection \
+            --utility-distillation --utility-mix 0.5 --phase-balanced \
+            --phase-profile selection-focus --seed 2471001 --matches 256 \
+            --epochs 6 --reuse-teacher-traces input/traces/train \
+            --out results/selection
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --model results/selection/trained-model.json --features-v5 \
+            --teacher aq-public-strategy-selection --utility-labels \
+            --seed 2472001 --matches 128 \
+            --reuse-teacher-traces input/traces/heldout \
+            --out results/selection-heldout
+      - name: Train battle-focused v5 256Match hard-label teacher imitation
+        run: |
+          set -euo pipefail
+          # The archived teacher traces include versioned utility labels.
+          # With utility_mix=0 the battle objective stays pure hard-label CE,
+          # while the trace-schema validation correctly matches those labels.
+          python -m scripts.rnad.train_teacher \
+            --three-phase --features-v5 --teacher aq-public-strategy-selection \
+            --utility-distillation --utility-mix 0 \
+            --phase-balanced --phase-profile battle-focus \
+            --seed 2471001 --matches 256 --epochs 6 \
+            --reuse-teacher-traces input/traces/train \
+            --out results/battle
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --model results/battle/trained-model.json --features-v5 \
+            --teacher aq-public-strategy-selection --utility-labels \
+            --seed 2472001 --matches 128 \
+            --reuse-teacher-traces input/traces/heldout \
+            --out results/battle-heldout
+      - name: Report all three phases from both heldout actors, never mark champion
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          selection=json.loads(Path('results/selection-heldout/heldout-imitation.json').read_text())
+          battle=json.loads(Path('results/battle-heldout/heldout-imitation.json').read_text())
+          assert selection['seed']==battle['seed']==2472001 and selection['matches']==battle['matches']==128
+          assert selection['teacher_id']==battle['teacher_id']=='rnad-aq-public-strategy-selection-v1'
+          assert selection['source_sha']==battle['source_sha'] and selection['engine_sha']==battle['engine_sha']
+          assert selection['student_model_sha256']!=battle['student_model_sha256']
+          result={'schema':'rnad-i5-v5-two-phase-teacher256-v1',
+            'source_sha':selection['source_sha'],'engine_sha':selection['engine_sha'],
+            'train_matches':256,'heldout_matches':128,'single_integrated_policy_gate_passed':False,
+            'league_training_started':False,'strength_established':False,'champion_promoted':False,
+            'selection_focus':selection,'battle_focus':battle}
+          Path('results/phase-study-report.json').write_text(json.dumps(result,indent=2)+'\n')
+          lines=['# 選出・戦闘模倣256教師Match、同一未使用128Match','',
+            '| 特化方策 | ドラフトTop1 | 選出Top1 | 戦闘Top1 |',
+            '|---|---:|---:|---:|']
+          for tag,obj in [('selection_focus',selection),('battle_focus',battle)]:
+              x=obj['phases']
+              lines.append('| '+tag+' | '+' | '.join(f"{x[p]['top1_accuracy']:.2%}"
+                  for p in ('draft','selection','battle'))+' |')
+          lines.extend(['','各行は独立したモデルで、リーグ開始の統合3フェーズ条件を通したものではない。'])
+          Path('results/PHASE_IMITATION_256.md').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+          cat results/PHASE_IMITATION_256.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-256-selection-battle-imitation
+          path: |
+            results/selection/trained-model.json
+            results/selection/teacher-report.json
+            results/selection-heldout/heldout-imitation.json
+            results/battle/trained-model.json
+            results/battle/teacher-report.json
+            results/battle-heldout/heldout-imitation.json
+            results/phase-study-report.json
+            results/PHASE_IMITATION_256.md
+          retention-days: 90
+          if-no-files-found: warn

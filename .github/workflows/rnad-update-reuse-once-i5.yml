@@ -1,0 +1,161 @@
+name: RNAD I5 same-trajectory 1-vs-4 update learning probe
+# Bounded push-triggered study; no PR event and no Champion promotion.
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['.github/workflows/rnad-update-reuse-once-i5.yml']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-same-trajectory-probe
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU requirements
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Verify engine and retrieve immutable baseline
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m py_compile scripts/rnad/train.py scripts/rnad/neural.py
+          mkdir -p models artifacts/rnad-reuse-probe
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 --name rnad-i5-queue-models-43757054212 --dir models
+      - name: One accepted Match; two learners; identical first update
+        run: |
+          python - <<'PY'
+          import copy,hashlib,json,math,statistics
+          from pathlib import Path
+          import torch
+          from scripts.rnad.train import run_match,train_match,state_hash,current_git_sha,frozen_engine_sha
+          from scripts.rnad.neural import RNADNetwork,freeze_magnet,migrate_v2_export_to_v3,export_json,THREE_PHASE_FEATURE_SCHEMA_V3
+          torch.set_num_threads(1)
+          torch.manual_seed(1833001)
+          root=Path('artifacts/rnad-reuse-probe')
+          root.mkdir(parents=True,exist_ok=True)
+          sha=lambda f:hashlib.sha256(Path(f).read_bytes()).hexdigest()
+          source=Path('models/base128.json')
+          manifest=json.loads(Path('models/manifest.json').read_text())
+          if not (manifest.get('schema')=='rnad-i5-queued-evaluation-models-v1' and
+              manifest.get('source_sha')=='f08a9587d6a7033546eab00ffa6479399ca71c2f' and
+              manifest.get('engine_sha')==frozen_engine_sha() and
+              manifest.get('models',{}).get('base128')==sha(source)):
+              raise ValueError('Untrusted frozen source model')
+          initial=RNADNetwork(state_features=48,action_features=32)
+          if migrate_v2_export_to_v3(initial,source)!=sha(source):
+              raise ValueError('V2-to-V3 migration mismatch')
+          initial_sha=state_hash(initial)
+          data=run_match(1833001,initial,freeze_magnet(initial),root/'rollout',
+              three_phase=True,features_v3=True,switch_guard='anti-loop-v1')
+          assert data['completed'] is True
+          events=data['events']
+          phases={}
+          for phase in ('draft','selection','battle'):
+              rows=[e for e in events if e['phase']==phase]
+              if not rows:raise ValueError('Phase not represented: '+phase)
+              candidate_count=sum(len(e['actions']) for e in rows)
+              duplicates=sum(len(e['actions'])-len({tuple(v) for v in e['actions']}) for e in rows)
+              phases[phase]={
+                'accepted_decisions':len(rows),'legal_candidates':candidate_count,
+                'duplicate_candidate_vectors':duplicates,
+                'feature_collision_fraction':duplicates/candidate_count}
+          assert len(events)==sum(v['accepted_decisions'] for v in phases.values())
+          def snapshot(model):
+              memory=[model.initial_memory(),model.initial_memory()]
+              result=[]
+              model.eval()
+              with torch.no_grad():
+                  for e in events:
+                      seat=e['actor']
+                      logits,value,h=model(torch.tensor([e['state']],dtype=torch.float32),
+                          torch.tensor([e['actions']],dtype=torch.float32),memory[seat])
+                      memory[seat]=h
+                      result.append((torch.softmax(logits[0],dim=0),float(value[0]),e['phase']))
+              return result
+          baseline=snapshot(initial)
+          arms={}
+          for n in (1,4):
+              net=copy.deepcopy(initial)
+              target=copy.deepcopy(initial)
+              magnet=freeze_magnet(initial)
+              opt=torch.optim.Adam(net.parameters(),lr=3e-4)
+              schedule=torch.optim.lr_scheduler.StepLR(opt,step_size=100,gamma=.98)
+              history=[train_match(net,target,magnet,opt,schedule,data,eta=.2)
+                  for _ in range(n)]
+              result=snapshot(net)
+              per_phase={}
+              for phase in phases:
+                  kl=[];tv=[];dv=[]
+                  for (p,v,k),(q,w,_) in zip(baseline,result):
+                      if k!=phase:continue
+                      kl.append(max(0.,float((p*(p.clamp_min(1e-12).log()-
+                          q.clamp_min(1e-12).log())).sum())))
+                      tv.append(float((p-q).abs().sum())/2)
+                      dv.append(abs(v-w))
+                  per_phase[phase]={
+                    'mean_kl_from_initial':statistics.fmean(kl),
+                    'mean_total_variation':statistics.fmean(tv),
+                    'mean_abs_value_change':statistics.fmean(dv)}
+              delta=math.sqrt(sum(float(((x-y)**2).sum()) for x,y in
+                  zip(net.parameters(),initial.parameters())))
+              if not math.isfinite(delta) or delta<=0:raise ValueError('No update')
+              trained=root/f'model-v3-u{n}.json'
+              export_json(net,trained,feature_schema=THREE_PHASE_FEATURE_SCHEMA_V3)
+              arms[f'u{n}']={
+                'optimizer_updates':n,'epochs':history,
+                'parameter_l2_delta':delta,
+                'model_state_sha256':state_hash(net),
+                'model_export_sha256':sha(trained),
+                'per_phase_policy_shift':per_phase}
+              if history[-1]['learning_decisions']!=len(events):
+                  raise ValueError('Not all accepted decisions learned')
+          if arms['u1']['epochs'][0]!=arms['u4']['epochs'][0]:
+              raise ValueError('First optimizer step differs on identical data')
+          if arms['u1']['model_state_sha256']==initial_sha:
+              raise ValueError('No single-update parameter change')
+          report={
+            'schema':'rnad-i5-same-accepted-trajectory-update-probe-v1',
+            'source_sha':current_git_sha(),'engine_sha':frozen_engine_sha(),
+            'feature_schema':THREE_PHASE_FEATURE_SCHEMA_V3,
+            'origin_v2_sha256':sha(source),'initial_v3_state_sha256':initial_sha,
+            'completed_matches_generated':1,'training_seed':1833001,
+            'accepted_match_id':data['match_id'],'score':data['score'],
+            'accepted_decisions':len(events),'phase_stats':phases,
+            'identical_accepted_trajectory':True,'identical_first_step':True,
+            'arms':arms,'known_truncated_bptt':True,
+            'proven_improvement':False,'is_champion':False}
+          (root/'report.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\n')
+          print(json.dumps({'accepted_decisions':len(events),
+              'u1_first_loss':arms['u1']['epochs'][0]['loss'],
+              'u4_last_loss':arms['u4']['epochs'][-1]['loss'],
+              'proof_of_strength':False}),flush=True)
+          PY
+      - name: Preserve report and both unpromoted model weights
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-same-trajectory-learning-${{ github.run_id }}
+          path: |
+            artifacts/rnad-reuse-probe/report.json
+            artifacts/rnad-reuse-probe/model-v3-u1.json
+            artifacts/rnad-reuse-probe/model-v3-u4.json
+          if-no-files-found: warn
+          retention-days: 30

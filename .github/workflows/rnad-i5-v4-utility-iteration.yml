@@ -1,0 +1,176 @@
+name: RNAD I5 v4 utility teacher training and phase paired screen
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/UTILITY_ITERATION_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-v4-utility-one-writer
+  cancel-in-progress: false
+jobs:
+  utility_iteration:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned PyTorch CPU and analysis dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Validate source, utility alignment, model contracts and old evidence
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-public-utilities.test.js test/rnad-v4-features.test.js test/rnad-v4-phase-ablation.test.js
+          python -m unittest discover -s test -p 'rnad_*_test.py' -v
+          mkdir -p artifacts/pilot artifacts/v2 models/v3 results
+          gh run download 43954319981 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-phase-iteration-43954319981 --dir artifacts/pilot
+          gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-semantic-v2-43743143190 --dir artifacts/v2
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {PersistentRNADInference} from './scripts/rnad/infer.mjs';
+          const hash=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const m=JSON.parse(readFileSync('docs/research/rnad/UTILITY_ITERATION_MANIFEST.json'));
+          const keys=['iteration','teacher_seed','teacher_matches','epochs',
+            'heldout_seed','heldout_matches','selfplay_seed','selfplay_matches',
+            'aq_seed','aq_pairs','pilot_run'];
+          if(m.schema!=='rnad-v4-utility-iteration-manifest-v1'||
+             Object.keys(m).length!==keys.length+1||
+             keys.some(k=>!Number.isSafeInteger(m[k])||m[k]<1)||
+             m.teacher_matches>256||m.epochs>6||m.heldout_matches>32||
+             m.selfplay_matches>16||m.aq_pairs>100||
+             m.pilot_run!==43954319981||
+             !(m.teacher_seed+m.teacher_matches<m.heldout_seed&&
+               m.heldout_seed+m.heldout_matches<m.selfplay_seed&&
+               m.selfplay_seed+m.selfplay_matches<m.aq_seed))
+            throw new Error('Invalid bounded disjoint utility experiment manifest');
+          const pilot='artifacts/pilot/v4-supervised/trained-model.json';
+          const v2='artifacts/v2/aq-supervision-v2/trained-model.json';
+          const v3='models/v3/selfplay/final-model.json';
+          if(hash(pilot)!=='9149c7b43c0abbaf1dcdb505a64b1d0d283627ce2a360a748f2d2976dec510e4'||
+             hash(v2)!=='9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b'||
+             hash(v3)!=='c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'||
+             new PersistentRNADInference(pilot).featureSchema!=='rnad-three-phase-features-v4')
+            throw new Error('Unexpected immutable R-NaD research model identity');
+          console.log(JSON.stringify({seed:m.teacher_seed,heldout_seed:m.heldout_seed,
+            selfplay_seed:m.selfplay_seed,aq_seed:m.aq_seed,pilot_sha:hash(pilot)}));
+          JS
+      - name: Learn public AQ utility-ranked draft and selection decisions from accepted Matches
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/UTILITY_ITERATION_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          python -m scripts.rnad.train_teacher \
+            --out artifacts/v4-utility \
+            --seed "$(field teacher_seed)" --matches "$(field teacher_matches)" \
+            --epochs "$(field epochs)" --three-phase --features-v4 \
+            --initial-model artifacts/pilot/v4-supervised/trained-model.json \
+            --phase-balanced --phase-profile draft-selection \
+            --teacher aq-public-strategy-selection --utility-distillation
+      - name: Evaluate both v2 and utility-distilled v4 on identical unseen accepted teacher decisions
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/UTILITY_ITERATION_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --model artifacts/v2/aq-supervision-v2/trained-model.json \
+            --teacher aq-public-strategy-selection --features-v2 --utility-labels \
+            --seed "$(field heldout_seed)" --matches "$(field heldout_matches)" \
+            --out artifacts/heldout-v2
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --model artifacts/v4-utility/trained-model.json \
+            --teacher aq-public-strategy-selection --features-v4 --utility-labels \
+            --seed "$(field heldout_seed)" --matches "$(field heldout_matches)" \
+            --out artifacts/heldout-v4
+          python -m scripts.rnad.phase_imitation_goals \
+            --baseline artifacts/heldout-v2/heldout-imitation.json \
+            --candidate artifacts/heldout-v4/heldout-imitation.json \
+            --allow-feature-upgrade --min-examples 256 \
+            --out results/paired-imitation-screen.json
+      - name: Bounded accepted R-NaD update after utility imitation
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/UTILITY_ITERATION_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          python -m scripts.rnad.train \
+            --seed "$(field selfplay_seed)" --matches "$(field selfplay_matches)" \
+            --three-phase --features-v4 --switch-guard anti-loop-v1 \
+            --initial-model artifacts/v4-utility/trained-model.json \
+            --updates-per-match 4 --out artifacts/v4-utility-rnad
+      - name: Phase isolation in exact frozen AQ Base complete four-win Matches
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/UTILITY_ITERATION_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for source in utility rnad; do
+            if [ "$source" = utility ]; then
+              model="artifacts/v4-utility/trained-model.json"
+            else
+              model="artifacts/v4-utility-rnad/final-model.json"
+            fi
+            for phase in all-v3 draft-v4 selection-v4 both-v4; do
+              node scripts/rnad/evaluate-v4-composite-vs-aq.mjs \
+                --v4 "$model" --v3 models/v3/selfplay/final-model.json \
+                --seed "$(field aq_seed)" --pairs "$(field aq_pairs)" \
+                --mode "$phase" --out "results/$source-$phase.json"
+            done
+          done
+      - name: Independently check paired seed gain and evidence bounds
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {compareV4PhaseArms} from './scripts/rnad/compare-v4-phase-arms.mjs';
+          const src=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const rows=[];
+          for(const source of ['utility','rnad']){
+            const get=mode=>JSON.parse(readFileSync('results/'+source+'-'+mode+'.json'));
+            const base=get('all-v3');
+            for(const mode of ['draft-v4','selection-v4','both-v4']){
+              const result=compareV4PhaseArms(base,get(mode));
+              if(result.source_sha!==src||result.champion_promoted)
+                throw new Error('Untrusted or promoted paired benchmark');
+              rows.push({source,...result});
+            }
+          }
+          const summary={schema:'rnad-i5-v4-utility-strategy-study-v1',
+            source_sha:src,all_real_aq:true,paired:true,
+            results:rows,strength_established:false,champion_promoted:false};
+          writeFileSync('results/v4-utility-ablation-summary.json',
+            JSON.stringify(summary,null,2)+'\n');
+          console.log(JSON.stringify(rows.map(x=>({source:x.source,mode:x.candidate_mode,
+            wins:x.candidate_wins,control:x.baseline_wins,delta:x.delta,
+            ci95:x.conservative_95pct_delta_bounds}))));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-v4-utility-iteration-${{ github.run_id }}
+          path: |
+            artifacts/v4-utility/
+            artifacts/heldout-v2/heldout-imitation.json
+            artifacts/heldout-v4/heldout-imitation.json
+            artifacts/v4-utility-rnad/
+            results/
+          retention-days: 30
+          if-no-files-found: warn

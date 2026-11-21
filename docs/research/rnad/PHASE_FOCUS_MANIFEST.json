@@ -1,0 +1,9 @@
+{
+  "schema": "rnad-i5-phase-focus-v1",
+  "iteration": 1,
+  "teacher_run": 43957735875,
+  "training_seed": 2080001,
+  "matches": 16,
+  "evaluation_seed": 2081001,
+  "pairs": 16
+}

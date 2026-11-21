@@ -1,0 +1,7 @@
+{
+  "schema": "rnad-i5-selection-diagnostic-report-v1",
+  "frozen_study_run": 44042088126,
+  "retrain": false,
+  "selected_arm": "structured-hard-m256-w96",
+  "league_training_started": false
+}

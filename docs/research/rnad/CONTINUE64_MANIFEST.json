@@ -1,0 +1,9 @@
+{
+  "schema": "rnad-i5-v4-continue64-v1",
+  "iteration": 1,
+  "source_run": 43957735875,
+  "seed": 2050001,
+  "matches": 64,
+  "aq_seed": 2054001,
+  "aq_pairs": 32
+}

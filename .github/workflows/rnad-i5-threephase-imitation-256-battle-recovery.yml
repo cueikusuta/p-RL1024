@@ -1,0 +1,184 @@
+name: RNAD I5 battle-only recovery from accepted 256 teacher Matches
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/THREE_PHASE_256_BATTLE_RECOVERY_LAUNCH_2026-11-17.json
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-threephase-256-battle-only-recovery
+  cancel-in-progress: false
+jobs:
+  recover_battle:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      # Reuse exactly the frozen data producer source: teacher Match traces
+      # record source_sha, and collect() refuses any unmatched source.  New
+      # workflow script fixes only CLI selection, not Python training source.
+      - name: Checkout exact source of archived successful teacher dataset
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify exact frozen source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          node scripts/verify-snapshot.mjs
+      - name: Install pinned CPU dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python - <<'PY'
+          import inspect
+          from scripts.rnad.train_teacher import train, collect
+          source=inspect.getsource(train)
+          assert "phase_profile=='battle-focus'" in source
+          assert "utility_distillation" in inspect.signature(train).parameters
+          assert "reuse_from" in inspect.signature(collect).parameters
+          print("Verified frozen source and accepted utility-labelled hard-label path",flush=True)
+          PY
+      - name: Recover original data and SUCCESS artifacts without recomputing
+        run: |
+          set -euo pipefail
+          mkdir -p input archived-draft archived-selection
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-3phase-256-accepted-teacher-data --dir input
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-draft-imitation --dir archived-draft
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-selection-battle-imitation --dir archived-selection
+          test "$(find input/traces/train -name 'teacher-*.json' | wc -l)" -eq 256
+          test "$(find input/traces/heldout -name 'teacher-*.json' | wc -l)" -eq 128
+          test -s archived-draft/draft-imitation-256-report.json
+          test -s archived-selection/selection-heldout/heldout-imitation.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('archived-draft/draft-imitation-256-report.json').read_text())
+          s=json.loads(Path('archived-selection/selection-heldout/heldout-imitation.json').read_text())
+          assert (r['source_sha']==s['source_sha']==
+                  '022aa9cd5b4ac37514df1d845ea00c11c3c13a5c')
+          assert r['engine_sha']==s['engine_sha']
+          assert r['train_seed']==2471001 and r['train_matches']==256
+          assert r['heldout_seed']==s['seed']==2472001
+          assert r['heldout_matches']==s['matches']==128
+          assert r['teacher_id']==s['teacher_id']=='rnad-aq-public-strategy-selection-v1'
+          assert s['feature_schema']=='rnad-three-phase-features-v5'
+          assert s['utility_labels']=='aq-public-phase-rank-v1'
+          assert not s['is_champion'] and not r['champion_promoted']
+          assert r['models']['soft256-e6']['top1']>.40
+          print('Archived draft/selection evidence verified, no duplicate training',flush=True)
+          PY
+      - name: Train ONLY missing battle-focused student with unchanged hard-label objective
+        run: |
+          set -euo pipefail
+          # Data schema includes utility labels. --utility-mix 0 means exactly
+          # hard-label CE; it only keeps the loaded trace schema consistent.
+          python -m scripts.rnad.train_teacher \
+            --three-phase --features-v5 \
+            --teacher aq-public-strategy-selection \
+            --utility-distillation --utility-mix 0 \
+            --phase-balanced --phase-profile battle-focus \
+            --seed 2471001 --matches 256 --epochs 6 \
+            --reuse-teacher-traces input/traces/train \
+            --out results/battle
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --model results/battle/trained-model.json \
+            --features-v5 --teacher aq-public-strategy-selection \
+            --utility-labels --seed 2472001 --matches 128 \
+            --reuse-teacher-traces input/traces/heldout \
+            --out results/battle-heldout
+      - name: Independently combine three frozen results, never activate league
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          p=lambda path:json.loads(Path(path).read_text())
+          d=p('archived-draft/draft-imitation-256-report.json')
+          s=p('archived-selection/selection-heldout/heldout-imitation.json')
+          b=p('results/battle-heldout/heldout-imitation.json')
+          bt=p('results/battle/teacher-report.json')
+          assert {d['source_sha'],s['source_sha'],b['source_sha'],bt['source_sha']}=={
+             '022aa9cd5b4ac37514df1d845ea00c11c3c13a5c'}
+          assert len({d['engine_sha'],s['engine_sha'],b['engine_sha'],bt['engine_sha']})==1
+          assert s['teacher_id']==b['teacher_id']==bt['teacher_id']=='rnad-aq-public-strategy-selection-v1'
+          assert s['seed']==b['seed']==2472001 and s['matches']==b['matches']==128
+          assert s['student_model_sha256']!=b['student_model_sha256']
+          assert bt['teacher_completed_matches']==256 and bt['teacher_updates']==1536
+          assert bt['phase_profile']=='battle-focus'
+          assert bt['utility_distillation'] is True and bt['utility_hard_label_mix']==0.
+          assert not s['is_champion'] and not b['is_champion']
+          assert bt['is_champion'] is False and d['champion_promoted'] is False
+          result={
+            'schema':'rnad-i5-three-phase-256-recovered-v1',
+            'original_training_run':44032488678,
+            'recovery_workflow_run':int(__import__('os').environ['GITHUB_RUN_ID']),
+            'original_source_sha':d['source_sha'],'engine_sha':d['engine_sha'],
+            'training_complete_Matches':256,'independent_heldout_complete_Matches':128,
+            'heldout_draft_decisions':d['heldout_decisions'],
+            'draft_frozen128_top1':d['models']['frozen-soft128']['top1'],
+            'draft_soft256_e4_top1':d['models']['soft256-e4']['top1'],
+            'draft_soft256_e6_top1':d['models']['soft256-e6']['top1'],
+            'selection_student_all_phases':{k:v['top1_accuracy'] for k,v in s['phases'].items()},
+            'battle_student_all_phases':{k:v['top1_accuracy'] for k,v in b['phases'].items()},
+            'model_sha256':{
+              'draft_soft256_e6':d['models']['soft256-e6']['sha256'],
+              'selection':s['student_model_sha256'],
+              'battle':b['student_model_sha256'],
+            },
+            'separate_students_not_integrated_policy':True,
+            'league_training_started':False,
+            'league_entry_verified':False,
+            'strength_established':False,'champion_promoted':False,
+          }
+          Path('results/three-phase-recovery-report.json').write_text(
+              json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+          lines=[
+             '# R-NaD I5 三相256/128教師模倣：失敗したbattleのみ復旧',
+             '',
+             '旧source SHA一致、元の成功したDraft/Selection成果物を凍結再利用。'
+             '各フェーズのStudentは異なるためリーグ開始ゲート未達。',
+             '',
+             '| Student | Draft Top1 | Selection Top1 | Battle Top1 |',
+             '|---|---:|---:|---:|',
+             f"| Deep Sets soft256-e6 | {d['models']['soft256-e6']['top1']:.2%} | — | — |",
+             f"| v5 selection focus | {s['phases']['draft']['top1_accuracy']:.2%} | {s['phases']['selection']['top1_accuracy']:.2%} | {s['phases']['battle']['top1_accuracy']:.2%} |",
+             f"| v5 battle focus | {b['phases']['draft']['top1_accuracy']:.2%} | {b['phases']['selection']['top1_accuracy']:.2%} | {b['phases']['battle']['top1_accuracy']:.2%} |",
+             '',
+             '実戦勝率・Champion優位を意味しない。'
+          ]
+          Path('results/RECOVERY_REPORT.md').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines),flush=True)
+          PY
+          cat results/RECOVERY_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-256-battle-only-recovery
+          path: |
+            results/battle/trained-model.json
+            results/battle/teacher-report.json
+            results/battle-heldout/heldout-imitation.json
+            results/three-phase-recovery-report.json
+            results/RECOVERY_REPORT.md
+          retention-days: 90
+          if-no-files-found: warn

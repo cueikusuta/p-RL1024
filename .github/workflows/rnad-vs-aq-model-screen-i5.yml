@@ -1,0 +1,113 @@
+name: RNAD-I5 full original AQ neural model screening (new paired seeds)
+on:
+  # One-off four-arm source-pinned comparison #43826186298 already queued.
+  # Manual dispatch only to avoid repeated costly AQ matches.
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-original-aq-model-screen-once
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        arm: [frozen-v2, warm-equal, warm-focus, v3-u4]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARM: ${{ matrix.arm }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Restore one SHA-pinned archived model and verify frozen AQ
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-vs-aq-full.test.js
+          mkdir -p models results
+          case "$ARM" in
+            frozen-v2)
+              gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+                --name rnad-003-aq-semantic-v2-43743143190 --dir models
+              cp models/aq-supervision-v2/trained-model.json models/evaluated.json
+              export EXPECTED_SHA="9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b"
+              export EXPECTED_FEATURE="rnad-three-phase-features-v2"
+              ;;
+            warm-equal)
+              gh run download 43814527628 --repo cueikusuta/p-RL1024 \
+                --name rnad-i5-v2-selection-warmstart-equal-43814527628 --dir models
+              cp models/train/trained-model.json models/evaluated.json
+              export EXPECTED_SHA="4daa82a0a7ae9274b33a39f9c1273a032fab760694219df7155608ed241976f5"
+              export EXPECTED_FEATURE="rnad-three-phase-features-v2"
+              ;;
+            warm-focus)
+              gh run download 43814527628 --repo cueikusuta/p-RL1024 \
+                --name rnad-i5-v2-selection-warmstart-selection-focus-43814527628 --dir models
+              cp models/train/trained-model.json models/evaluated.json
+              export EXPECTED_SHA="c0931c9d45a5ad14e9db1a438cdffba4791f2e4e71356cc3da91e09663cc7d67"
+              export EXPECTED_FEATURE="rnad-three-phase-features-v2"
+              ;;
+            v3-u4)
+              gh run download 43811192719 --repo cueikusuta/p-RL1024 \
+                --name rnad-v3-pilot-v3-u4-43811192719 --dir models
+              cp models/selfplay/final-model.json models/evaluated.json
+              export EXPECTED_SHA="b80fdb5b41205573ededc3a3668523915a2891bd98acd2e9568c63a015ded09a"
+              export EXPECTED_FEATURE="rnad-three-phase-features-v3"
+              ;;
+            *) exit 1;;
+          esac
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {weightsSha256,createOpponent} from './models/aq-base.mjs';
+          const bytes=readFileSync('models/evaluated.json');
+          const m=JSON.parse(bytes);
+          const hash=createHash('sha256').update(bytes).digest('hex');
+          if(hash!==process.env.EXPECTED_SHA||
+             m.schema!=='rnad-small-gru-v1'||
+             m.feature_schema!==process.env.EXPECTED_FEATURE||
+             m.hidden!==128||m.state_features!==(m.feature_schema.endsWith('-v3')?48:32)||
+             m.action_features!==(m.feature_schema.endsWith('-v3')?32:16)||
+             createOpponent().modelSha256!==weightsSha256)
+            throw new Error('Wrong frozen RNAD model source or original AQ baseline');
+          JS
+      - name: Play fresh 24 independent seed pairs against original AQ Base
+        run: |
+          node scripts/rnad/evaluate-vs-aq-full.mjs \
+            --model models/evaluated.json --seed 1972001 --pairs 24 \
+            --phase-mode neural-all --switch-guard anti-loop-v1 \
+            --out "results/aq-$ARM.json"
+      - name: Source-bind complete both-seat screen, never promote on a pilot
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const r=JSON.parse(readFileSync('results/aq-'+process.env.ARM+'.json'));
+          const src=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(r.schema!=='rnad-vs-original-aq-base-full-match-paired-v1'||
+             r.source_sha!==src||r.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
+             r.aq_base_model_sha256!=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e'||
+             r.seed!==1972001||r.pairs!==24||r.matches!==48||
+             r.rows.length!==48||r.champion_promoted!==false||
+             new Set(r.rows.map(x=>x.seed+':'+x.candidateSeat)).size!==48||
+             r.rows.some(x=>x.score[x.won?x.candidateSeat:1-x.candidateSeat]!==4)||
+             r.wins!==r.rows.filter(x=>x.won).length)
+            throw new Error('Invalid exact AQ 48 Match research screen');
+          console.log(JSON.stringify({arm:process.env.ARM,wins:r.wins,
+            matches:r.matches,rate:r.win_rate,ci95:r.paired_hoeffding_95pct,
+            significant:r.improvement_statistically_established}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-original-aq-model-${{ matrix.arm }}-${{ github.run_id }}
+          path: results/aq-${{ matrix.arm }}.json
+          if-no-files-found: warn
+          retention-days: 30

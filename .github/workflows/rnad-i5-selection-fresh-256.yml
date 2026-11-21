@@ -1,0 +1,176 @@
+name: RNAD I5 selection fresh 256-Match independent teacher confirmation
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/SELECTION_FRESH_256_LAUNCH_2026-11-17.json
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-fresh-256-once
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify immutable engine, fresh seed block and intentionally restricted goal
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('docs/research/rnad/SELECTION_FRESH_256_LAUNCH_2026-11-17.json').read_text())
+          assert data=={
+            'schema':'rnad-i5-selection-fresh-confirmation-v1',
+            'frozen_teacher_source_sha':'022aa9cd5b4ac37514df1d845ea00c11c3c13a5c',
+            'development_study_run':44042088126,
+            'fresh_seed_start':2473001,
+            'fresh_complete_matches':256,
+            'prior_train_seed_range':[2471001,2471256],
+            'prior_development_seed_range':[2472001,2472128],
+            'one_candidate_selected_before_fresh_labels':True,
+            'league_training_started':False,
+            'champion_promoted':False,
+          }
+          assert not (set(range(2473001,2473257))&
+                      (set(range(2471001,2471257))|set(range(2472001,2472129))))
+          print('Disjoint 256 new seeds and frozen source verified',flush=True)
+          PY
+  gather:
+    needs: preflight
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Checkout original sealed teacher source, not the modified evaluation code
+        run: |
+          set -euo pipefail
+          git cat-file -e 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c^{commit}
+          git switch --detach 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          node scripts/verify-snapshot.mjs
+      - name: Generate 256 entirely unused accepted complete public-AQ teacher Matches
+        run: |
+          set -euo pipefail
+          mkdir -p traces/fresh
+          python - <<'PY'
+          import subprocess
+          for j in range(256):
+              seed=2473001+j
+              subprocess.run([
+                  'node','scripts/rnad/export-teacher.mjs',
+                  '--seed',str(seed),
+                  '--out',f'traces/fresh/teacher-{seed}.json',
+                  '--three-phase','true',
+                  '--teacher','aq-public-strategy-selection',
+                  '--features-v5','true',
+                  '--utility-labels','true',
+                  '--draft-review','true',
+              ],check=True,stdout=subprocess.DEVNULL,timeout=480)
+              if (j+1)%32==0:
+                  print(f'accepted fresh teacher Matches: {j+1}/256',flush=True)
+          PY
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          root=Path('traces/fresh')
+          files=sorted(root.glob('teacher-*.json'))
+          assert len(files)==256
+          lines=[]
+          engine=None
+          for seed in range(2473001,2473257):
+              path=root/f'teacher-{seed}.json'
+              data=path.read_bytes()
+              t=json.loads(data)
+              assert t['seed']==seed and t['completed'] is True
+              assert t['score'][t['winner']]==4
+              assert t['source_sha']=='022aa9cd5b4ac37514df1d845ea00c11c3c13a5c'
+              assert t['feature_schema']=='rnad-three-phase-features-v5'
+              assert t['teacher']=='rnad-aq-public-strategy-selection-v1'
+              assert t['utility_labels']=='aq-public-phase-rank-v1'
+              if engine is None:engine=t['engine_sha']
+              assert t['engine_sha']==engine
+              lines.append(f"{hashlib.sha256(data).hexdigest()}  {path}\n")
+          Path('fresh-trace-sha256.txt').write_text(''.join(lines))
+          print('All 256 complete accepted traces verified; engine',engine,flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-fresh-256-accepted-teacher
+          path: |
+            traces/fresh/
+            fresh-trace-sha256.txt
+          if-no-files-found: error
+          retention-days: 90
+  evaluate:
+    needs: gather
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Load frozen study and original comparator with exact checksums
+        run: |
+          set -euo pipefail
+          mkdir -p old-model old-selection study fresh
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-selection-battle-imitation --dir old-selection
+          gh run download 44039529263 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-specialist-fourarms --dir old-model
+          gh run download 44042088126 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-followup-sixarms --dir study
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-fresh-256-accepted-teacher --dir fresh
+          test -s study/selection-followup-report.json
+          test -s old-selection/selection/trained-model.json
+          test -s fresh/fresh-trace-sha256.txt
+          (cd fresh && sha256sum -c fresh-trace-sha256.txt)
+          echo '1b5f39cee6f00d1fe5c095442996fb706086dd4456d84ce5974a861f9e4e81cd  old-model/structured-hard.json' | sha256sum -c -
+      - name: Select exactly one model from reused development data then measure heldout paired 95% CI
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.selection_specialist_fresh_holdout \
+            --followup-report study/selection-followup-report.json \
+            --followup-models study \
+            --reference-model old-model/structured-hard.json \
+            --v5-baseline-model old-selection/selection/trained-model.json \
+            --fresh-dir fresh/traces/fresh \
+            --out results/fresh-confirmation
+          cat results/fresh-confirmation/FRESH_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+          test -s results/fresh-confirmation/selection-fresh-comparison.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-fresh-confirmation
+          path: results/fresh-confirmation/
+          if-no-files-found: warn
+          retention-days: 90

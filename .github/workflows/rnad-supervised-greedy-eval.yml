@@ -1,0 +1,107 @@
+name: RNAD-003 full-Match 256-game greedy versus sampling, same AQ-supervised v1/v2
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-003-supervised-greedy-vs-sample
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ROOT: artifacts/supervised-greedy
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify immutable engine and greedy argmax contract
+        run: |
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-greedy-eval.test.js
+      - name: Recover original frozen AQ student weights from exact successful GitHub runs
+        run: |
+          mkdir -p "$ROOT/v1" "$ROOT/v2" "$ROOT/reports"
+          gh run download 43737981487 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-supervised-43737981487 \
+            --dir "$ROOT/v1"
+          gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-semantic-v2-43743143190 \
+            --dir "$ROOT/v2"
+          test -s "$ROOT/v1/aq-supervision/trained-model.json"
+          test -s "$ROOT/v2/aq-supervision-v2/trained-model.json"
+          node --input-type=module - <<'JS'
+          import {PersistentRNADInference} from './scripts/rnad/infer.mjs';
+          const a=new PersistentRNADInference(process.env.ROOT+'/v1/aq-supervision/trained-model.json');
+          const b=new PersistentRNADInference(process.env.ROOT+'/v2/aq-supervision-v2/trained-model.json');
+          if(a.featureSchema!=='rnad-three-phase-features-v1'||
+             b.featureSchema!=='rnad-three-phase-features-v2')
+            throw new Error('Wrong pretrained model feature family');
+          console.log('Both frozen model schemas verified');
+          JS
+      - name: Evaluate same 128 independent seeds and both seats for greedy v1
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/v1/aq-supervision/trained-model.json" \
+            --seed 997001 --pairs 128 \
+            --out "$ROOT/reports/v1-greedy.json" --selection-mode greedy
+      - name: Evaluate same seeds, both seats for greedy semantic v2
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/v2/aq-supervision-v2/trained-model.json" \
+            --seed 997001 --pairs 128 \
+            --out "$ROOT/reports/v2-greedy.json" --selection-mode greedy
+      - name: Compare with source-run stochastic Basic control evidence
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          r=Path(os.environ['ROOT']);rows={}
+          for key,base in [('v1','aq-supervision'),('v2','aq-supervision-v2')]:
+              p=r/key
+              original=json.loads((p/base/'basic-heldout.json').read_text())
+              greedy=json.loads((r/'reports'/f'{key}-greedy.json').read_text())
+              model=p/base/'trained-model.json'
+              sha=hashlib.sha256(model.read_bytes()).hexdigest()
+              if (original['model_sha256']!=greedy['model_sha256'] or
+                  greedy['model_sha256']!=sha or
+                  original['pairs']!=greedy['pairs'] or
+                  greedy['pairs']!=128 or
+                  original['matches']!=greedy['matches'] or
+                  greedy['matches']!=256 or
+                  greedy['inference_selection_mode']!='greedy' or
+                  original['wins']!=sum(x['won'] for x in original['rows']) or
+                  greedy['wins']!=sum(x['won'] for x in greedy['rows'])):
+                  raise ValueError('Mismatched independent inference comparison')
+              old_seeds={(row['seed'],row['candidateSeat']) for row in original['rows']}
+              new_seeds={(row['seed'],row['candidateSeat']) for row in greedy['rows']}
+              assert old_seeds==new_seeds=={(n,seat)
+                  for n in range(997001,997129) for seat in (0,1)}
+              rows[key]={'sample_wins':original['wins'],'greedy_wins':greedy['wins'],
+                  'sample_win_rate':original['win_rate'],'greedy_win_rate':greedy['win_rate'],
+                  'model_sha256':sha}
+          report={'schema':'rnad-003-v1-v2-greedy-comparison-v1',
+                  'pairs':128,'matches_each':256,'models':rows,
+                  'statistical_significance_not_asserted':True,'is_champion':False}
+          (r/'reports/summary.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report),flush=True)
+          PY
+      - name: Preserve per-Match outcomes and exact pretrained checkpoint models
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-supervised-greedy-${{ github.run_id }}
+          path: |
+            artifacts/supervised-greedy/reports/
+            artifacts/supervised-greedy/v1/aq-supervision/trained-model.json
+            artifacts/supervised-greedy/v2/aq-supervision-v2/trained-model.json
+          if-no-files-found: warn
+          retention-days: 30

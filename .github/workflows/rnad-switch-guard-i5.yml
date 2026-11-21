@@ -1,0 +1,163 @@
+name: RNAD-003 opt-in switch-loop guard and independent paired smoke
+on:
+  # Initial regression and paired A/B launched in Actions #43779235844.
+  # Avoid repeating expensive full 4-win Matches for every Draft PR sync.
+  workflow_dispatch:
+permissions: {}
+jobs:
+  guard-contracts-and-repro:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify frozen source/assets and switch guard contracts
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-switch-loop-guard.test.js test/rnad-greedy-policy.test.js \
+            test/rnad-direct-eval.test.js test/rnad-greedy-eval.test.js
+          node --check scripts/rnad/evaluate-direct.mjs
+          node --check scripts/rnad/evaluate-neural-basic.mjs
+      - name: Download already archived immutable normal and mutation models
+        run: |
+          set -euo pipefail
+          mkdir -p models results
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+      - name: Reproduce previously infinite c005 vs base128 seed using new opt-in version on BOTH seats
+        run: |
+          node scripts/rnad/evaluate-direct.mjs \
+            --teacher models/base128.json --rnad models/c005.json \
+            --seed 1720101 --pairs 1 --selection-mode greedy \
+            --guard-teacher anti-loop-v1 --guard-rnad anti-loop-v1 \
+            --out results/reproduction-guarded-both.json
+      - name: Check completed four-win Match for both seats, with immutable model hashes
+        run: |
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          p=Path('models');read=lambda n:json.loads((p/n).read_text())
+          manifest=read('manifest.json')
+          x=json.loads(Path('results/reproduction-guarded-both.json').read_text())
+          sh=lambda f:hashlib.sha256((p/f).read_bytes()).hexdigest()
+          if not (x['schema']=='rnad-direct-switch-guard-paired-v1'
+              and x['deployment_policy']=={
+              'teacher_switch_guard':'anti-loop-v1','rnad_switch_guard':'anti-loop-v1'}
+              and x['source_sha']!=manifest['source_sha']
+              and x['engine_sha']==manifest['engine_sha']
+              and x['rnad_model_sha256']==manifest['models']['c005']==sh('c005.json')
+              and x['teacher_model_sha256']==manifest['models']['base128']==sh('base128.json')
+              and x['seed']==1720101 and x['pairs']==1 and x['matches']==2
+              and len(x['rows'])==2 and
+              {(r['seed'],r['rnadSeat']) for r in x['rows']}==
+                {(1720101,0),(1720101,1)}
+              and all(r['score'][r['rnadSeat'] if r['won'] else 1-r['rnadSeat']]==4
+                      for r in x['rows']) and x['is_champion'] is False):
+              raise ValueError('Guard failed exact source/model/two-seat acceptance')
+          print(json.dumps({'completed_pairs':1,'model_hashes_preserved':True,
+              'wins':x['wins'],'is_champion':False}),flush=True)
+          PY
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-switch-guard-repro-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 30
+
+  guard-ablation:
+    needs: guard-contracts-and-repro
+    if: needs.guard-contracts-and-repro.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Restore frozen model files (same weights for both sides)
+        run: |
+          set -euo pipefail
+          mkdir -p models results
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+      - name: Held-out paired guard versus old same frozen c005 weights, both seats
+        run: |
+          node scripts/rnad/evaluate-direct.mjs \
+            --teacher models/c005.json --rnad models/c005.json \
+            --seed 1841001 --pairs 32 --selection-mode greedy \
+            --guard-teacher none --guard-rnad anti-loop-v1 \
+            --out results/c005-guarded-vs-c005-legacy.json
+      - name: Baseline c005 against Basic on same previously unused seed pairs
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model models/c005.json --seed 1842001 --pairs 32 \
+            --selection-mode greedy --out results/c005-legacy-basic.json
+      - name: Guarded c005 against Basic on same untouched seed pairs
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model models/c005.json --seed 1842001 --pairs 32 \
+            --selection-mode greedy --switch-guard anti-loop-v1 \
+            --out results/c005-guarded-basic.json
+      - name: Compare paired scores and identities without promoting Champion
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          p=Path('results');read=lambda n:json.loads((p/n).read_text())
+          manifest=json.loads(Path('models/manifest.json').read_text())
+          h=hashlib.sha256(Path('models/c005.json').read_bytes()).hexdigest()
+          d=read('c005-guarded-vs-c005-legacy.json')
+          a=read('c005-legacy-basic.json');b=read('c005-guarded-basic.json')
+          for x in (a,b,d):
+              if (x['engine_sha']!=manifest['engine_sha'] or
+                  x['source_sha']==manifest['source_sha'] or
+                  x['matches']!=64 or len(x['rows'])!=64):
+                  raise ValueError('Mixed source/engine or missing four-win Matches')
+          if not (manifest['models']['c005']==h
+              and d['teacher_model_sha256']==d['rnad_model_sha256']==h
+              and a['model_sha256']==b['model_sha256']==h
+              and d['deployment_policy']=={
+                  'teacher_switch_guard':'none','rnad_switch_guard':'anti-loop-v1'}
+              and b['deployment_policy']=={'switch_guard':'anti-loop-v1'}
+              and a['schema']=='rnad-three-phase-vs-basic-paired-v1'
+              and b['schema']=='rnad-three-phase-switch-guard-vs-basic-paired-v1'
+              and d['schema']=='rnad-direct-switch-guard-paired-v1'):
+              raise ValueError('Wrong frozen model or policy ablation label')
+          for row,seed,key in [(d,1841001,'rnadSeat'),
+                               (a,1842001,'candidateSeat'),
+                               (b,1842001,'candidateSeat')]:
+              if (row.get('seed',seed)!=seed or row['pairs']!=32 or
+                  row['wins']!=sum(z['won'] for z in row['rows']) or
+                  {(z['seed'],z[key]) for z in row['rows']}!=
+                    {(i,seat) for i in range(seed,seed+32) for seat in (0,1)}
+                  or not all(z['score'][z[key] if z['won'] else 1-z[key]]==4
+                             for z in row['rows'])):
+                  raise ValueError('Incomplete or unmatched seed/seat outcomes')
+          report={'schema':'rnad-i5-switch-loop-guard-ablation-v1',
+              'source_sha':d['source_sha'],'engine_sha':d['engine_sha'],
+              'frozen_model_sha256':h,
+              'guard_direct_wins_64':d['wins'],
+              'basic_legacy_wins_64':a['wins'],'basic_guarded_wins_64':b['wins'],
+              'seed_direct':1841001,'seed_basic':1842001,
+              'statistical_improvement_confirmed':False,'is_champion':False}
+          (p/'ablation-report.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report),flush=True)
+          PY
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-switch-guard-ab-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,141 @@
+name: RNAD-003 audit completed queue and diagnose deterministic stalls
+on:
+  # Initial archive audit / deterministic-stall probe already launched as
+  # GitHub Actions #43777100106. Avoid duplicate forensic full Matches
+  # on every Draft PR commit; rerun only by explicit manual dispatch.
+  workflow_dispatch:
+permissions: {}
+jobs:
+  audit:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ROOT: /tmp/rnad-queue-recovered
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Download all completed model-bound archived shard and teacher reports
+        run: |
+          set -euo pipefail
+          mkdir -p "$ROOT/models" "$ROOT/basic" "$ROOT/direct" "$ROOT/teacher"
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir "$ROOT/models"
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-basic-*-43757054212' --dir "$ROOT/basic"
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-direct-*-43757054212' --dir "$ROOT/direct"
+          gh run download 43756892480 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-teacher-*-43756892480' --dir "$ROOT/teacher"
+      - name: Strict complete-Match SHA/seed/seat audit and partial report without imputation
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.audit_queued_results \
+            --root "$ROOT" --out "$ROOT/verified-queue-report.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-audited-queue-${{ github.run_id }}
+          path: /tmp/rnad-queue-recovered/verified-queue-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  diagnose-stall:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        block: [1, 2]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: cueikusuta/p-RL1024
+      ROOT: /tmp/rnad-queue-forensics
+      SOURCE_SHA: f08a9587d6a7033546eab00ffa6479399ca71c2f
+      BLOCK: ${{ matrix.block }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: f08a9587d6a7033546eab00ffa6479399ca71c2f
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify immutable source and restore archived frozen models
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          node scripts/verify-snapshot.mjs
+          mkdir -p "$ROOT/models" "$ROOT/diagnostics"
+          gh run download 43757054212 --repo "$GH_REPO" \
+            --name rnad-i5-queue-models-43757054212 --dir "$ROOT/models"
+      - name: Identify exact seed of 3,000-decision limit without changing policy or scoring
+        run: |
+          node --input-type=module <<'JS'
+          import {createHash} from 'node:crypto';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {directPairedNeuralEval} from './scripts/rnad/evaluate-direct.mjs';
+          const root=process.env.ROOT,block=Number(process.env.BLOCK);
+          const manifest=JSON.parse(readFileSync(root+'/models/manifest.json'));
+          const teacher=root+'/models/base128.json';
+          const actor=root+'/models/c005.json';
+          const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          if(manifest.source_sha!==process.env.SOURCE_SHA||
+             manifest.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
+             manifest.models.base128!==sha(teacher)||
+             manifest.models.c005!==sha(actor)||
+             ![1,2].includes(block)) throw new Error('Wrong forensic experiment');
+          const start=1720001+block*64;
+          const valid=[],invalid=[];
+          for(let seed=start;seed<start+64;seed++){
+            try {
+              const result=directPairedNeuralEval({
+                teacherPath:teacher,rnadPath:actor,
+                seed,pairs:1,selectionMode:'greedy'
+              });
+              if(result.seed!==seed||result.matches!==2||
+                 result.teacher_model_sha256!==sha(teacher)||
+                 result.rnad_model_sha256!==sha(actor)||
+                 result.rows.length!==2||
+                 new Set(result.rows.map(r=>r.rnadSeat)).size!==2||
+                 !result.rows.every(r=>r.score[r.won?r.rnadSeat:1-r.rnadSeat]===4))
+                throw new Error('Wrong frozen source or complete Match count');
+              valid.push({seed,rows:result.rows,wins:result.wins});
+            } catch(e) {
+              if(!/^Decision cap exceeded in round [1-9][0-9]*$/.test(e.message))
+                throw e;
+              invalid.push({seed,reason:e.message});
+            }
+          }
+          if(valid.length+invalid.length!==64)
+            throw new Error('Missing seed forensic record');
+          const report={schema:'rnad-i5-stalled-seed-forensic-v1',
+            source_sha:process.env.SOURCE_SHA,
+            engine_sha:manifest.engine_sha,
+            rnad_model_sha256:sha(actor),teacher_model_sha256:sha(teacher),
+            seed_start:start,pairs_expected:64,
+            complete_seed_pairs:valid.length,
+            incomplete_seed_pairs:invalid.length,
+            valid,invalid,
+            complete_strength_estimate_allowed:invalid.length===0,
+            statistical_improvement_confirmed:false,is_champion:false};
+          writeFileSync(root+'/diagnostics/block-'+block+'.json',
+            JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify({
+            block,complete_seed_pairs:valid.length,
+            incomplete_seed_pairs:invalid.length,invalid
+          }));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-stalled-seed-block-${{ matrix.block }}-${{ github.run_id }}
+          path: /tmp/rnad-queue-forensics/diagnostics/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,13 @@
+{
+  "schema": "rnad-i5-real-nextgen-handoff-proof-v1",
+  "previous_run_id": 44318145987,
+  "previous_training_source_sha": "0f348495dd381dbfd299e00c0346f61351212075",
+  "candidate_source_sha": "9e40ad5fd8a234dc2967ec48e1de1ef519872e83",
+  "expected_previous_completed_matches": 1280,
+  "expected_previous_optimizer_updates": 40,
+  "new_generation": 1,
+  "expected_new_seed_start": 9900641,
+  "real_next_generation_authority_matches": 6,
+  "no_previous_checkpoint_or_actor_mutation": true,
+  "not_a_champion": true
+}

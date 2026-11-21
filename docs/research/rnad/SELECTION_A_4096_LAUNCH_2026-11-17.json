@@ -1,0 +1,60 @@
+{
+  "schema": "rnad-i5-selection-A-4096-launch-v1",
+  "model": "A-decomposed-core20-lead6",
+  "previous_study_run": 44058355205,
+  "previous_frozen_model": "selection-A-2048-e40-s90252.pt",
+  "teacher_source_commit": "a7224b05eeef49650794b24546576119dffed951",
+  "train_blocks": [
+    [
+      2471001,
+      256
+    ],
+    [
+      2477001,
+      256
+    ],
+    [
+      2479001,
+      512
+    ],
+    [
+      2481001,
+      512
+    ],
+    [
+      2483001,
+      512
+    ],
+    [
+      2485001,
+      1024
+    ],
+    [
+      2494001,
+      1024
+    ]
+  ],
+  "development_reused_block": [
+    2472001,
+    128
+  ],
+  "genuinely_unseen_confirm_block": [
+    2496001,
+    2048
+  ],
+  "train_complete_matches": 4096,
+  "seeds": [
+    90251,
+    90252,
+    90253
+  ],
+  "checkpoint_epochs": [
+    40,
+    60
+  ],
+  "selection_target_top1": 0.5,
+  "draft_target_top1_strictly_greater": 0.5,
+  "battle_target_top1": 0.8,
+  "league_training_started": false,
+  "champion_promoted": false
+}

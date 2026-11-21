@@ -1,0 +1,235 @@
+name: RNAD I5 draft/battle 512 strict teacher qualified independent confirmation
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/DRAFT_BATTLE_512_QUALIFIED_CONFIRM_LAUNCH_2026-11-18.json
+permissions: {}
+concurrency:
+  group: rnad-i5-draft-battle-512-qualified-confirm-one-shot
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Lock immutable frozen teacher and registered conditional 512 complete Match design
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m py_compile scripts/rnad/collect_strict_teacher_512.py \
+            scripts/rnad/merge_strict_teacher_512.py \
+            scripts/rnad/draft_battle_512_qualified_eval.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/DRAFT_BATTLE_512_QUALIFIED_CONFIRM_LAUNCH_2026-11-18.json').read_text())
+          expected={
+            'schema':'rnad-i5-draft-battle-strict-qualified-holdout512-launch-v1',
+            'frozen_source_sha':'022aa9cd5b4ac37514df1d845ea00c11c3c13a5c',
+            'reuse_completed_training_run':44096608535,
+            'reuse_frozen_old_draft_run':44032488678,
+            'reuse_frozen_old_battle_run':44037414890,
+            'first_candidate_seed':2522001,
+            'shard_seed_interleaving':'seed=2522001+4*attempt+shard',
+            'shards':4,'accepted_matches_per_shard':128,
+            'max_attempts_per_shard':256,
+            'strict_teacher_utility_guard_unmodified':True,
+            'on_exact_utility_audit_failure':'record_and_exclude_complete_match_before_any_student_scoring',
+            'other_teacher_failures_are_fatal':True,
+            'population':'conditional_on_strict_AQ_public_utility_consistency',
+            'sample_size_accepted_independent_complete_matches':512,
+            'model_selection_on_heldout':False,
+            'paired_seed_cluster_bootstrap_reps':10000,
+            'no_retraining':True,'league_gate_passed':False,
+            'champion_promoted':False,'main_merged':False,
+          }
+          assert m==expected,m
+          PY
+          git cat-file -e 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c^{commit}
+          python - <<'PY'
+          import importlib.util
+          s=importlib.util.spec_from_file_location('strict','scripts/rnad/collect_strict_teacher_512.py')
+          module=importlib.util.module_from_spec(s);s.loader.exec_module(module)
+          assert module.get_seed(3,35)==2522144
+          assert len({module.get_seed(x,y) for x in range(4) for y in range(256)})==1024
+          assert module.MAX_ATTEMPTS==256 and module.PER_SHARD==128
+          PY
+      - name: Seal only evaluation support code, never modify frozen teacher
+        run: |
+          set -euo pipefail
+          sha256sum scripts/rnad/collect_strict_teacher_512.py \
+            scripts/rnad/merge_strict_teacher_512.py \
+            scripts/rnad/draft_battle_512_qualified_eval.py > support-code.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-draft-battle-512-qualified-audited-source
+          path: |
+            scripts/rnad/collect_strict_teacher_512.py
+            scripts/rnad/merge_strict_teacher_512.py
+            scripts/rnad/draft_battle_512_qualified_eval.py
+            support-code.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  gather_fresh:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0,1,2,3]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Retrieve SHA-locked helper separate from original teacher authority source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          node scripts/verify-snapshot.mjs
+          mkdir -p support
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-qualified-audited-source --dir support
+          (cd support && sha256sum -c support-code.sha256)
+          cp support/scripts/rnad/collect_strict_teacher_512.py scripts/rnad/
+      - name: Collect first 128 strict-utility-verified accepted four-win teacher Matches per disjoint seed stream
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.collect_strict_teacher_512 \
+            --shard ${{ matrix.shard }} --out qualified
+          test "$(find qualified/traces -name 'teacher-*.json' | wc -l)" -eq 128
+          test -s qualified/qualified-shard.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('qualified/qualified-shard.json').read_text())
+          assert x['utility_audit_unchanged'] is True
+          assert x['students_used_in_filter'] is False
+          assert x['accepted_matches']==128
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-battle-512-verified-shard-${{ matrix.shard }}
+          path: qualified/
+          retention-days: 90
+          if-no-files-found: warn
+
+  evaluate:
+    needs: [preflight,gather_fresh]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install fixed CPU evaluation dependencies, no retraining
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Reuse immutable old and new model artifacts and verify support code & all teacher shard receipts
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          mkdir -p support shards models/draft-old models/battle-old models/new results
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-qualified-audited-source --dir support
+          (cd support && sha256sum -c support-code.sha256)
+          cp support/scripts/rnad/{collect_strict_teacher_512,merge_strict_teacher_512,draft_battle_512_qualified_eval}.py scripts/rnad/
+          for i in 0 1 2 3; do
+            mkdir -p "shards/$i"
+            gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+              --name "rnad-i5-draft-battle-512-verified-shard-$i" --dir "shards/$i"
+          done
+          python -m scripts.rnad.merge_strict_teacher_512 \
+            --shards shards --out fresh
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-draft-imitation --dir models/draft-old
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-battle-only-recovery --dir models/battle-old
+          gh run download 44096608535 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-frozen-trained-model-archive --dir models/new
+          test -s models/draft-old/soft256-e6.json
+          test -s models/draft-old/draft-imitation-256-report.json
+          test -s models/battle-old/battle/trained-model.json
+          test -s models/battle-old/battle/teacher-report.json
+          test -s models/new/draft512/draft512-e6.json
+          test -s models/new/draft512/study.json
+          test -s models/new/battle512/trained-model.json
+          test -s models/new/battle512/teacher-report.json
+          test "$(find fresh -name 'teacher-*.json' | wc -l)" -eq 512
+      - name: Evaluate old vs trained 512 models on same independent 512 strict teacher Match clusters
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.draft_battle_512_qualified_eval evaluate \
+            --draft-old models/draft-old/soft256-e6.json \
+            --draft-old-report models/draft-old/draft-imitation-256-report.json \
+            --draft-new models/new/draft512/draft512-e6.json \
+            --draft-new-report models/new/draft512/study.json \
+            --battle-old models/battle-old/battle/trained-model.json \
+            --battle-old-report models/battle-old/battle/teacher-report.json \
+            --battle-new models/new/battle512/trained-model.json \
+            --battle-new-report models/new/battle512/teacher-report.json \
+            --holdout-dir fresh --qualified-manifest fresh/qualified-manifest.json \
+            --out results/independent-confirmation
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          s=json.loads(Path('results/independent-confirmation/study.json').read_text())
+          assert s['schema']=='rnad-i5-draft-battle-learning-scale512-v1'
+          assert s['holdout_population']=='strict_teacher_utility_consistent_complete_Matches_only'
+          assert s['draft_and_battle_are_separate_models'] is True
+          assert s['same_three_phase_integrated_policy_evaluated'] is False
+          assert s['league_entry_allowed'] is False
+          assert len(s['holdout_seeds'])==512
+          assert s['excluded_seed_count']>=1
+          assert 2522144 in {e['seed'] for e in s['qualified_seed_manifest']['excluded_seeds']}
+          assert set(e['seed'] for e in s['draft']['seed_rows'])==set(s['holdout_seeds'])
+          assert set(e['seed'] for e in s['battle']['seed_rows'])==set(s['holdout_seeds'])
+          for phase in ['draft','battle']:
+            p=s[phase]
+            assert p['independent_seed_clusters']==512
+            assert p['accepted_teacher_decisions']>0
+          PY
+          cat results/independent-confirmation/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-battle-512-strict-qualified-paired-evaluation
+          path: |
+            results/independent-confirmation/
+            fresh/qualified-manifest.json
+          retention-days: 90
+          if-no-files-found: warn

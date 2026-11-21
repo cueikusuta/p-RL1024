@@ -1,0 +1,22 @@
+{
+  "schema": "rnad-i5-fixed-n-aq-confirmation-v1",
+  "id": "I5-DRAFT-DEEPSETS16-FINAL-20261117",
+  "benchmark": "AQ-Base-001 exact integrated strategy-match",
+  "candidate_mode": "draft-deepsets-soft",
+  "baseline_mode": "all-v3",
+  "model_run": 43986137367,
+  "model_artifact": "deepsets-soft-medium.json",
+  "candidate_training_matches": 16,
+  "candidate_sha256": "f3d19e30a5b469582309a22331d8830362f681cc6bd5e16e6b5b8608fa8b918f",
+  "v3_sha256": "c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b",
+  "v4_sha256": "3624014308a4667a15cf2a567dc7836cf6b8e60a6e754eac3b9d0dbfe4ad0c8c",
+  "aq_sha256": "5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e",
+  "engine_sha": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "seed_namespace": "I5-final-2026-post-exploration-20261117-frozen",
+  "seed_count": 3072,
+  "shard_size": 64,
+  "alpha": 0.05,
+  "min_delta": 0.05,
+  "stat_method": "paired-seed-empirical-bernstein-bonferroni-v1",
+  "stop_rule": "fixed-n-no-early-look"
+}

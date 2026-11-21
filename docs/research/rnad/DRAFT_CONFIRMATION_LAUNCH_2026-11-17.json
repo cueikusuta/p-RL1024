@@ -1,0 +1,9 @@
+{
+  "schema": "rnad-i5-fixed-n-one-shot-launch-v1",
+  "plan_id": "I5-DRAFT-DEEPSETS16-FINAL-20261117",
+  "seed_count": 3072,
+  "complete_match_count": 12288,
+  "run": "execute-full-fixed-n-confirmation",
+  "relaunch_after_setup_failure_run": 43998213704,
+  "relaunch_reason": "Only model bundle extraction collided with checkout; no full four-win Match was executed in failed run"
+}

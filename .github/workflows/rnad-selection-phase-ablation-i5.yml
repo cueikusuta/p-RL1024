@@ -1,0 +1,116 @@
+name: RNAD-I5 bounded selection-vs-equal AQ imitation diagnostic
+on:
+  # Single corrected comparison is run #43813892017.
+  # Manual-only thereafter; avoid PR-sync retraining.
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-loss-comparison
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    permissions: {contents: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        profile: [equal, selection-focus]
+    env:
+      PROFILE: ${{ matrix.profile }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Set up deterministic public-only teacher experiment
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p 'rnad_phase_focus_test.py' -v
+          python -m unittest discover -s test -p 'rnad_aq_imitation_metrics_test.py' -v
+      - name: Train EQUAL / SELECTION-FOCUS on eight accepted AQ four-win Matches
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.train_teacher \
+            --three-phase --features-v2 --teacher aq-public-belief \
+            --phase-balanced --phase-profile "$PROFILE" \
+            --seed 996701 --matches 8 --epochs 2 \
+            --out "artifacts/i5-selection-$PROFILE/train"
+      - name: Evaluate on same held-out eight AQ four-win Match seeds
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --features-v2 \
+            --model "artifacts/i5-selection-$PROFILE/train/trained-model.json" \
+            --seed 997101 --matches 8 \
+            --out "artifacts/i5-selection-$PROFILE/heldout"
+      - name: Verify deterministic source, disjoint teacher Match blocks and metrics
+        run: |
+          python - <<'PY'
+          import json,hashlib,math,os,subprocess
+          from pathlib import Path
+          name=os.environ['PROFILE']
+          root=Path('artifacts')/('i5-selection-'+name)
+          train=json.loads((root/'train/teacher-report.json').read_text())
+          held=json.loads((root/'heldout/heldout-imitation.json').read_text())
+          digest=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          source=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          if not (train['source_sha']==held['source_sha']==source and
+              train['engine_sha']==held['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b' and
+              train['teacher_weights_sha256']==held['teacher_model_sha256']=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e' and
+              train['teacher_completed_matches']==8 and train['teacher_updates']==16 and
+              train['seed']==996701 and train['phase_balanced'] is True and
+              train['phase_profile']==name and held['seed']==997101 and held['matches']==8 and
+              held['student_model_sha256']==digest(root/'train/trained-model.json') and
+              train['is_champion'] is False and held['is_champion'] is False):
+              raise ValueError('Untrusted, overlapping or wrong training/eval source')
+          raw=lambda prefix,start:hashlib.sha256(b''.join(
+              (root/prefix/'teacher-matches'/f'teacher-{seed}.json').read_bytes()+b'\\0'
+              for seed in range(start,start+8))).hexdigest()
+          origin=raw('train',996701)
+          holdout=raw('heldout',997101)
+          row={'schema':'rnad-i5-selection-weight-ablation-diagnostic-v1',
+               'profile':name,'source_sha':source,'train_seed':996701,
+               'heldout_seed':997101,'train_matches':8,'heldout_matches':8,
+               'initial_model_sha256':train['initial_model_sha256'],
+               'trained_model_sha256':train['trained_model_sha256'],
+               'trained_model_file_sha256':digest(root/'train/trained-model.json'),
+               'teacher_train_trace_sha256':origin,
+               'teacher_holdout_trace_sha256':holdout,
+               'phases':held['phases'],'proven_strength_improvement':False,
+               'is_champion':False}
+          for phase in ('draft','selection','battle'):
+              x=held['phases'][phase]
+              if not (x['examples']>=16 and
+                  0<=x['top1_accuracy']<=x['top3_accuracy']<=x['top10_accuracy']<=1 and
+                  math.isfinite(x['mean_normalized_cross_entropy']) and
+                  math.isfinite(x['mean_log_probability_gain_vs_uniform'])):
+                  raise ValueError('Missing valid per-phase teacher metric')
+              print(json.dumps({'profile':name,'phase':phase,
+                'top1':x['top1_accuracy'],
+                'top10':x['top10_accuracy'],
+                'normalized_ce':x['mean_normalized_cross_entropy']}))
+          (root/'ablation-report.json').write_text(json.dumps(row,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-selection-loss-${{ matrix.profile }}-${{ github.run_id }}
+          path: |
+            artifacts/i5-selection-${{ matrix.profile }}/train/teacher-report.json
+            artifacts/i5-selection-${{ matrix.profile }}/train/initial-model.json
+            artifacts/i5-selection-${{ matrix.profile }}/train/trained-model.json
+            artifacts/i5-selection-${{ matrix.profile }}/heldout/heldout-imitation.json
+            artifacts/i5-selection-${{ matrix.profile }}/ablation-report.json
+          if-no-files-found: warn
+          retention-days: 30

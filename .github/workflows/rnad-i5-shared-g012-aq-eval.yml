@@ -1,0 +1,226 @@
+name: RNAD I5 shared G0-G2 frozen AQ-Base 24576 heldout Matches
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/G012_AQ_LAUNCH_2026-11-19.json
+permissions: {}
+concurrency:
+  group: rnad-i5-g012-aq-heldout-one-shot-20261119
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    name: "Prepare trained G${{ matrix.generation }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        generation: [0, 1, 2]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - name: Node 22 with official SHA256 verification if absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Validate pre-registered fixed three-model seed-cluster design
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/rnad/shared_league_actor.mjs
+          node --check scripts/rnad/evaluate-shared-g012-vs-aq.mjs
+          node --check scripts/rnad/aggregate-shared-g012-vs-aq.mjs
+          python -m py_compile scripts/rnad/prepare_shared_g012_eval.py
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json,subprocess
+          x=json.load(open("docs/research/rnad/G012_AQ_LAUNCH_2026-11-19.json"))
+          assert x == {
+            "schema": "rnad-i5-shared-g012-heldout-aq-launch-v1",
+            "experiment": "completed training G0/G1/G2 -> checkpoint generations 1/2/3",
+            "source_sha": subprocess.check_output(
+                ["git","rev-parse","HEAD^"],text=True).strip(),
+            "training_run": 44325967962, "training_attempt": 2,
+            "finished_generations": [0,1,2],
+            "artifact_names": [
+                "rnad-i5-cont-bootstrap-g1",
+                "rnad-i5-cont-next-bootstrap-after-g1",
+                "rnad-i5-cont-next-bootstrap-after-g2"],
+            "heldout_first_seed": 9500001,
+            "heldout_last_seed": 9504096,
+            "seed_clusters_per_model": 4096,
+            "both_seats": True,
+            "complete_4win_matches_per_model": 8192,
+            "total_evaluation_matches": 24576,
+            "benchmark": "AQ-Base-001 exact integrated strategy-match",
+            "model_inference": "greedy-no-training",
+            "simultaneous_familywise_alpha": 0.05,
+            "comparisons": 6,
+            "champion_promoted": False,
+            "main_merged": False,
+          }
+          PY
+      - name: Recover one immutable generation and verify byte-level identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          g="${{ matrix.generation }}"
+          case "$g" in
+            0) name=rnad-i5-cont-bootstrap-g1 ;;
+            1) name=rnad-i5-cont-next-bootstrap-after-g1 ;;
+            2) name=rnad-i5-cont-next-bootstrap-after-g2 ;;
+            *) exit 2 ;;
+          esac
+          sleep "$(( 12 * g ))"
+          for attempt in 1 2 3 4 5 6; do
+            rm -rf original
+            if gh run download 44325967962 --repo cueikusuta/p-RL1024 \
+                --name "$name" --dir original; then break; fi
+            if [ "$attempt" -eq 6 ]; then exit 1; fi
+            delay=$(( 15 * attempt * attempt ))
+            sleep "$delay"
+          done
+          (cd original && sha256sum --check file-pins.sha256)
+          python -m scripts.rnad.prepare_shared_g012_eval \
+            --generation "$g" --source original --out prepared
+          test -s prepared/actor/manifest.json
+          test -s prepared/provenance.json
+      - name: One independent real four-win paired seed preflight only
+        shell: bash
+        run: |
+          set -euo pipefail
+          g="${{ matrix.generation }}"
+          GEN="$g" node --input-type=module <<'JS'
+          import {evaluatePart} from './scripts/rnad/evaluate-shared-g012-vs-aq.mjs';
+          const generation=Number(process.env.GEN);
+          const r=evaluatePart({modelDir:'prepared/actor',generation,part:0,pairs:1});
+          if(r.matches!==2 || r.rows.length!==2 ||
+             r.rows.some(x=>x.score[x.won?x.candidateSeat:1-x.candidateSeat]!==4))
+             throw Error('Frozen G'+generation+' AQ acceptance smoke failed');
+          console.log(JSON.stringify({generation,matched:2,preflight_only:true}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-g012-frozen-g${{ matrix.generation }}
+          path: prepared/
+          retention-days: 30
+          if-no-files-found: error
+
+  evaluate:
+    needs: prepare
+    name: "Evaluate G${{ matrix.generation }} part ${{ matrix.part }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        generation: [0, 1, 2]
+        part: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Node 22 with verified official archive if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Download immutable research policy after strict SHA source preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          g="${{ matrix.generation }}"
+          part="${{ matrix.part }}"
+          sleep "$((4 * part + 5 * g))"
+          for attempt in 1 2 3 4 5 6; do
+            rm -rf model
+            if gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+              --name "rnad-i5-g012-frozen-g$g" --dir model; then break; fi
+            if [ "$attempt" -eq 6 ]; then exit 1; fi
+            sleep "$(( 15 * attempt * attempt ))"
+          done
+          test -s model/actor/manifest.json
+          test -s model/provenance.json
+      - name: Evaluate 512 unseen seeds x both seats in exact AQ-Base four-win Match
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          node scripts/rnad/evaluate-shared-g012-vs-aq.mjs \
+            --generation "${{ matrix.generation }}" \
+            --part "${{ matrix.part }}" --dir model/actor \
+            --out results/study.json
+          test -s results/study.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-g012-eval-g${{ matrix.generation }}-part${{ matrix.part }}
+          path: results/study.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  summarize:
+    needs: [prepare, evaluate]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Use Node 22 if preinstalled, otherwise SHA-verified official archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Require 24 valid artifacts then calculate six familywise paired confidence intervals
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence summary
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-g012-eval-g*-part*' --dir evidence
+          node scripts/rnad/aggregate-shared-g012-vs-aq.mjs evidence summary
+          test -s summary/REPORT.json
+          test -s summary/REPORT.md
+          cat summary/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-g012-aq-paired-24576-final-report
+          path: summary/
+          retention-days: 90
+          if-no-files-found: warn

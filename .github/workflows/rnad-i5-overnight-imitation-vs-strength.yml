@@ -1,0 +1,226 @@
+name: RNAD I5 overnight 20 frozen models same policy teacher Top1 versus AQ real strength
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/OVERNIGHT_20_TEACHER_STRENGTH_LAUNCH_2026-11-18.json
+permissions: {}
+concurrency:
+  group: rnad-i5-overnight-20261118-public-teacher-correlation
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned official Node 22.14.0 with checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Verify public teacher frozen original AQ and feature-v3/v5 accepted history
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --check scripts/rnad/export-teacher.mjs
+          node --check scripts/rnad/evaluate-overnight-teacher-top1.mjs
+          node --check scripts/rnad/analyze-overnight-imitation-strength.mjs
+          node --test test/rnad-three-phase-teacher.test.js test/rnad-overnight-real-aq-eval.test.js
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createTeacherMatch} from './scripts/rnad/export-teacher.mjs';
+          const manifest=JSON.parse(readFileSync(
+            'docs/research/rnad/OVERNIGHT_20_TEACHER_STRENGTH_LAUNCH_2026-11-18.json'));
+          const expected={
+            schema:'rnad-i5-overnight-same-actor-top1-strength-launch-v1',
+            model_run:44221678145,real_aq_eval_run:44262950098,
+            models:20,
+            teacher:'rnad-aq-public-strategy-selection-v1',
+            teacher_is_not_exact_original_aq_match_policy:true,
+            teacher_seed_first:8700001,teacher_seed_last:8700512,
+            independent_teacher_matches:512,
+            per_schema_parts:4,matches_per_part:128,
+            same_teacher_seeds_for_all_models:true,
+            original_aq_real_match_seeds_are_distinct:true,
+            no_training:true,
+            model_selection_on_teacher_holdout:false,
+            no_champion_promotion:true
+          };
+          if(JSON.stringify(manifest)!==JSON.stringify(expected))
+            throw new Error('Unregistered teacher strength launch');
+          for(const [schema,options] of [
+            ['v3',{threePhase:true,featuresV3:true,teacher:'aq-public-strategy-selection'}],
+            ['v5',{threePhase:true,featuresV5:true,teacher:'aq-public-strategy-selection'}]
+          ]){
+            const row=createTeacherMatch(8699900+(schema==='v3'?0:1),options);
+            if(row.feature_schema!=='rnad-three-phase-features-'+schema||
+               !row.completed||!row.examples.length||
+               !row.examples.some(x=>x.phase==='draft')||
+               !row.examples.some(x=>x.phase==='selection')||
+               !row.examples.some(x=>x.phase==='battle'))
+              throw new Error('No accepted full teacher Match for '+schema);
+            console.log(JSON.stringify({schema,events:row.examples.length,preflight_smoke:true}));
+          }
+          JS
+  collect:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        schema: [v3, v5]
+        part: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned official Node 22.14.0 with checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Generate only true accepted independent full four-win public AQ teacher Matches
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p teacher-traces
+          node --input-type=module <<'JS'
+          import {writeFileSync} from 'node:fs';
+          import {createTeacherMatch} from './scripts/rnad/export-teacher.mjs';
+          const schema='${{ matrix.schema }}',part=${{ matrix.part }};
+          const start=8700001+part*128;
+          for(let offset=0;offset<128;offset++){
+            const seed=start+offset;
+            const row=createTeacherMatch(seed,{threePhase:true,
+              featuresV3:schema==='v3',featuresV5:schema==='v5',
+              teacher:'aq-public-strategy-selection'});
+            if(row.seed!==seed||!row.completed||row.score[row.winner]!==4||
+              row.feature_schema!=='rnad-three-phase-features-'+schema)
+              throw Error('Invalid accepted public AQ teacher Match');
+            writeFileSync('teacher-traces/teacher-'+seed+'.json',JSON.stringify(row)+'\n',{flag:'wx'});
+            if((offset+1)%16===0)
+              console.log(JSON.stringify({schema,part,complete_matches:offset+1}));
+          }
+          JS
+      - name: Preserve source-bound accepted teacher evidence for re-evaluation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-public-teacher-${{ matrix.schema }}-part${{ matrix.part }}
+          path: teacher-traces/teacher-*.json
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+  evaluate:
+    needs: [preflight, collect]
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned official Node 22.14.0 with checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Download exact frozen final model, no trainer state change
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models/series teacher-data results
+          gh run download 44221678145 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-overnight-v3-wave2-${{ matrix.shard }} \
+            --dir models/series
+          schema=v3
+          if [ $((${{ matrix.shard }} % 4)) -eq 3 ]; then schema=v5; fi
+          for part in 0 1 2 3; do
+            gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+              --name "rnad-i5-public-teacher-$schema-part$part" --dir teacher-data
+          done
+          test "$(find teacher-data -name 'teacher-*.json' | wc -l)" -eq 512
+      - name: Same frozen actor all three phases public teacher Top1 on 512 accepted complete Matches
+        run: |
+          set -euo pipefail
+          node scripts/rnad/evaluate-overnight-teacher-top1.mjs \
+            --series models/series --traces teacher-data \
+            --shard ${{ matrix.shard }} --out results/study.json
+          test -s results/study.json
+      - name: Preserve source-bound same-model teacher imitation results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: teacher-imitation-shard${{ matrix.shard }}
+          path: results/study.json
+          if-no-files-found: warn
+          retention-days: 90
+  summarize:
+    needs: [preflight, collect, evaluate]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned official Node 22.14.0 with checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Strictly combine 20 identical-policy teacher Top1 outcomes with real AQ win-rate
+        run: |
+          set -euo pipefail
+          mkdir -p imitations aq summary
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --pattern 'teacher-imitation-shard*' --dir imitations
+          gh run download 44262950098 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-overnight-aq-s*-p*' --dir aq
+          node scripts/rnad/analyze-overnight-imitation-strength.mjs imitations aq summary
+          cat summary/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve same-model teacher imitation versus strength report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-same-model-teacher-top1-vs-actual-aq-20
+          path: |
+            summary/REPORT.md
+            summary/REPORT.json
+          if-no-files-found: warn
+          retention-days: 90

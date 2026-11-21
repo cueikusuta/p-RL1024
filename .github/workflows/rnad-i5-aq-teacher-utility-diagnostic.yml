@@ -1,0 +1,68 @@
+name: RNAD I5 independently reproduce accepted AQ teacher utility mismatch seed 2522144
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/AQ_TEACHER_UTILITY_DIAGNOSTIC_LAUNCH_2026-11-18.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-aq-teacher-2522144-diagnostic-only
+  cancel-in-progress: false
+jobs:
+  investigate:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify exact frozen public AQ teacher source and model
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          node scripts/verify-snapshot.mjs
+      - name: Instrument read-only scorer to emit offending accepted decision diagnostics
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/rnad/aq-public-utilities.mjs')
+          s=p.read_text()
+          old="  if(top-selected>1e-5)\n    throw new Error('Accepted public AQ teacher does not maximize its declared utility');"
+          new="""  if(top-selected>1e-5) {
+            const bestIdx=scores.indexOf(top);
+            console.error('AQ_UTILITY_DIAGNOSTIC',JSON.stringify({
+              seed:2522144,phase:observation.phase,round:observation.round,
+              seat:observation.seat,selectedIndex:chosenIndex,bestIndex:bestIdx,
+              actualUtility:selected,bestUtility:top,regret:top-selected,
+              candidates:legalActions.length,
+              actualAction:legalActions[chosenIndex],
+              bestAction:legalActions[bestIdx],
+              credits:observation.self?.credits,
+              freshCount:observation.self?.fresh?.length,
+              carryCount:observation.self?.carry?.length,
+              legalCandidatesWithHigherUtility:scores.filter(x=>x>selected+1e-5).length
+            }));
+            throw new Error('Accepted public AQ teacher does not maximize its declared utility');
+          }"""
+          assert s.count(old)==1, "Original reject gate changed"
+          p.write_text(s.replace(old,new))
+          PY
+      - name: Reproduce exact failing seed without weakening accepted-utility invariant
+        run: |
+          set -euo pipefail
+          set +e
+          node scripts/rnad/export-teacher.mjs \
+             --seed 2522144 --out /tmp/aq-utility-2522144.json \
+             --three-phase true --teacher aq-public-strategy-selection \
+             --features-v5 true --utility-labels true --draft-review true
+          status=$?
+          set -e
+          test "$status" -ne 0 || { echo 'Seed no longer reproduces'; exit 1; }
+          test ! -f /tmp/aq-utility-2522144.json
+          echo 'This was a deterministic diagnostics-only replay; no new teacher Match is accepted or published.'

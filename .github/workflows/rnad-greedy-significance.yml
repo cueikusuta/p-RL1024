@@ -1,0 +1,76 @@
+name: RNAD-003 formal paired independent-seed greedy improvement CI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/rnad-greedy-significance.yml'
+      - 'scripts/rnad/compare-deployment-modes.mjs'
+      - 'test/rnad-deployment-significance.test.js'
+permissions: {}
+jobs:
+  significance:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ROOT: artifacts/paired-significance
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Validate authoritative paired difference contract and frozen engine
+        run: |
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-deployment-significance.test.js
+      - name: Retrieve original exact models and mode-matched complete Match results
+        run: |
+          mkdir -p "$ROOT/sample-v1" "$ROOT/sample-v2" "$ROOT/greedy"
+          gh run download 43737981487 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-supervised-43737981487 \
+            --dir "$ROOT/sample-v1"
+          gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-semantic-v2-43743143190 \
+            --dir "$ROOT/sample-v2"
+          gh run download 43744199284 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-supervised-greedy-43744199284 \
+            --dir "$ROOT/greedy"
+      - name: Calculate conservative two-sided differences (seeds not seats are independent)
+        run: |
+          node scripts/rnad/compare-deployment-modes.mjs \
+            --sample "$ROOT/sample-v1/aq-supervision/basic-heldout.json" \
+            --greedy "$ROOT/greedy/reports/v1-greedy.json" \
+            --out "$ROOT/v1-improvement.json"
+          node scripts/rnad/compare-deployment-modes.mjs \
+            --sample "$ROOT/sample-v2/aq-supervision-v2/basic-heldout.json" \
+            --greedy "$ROOT/greedy/reports/v2-greedy.json" \
+            --out "$ROOT/v2-improvement.json"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=Path('artifacts/paired-significance')
+          a=json.loads((r/'v1-improvement.json').read_text())
+          b=json.loads((r/'v2-improvement.json').read_text())
+          assert a['independent_seed_blocks']==b['independent_seed_blocks']==128
+          assert a['sample_wins']==3 and a['greedy_wins']==27
+          assert b['sample_wins']==16 and b['greedy_wins']==123
+          assert b['improvement_statistically_established'] is True
+          assert a['champion_promoted'] is False
+          print(json.dumps({'v1':a,'v2':b}))
+          PY
+      - name: Retain exact model, engine, seed-paired real outcome provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-greedy-significance-${{ github.run_id }}
+          path: |
+            artifacts/paired-significance/v1-improvement.json
+            artifacts/paired-significance/v2-improvement.json
+          if-no-files-found: warn
+          retention-days: 30

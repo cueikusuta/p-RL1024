@@ -1,0 +1,14 @@
+{
+    "schema": "rnad-i5-threephase-imitation-256-v1",
+    "purpose": "teacher-imitation-only",
+    "train_seed": 2471001,
+    "train_matches": 256,
+    "heldout_seed": 2472001,
+    "heldout_matches": 128,
+    "draft_frozen_run": 44027700701,
+    "draft_frozen_soft128_sha256": "4c50df5de8001988fa077283f0a2fa0ca964992d5e1782c4b279120e01b39825",
+    "epoch_choices": [
+        4,
+        6
+    ]
+}

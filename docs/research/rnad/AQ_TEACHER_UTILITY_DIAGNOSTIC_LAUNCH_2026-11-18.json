@@ -1,0 +1,10 @@
+{
+  "schema": "rnad-i5-public-aq-teacher-utility-diagnostic-only-v1",
+  "failing_seed": 2522144,
+  "frozen_teacher_source": "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c",
+  "expected_check": "Accepted public AQ teacher does not maximize its declared utility",
+  "mutates_teacher_policy": false,
+  "mutates_teacher_labels": false,
+  "used_as_independent_holdout": false,
+  "league_or_champion_promotion": false
+}

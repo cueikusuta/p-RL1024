@@ -1,0 +1,44 @@
+{
+  "schema": "rnad-i5-selection-A-1024-launch-v1",
+  "previous_A_B_512_run": 44050779939,
+  "previous_256_trace_run": 44047154334,
+  "train_complete_matches": 1024,
+  "train_blocks": [
+    [
+      2471001,
+      256
+    ],
+    [
+      2477001,
+      256
+    ],
+    [
+      2479001,
+      512
+    ]
+  ],
+  "old_reused_development": [
+    2472001,
+    128
+  ],
+  "fresh_complete_match_holdout": [
+    2481001,
+    512
+  ],
+  "only_model": "A-decomposed-core20-lead6",
+  "initialization_seeds": [
+    90251,
+    90252,
+    90253
+  ],
+  "checkpoint_epochs": [
+    20,
+    40
+  ],
+  "frozen_comparator": "A-512-e20-s90251",
+  "teacher_source_commit": "a7224b05eeef49650794b24546576119dffed951",
+  "all_holdout_seeds_unseen_at_model_selection": true,
+  "league_training_started": false,
+  "champion_promoted": false,
+  "standalone_test_import_fix_revision": 1
+}

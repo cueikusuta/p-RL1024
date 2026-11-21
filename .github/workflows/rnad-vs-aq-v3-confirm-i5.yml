@@ -1,0 +1,133 @@
+name: RNAD-I5 v3-u4 exact AQ 128 paired seed confirmation
+on:
+  # Source-pinned 128-paired-seed run #43826887088 already queued.
+  # No implicit rerun as the Draft PR changes: dispatch only.
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-original-aq-v3-128-seeds
+  cancel-in-progress: false
+jobs:
+  paired:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 135
+    permissions: {contents: read,actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: [0,1,2,3]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify SHA-bound v3-U4 frozen model and original frozen AQ
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-aq-aggregate.test.js test/rnad-vs-aq-full.test.js
+          mkdir -p models results
+          gh run download 43811192719 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-pilot-v3-u4-43811192719 --dir models
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {createOpponent,weightsSha256} from './models/aq-base.mjs';
+          const bytes=readFileSync('models/selfplay/final-model.json');
+          const m=JSON.parse(bytes);
+          const sha=createHash('sha256').update(bytes).digest('hex');
+          if(sha!=='b80fdb5b41205573ededc3a3668523915a2891bd98acd2e9568c63a015ded09a'||
+             m.schema!=='rnad-small-gru-v1'||
+             m.feature_schema!=='rnad-three-phase-features-v3'||
+             m.state_features!==48||m.action_features!==32||
+             createOpponent().modelSha256!==weightsSha256)
+             throw new Error('Original AQ vs R-NaD v3-U4 model identity mismatch');
+          JS
+      - name: Play 32 NEW seeds with both seat assignments per shard
+        run: |
+          set -euo pipefail
+          SEED=$((1975001+SHARD*32))
+          node scripts/rnad/evaluate-vs-aq-full.mjs \
+            --model models/selfplay/final-model.json \
+            --seed "$SEED" --pairs 32 --phase-mode neural-all \
+            --switch-guard anti-loop-v1 --out "results/shard-$SHARD.json"
+      - name: Check source, seed/seat completeness and no implicit promotion
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const shard=Number(process.env.SHARD),start=1975001+shard*32;
+          const r=JSON.parse(readFileSync('results/shard-'+shard+'.json'));
+          const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(r.schema!=='rnad-vs-original-aq-base-full-match-paired-v1'||
+             r.source_sha!==source||r.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
+             r.model_sha256!=='b80fdb5b41205573ededc3a3668523915a2891bd98acd2e9568c63a015ded09a'||
+             r.aq_base_model_sha256!=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e'||
+             r.pairs!==32||r.seed!==start||r.matches!==64||
+             r.champion_promoted!==false||r.rows.length!==64||
+             new Set(r.rows.map(x=>x.seed+':'+x.candidateSeat)).size!==64)
+            throw new Error('Invalid paired v3-U4 AQ 32-seed shard');
+          console.log(JSON.stringify({shard,source_sha:source,
+            wins:r.wins,matches:r.matches,rate:r.win_rate}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-v3-aq-confirm-shard-${{ matrix.shard }}-${{ github.run_id }}
+          path: results/shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 30
+  aggregate:
+    needs: paired
+    if: needs.paired.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Recover all four source-pinned independent seed blocks
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          for i in 0 1 2 3; do
+            mkdir -p "reports/$i"
+            gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+              --name "rnad-v3-aq-confirm-shard-$i-$GITHUB_RUN_ID" \
+              --dir "reports/$i"
+            test -f "reports/$i/shard-$i.json"
+          done
+      - name: Aggregate 256 actual Match receipts into 128 independent paired seeds
+        run: |
+          set -euo pipefail
+          node --test test/rnad-aq-aggregate.test.js
+          node scripts/rnad/aggregate-original-aq.mjs \
+            --seed-start 1975001 --seed-count 128 --out reports/aggregate.json \
+            reports/0/shard-0.json reports/1/shard-1.json \
+            reports/2/shard-2.json reports/3/shard-3.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const r=JSON.parse(readFileSync('reports/aggregate.json'));
+          const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(r.source_sha!==source||r.independent_paired_seeds!==128||
+             r.completed_matches!==256||
+             r.model_sha256!=='b80fdb5b41205573ededc3a3668523915a2891bd98acd2e9568c63a015ded09a'||
+             r.eligible_for_independent_champion_review!==false||
+             r.champion_promoted!==false)
+            throw new Error('Invalid source-matched AQ confirmation summary');
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-v3-aq-128-paired-complete-${{ github.run_id }}
+          path: reports/aggregate.json
+          if-no-files-found: error
+          retention-days: 30

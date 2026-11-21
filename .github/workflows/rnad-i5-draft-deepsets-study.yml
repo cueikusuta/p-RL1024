@@ -1,0 +1,95 @@
+name: RNAD I5 draft DeepSets teacher ranking bounded study
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/DRAFT_DEEPSETS_STUDY_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-draft-deepsets-one-writer
+  cancel-in-progress: false
+jobs:
+  study:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read}
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU training dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Validate snapshot, gradient, invariance and bounded independent seeds
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p 'rnad_draft_deepsets_test.py' -v
+          node --test test/rnad-public-utilities.test.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("docs/research/rnad/DRAFT_DEEPSETS_STUDY_MANIFEST.json").read_text())
+          assert m.get("schema")=="rnad-i5-draft-deepsets-study-v1"
+          assert set(m)=={"schema","train_seed","train_matches","heldout_seed","heldout_matches","epochs"}
+          assert all(type(m[k]) is int for k in ("train_seed","train_matches","heldout_seed","heldout_matches","epochs"))
+          assert 1<=m["train_seed"]<=2**32-64 and 1<=m["heldout_seed"]<=2**32-16
+          assert 4<=m["train_matches"]<=32 and 1<=m["heldout_matches"]<=8 and 1<=m["epochs"]<=4
+          assert m["train_seed"]+m["train_matches"]<=m["heldout_seed"] or m["heldout_seed"]+m["heldout_matches"]<=m["train_seed"]
+          print(m)
+          PY
+      - name: Export actual accepted public AQ teacher data and named draft choices
+        run: |
+          set -euo pipefail
+          mkdir -p traces/train traces/heldout
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path("docs/research/rnad/DRAFT_DEEPSETS_STUDY_MANIFEST.json").read_text())
+          for label in ("train","heldout"):
+              seed=m["train_seed"] if label=="train" else m["heldout_seed"]
+              count=m["train_matches"] if label=="train" else m["heldout_matches"]
+              for i in range(count):
+                  n=seed+i
+                  subprocess.run(["node","scripts/rnad/export-teacher.mjs",
+                    "--seed",str(n),"--out",f"traces/{label}/teacher-{n}.json",
+                    "--three-phase","true",
+                    "--teacher","aq-public-strategy-selection",
+                    "--features-v4","true","--utility-labels","true",
+                    "--draft-review","true"],check=True,timeout=480)
+          PY
+      - name: Controlled architecture, ranking and teacher-data volume study
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path("docs/research/rnad/DRAFT_DEEPSETS_STUDY_MANIFEST.json").read_text())
+          subprocess.run(["python","-m","scripts.rnad.train_draft_deepsets",
+            "--train-dir","traces/train","--train-seed",str(m["train_seed"]),
+            "--train-matches",str(m["train_matches"]),
+            "--holdout-dir","traces/heldout",
+            "--holdout-seed",str(m["heldout_seed"]),
+            "--holdout-matches",str(m["heldout_matches"]),
+            "--epochs",str(m["epochs"]),"--out","results/draft-study"],check=True)
+          PY
+          cat results/draft-study/DRAFT_STUDY.md >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,100p' results/draft-study/DRAFT_STUDY.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-deepsets-study-${{ github.run_id }}
+          path: |
+            results/draft-study/
+          retention-days: 30
+          if-no-files-found: warn

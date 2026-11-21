@@ -1,0 +1,184 @@
+name: RNAD I5 v5 outcome pilot recover frozen completed evidence
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/V5_OUTCOME_RECOVERY_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-v5-outcome-one-writer
+  cancel-in-progress: false
+jobs:
+  recover:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned training dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Check source, v5 pilot-only evidence and original accepted-data immutability
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-v5-features.test.js test/rnad-v5-teacher.test.js test/rnad-v5-paired-eval.test.js test/rnad-selection-outcome-contract.test.js
+          python -m unittest discover -s test -p 'rnad_v5_imitation_pilot_test.py' -v
+          python -m unittest discover -s test -p 'rnad_selection_outcome_test.py' -v
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          const m=JSON.parse(readFileSync('docs/research/rnad/V5_OUTCOME_RECOVERY_MANIFEST.json'));
+          if(m.schema!=='rnad-i5-v5-outcome-recovery-v1'||
+             m.original_run!==43976530417||
+             m.original_source_sha!=='2f4ee2bb8979470d794ef6362d8e877b3506e16d'||
+             m.aq_seed!==2313001||m.aq_pairs!==4||
+             m.outcome_train_seed!==2314001||
+             m.outcome_heldout_seed!==2315001||
+             m.outcome_pairs!==4||m.outcome_ranks!==3)
+            throw new Error('Untrusted recovery experiment manifest');
+          JS
+          # None of these core semantics changed after initial pilot checkout.
+          git diff --exit-code 2f4ee2bb8979470d794ef6362d8e877b3506e16d HEAD -- \
+            src/ml/ scripts/rnad/train_teacher.py scripts/rnad/train.py \
+            scripts/rnad/export-teacher.mjs scripts/rnad/export-trajectory.mjs \
+            scripts/rnad/neural.py scripts/rnad/infer.mjs
+      - name: Reuse saved v4/v5 training and heldout without any rerun
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/recovered artifacts/v4-teacher artifacts/v5-teacher \
+            artifacts/v4-heldout artifacts/v5-heldout models/v3 results
+          gh run download 43976530417 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v5-outcome-pilot-43976530417 --dir artifacts/recovered
+          file_from() {
+            local source
+            source="$(find artifacts/recovered -type f -path "*/$1" -print -quit)"
+            if [ -z "$source" ]; then
+              echo "Missing frozen pilot result $1" >&2
+              exit 1
+            fi
+            cp "$source" "$2"
+          }
+          file_from v4-teacher/trained-model.json artifacts/v4-teacher/trained-model.json
+          file_from v5-teacher/trained-model.json artifacts/v5-teacher/trained-model.json
+          file_from v4-teacher/teacher-report.json artifacts/v4-teacher/teacher-report.json
+          file_from v5-teacher/teacher-report.json artifacts/v5-teacher/teacher-report.json
+          file_from v4-heldout/heldout-imitation.json artifacts/v4-heldout/heldout-imitation.json
+          file_from v5-heldout/heldout-imitation.json artifacts/v5-heldout/heldout-imitation.json
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          python - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          orig='2f4ee2bb8979470d794ef6362d8e877b3506e16d'
+          base=Path('artifacts')
+          for name,feature in [('v4','rnad-three-phase-features-v4'),
+                               ('v5','rnad-three-phase-features-v5')]:
+              t=json.loads((base/f'{name}-teacher/teacher-report.json').read_text())
+              e=json.loads((base/f'{name}-heldout/heldout-imitation.json').read_text())
+              b=(base/f'{name}-teacher/trained-model.json').read_bytes()
+              model=json.loads(b)
+              if not (t['source_sha']==e['source_sha']==orig
+                and t['feature_schema']==e['feature_schema']==model['feature_schema']==feature
+                and e['student_model_sha256']==hashlib.sha256(b).hexdigest()
+                and t['teacher_completed_matches']==4
+                and e['seed']==2311001 and e['matches']==4):
+                  raise ValueError('Old model or accepted heldout SHA does not match')
+          p=Path('models/v3/selfplay/final-model.json')
+          if hashlib.sha256(p.read_bytes()).hexdigest()!=(
+              'c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'):
+              raise ValueError('Untrusted frozen v3 baseline')
+          print('Reused unchanged 4-match v4/v5 training and 4-match heldout source')
+          PY
+      - name: Diagnostic-only matched imitation comparison, no formal gate weakening
+        run: |
+          python -m scripts.rnad.compare_v5_imitation_pilot \
+            --baseline artifacts/v4-heldout/heldout-imitation.json \
+            --candidate artifacts/v5-heldout/heldout-imitation.json \
+            --out results/v4-v5-imitation-pilot.json
+      - name: Complete v5 NeuRD/V-trace accepted-Match smoke
+        run: |
+          python -m scripts.rnad.train \
+            --seed 2312001 --matches 2 --three-phase --features-v5 \
+            --switch-guard anti-loop-v1 \
+            --initial-model artifacts/v5-teacher/trained-model.json \
+            --out artifacts/v5-rnad
+      - name: Exact original AQ with frozen v3 battle, isolated v5 selection
+        run: |
+          set -euo pipefail
+          for mode in all-v3 selection-v5; do
+            node scripts/rnad/evaluate-v5-composite-vs-aq.mjs \
+              --v5 artifacts/v5-teacher/trained-model.json \
+              --v3 models/v3/selfplay/final-model.json \
+              --seed 2313001 --pairs 4 --mode "$mode" --out "results/aq-$mode.json"
+          done
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {compareV5PhaseAgainstV3} from './scripts/rnad/compare-v5-phase-arms.mjs';
+          const a=JSON.parse(readFileSync('results/aq-all-v3.json'));
+          const b=JSON.parse(readFileSync('results/aq-selection-v5.json'));
+          const r=compareV5PhaseAgainstV3(a,b);
+          writeFileSync('results/v5-v3-aq-paired.json',JSON.stringify(r,null,2)+'\n');
+          console.log(JSON.stringify(r));
+          JS
+      - name: Outcome selection rank A/B from new independent paired seeds
+        run: |
+          set -euo pipefail
+          for role in train heldout; do
+            if [ "$role" = train ]; then seed=2314001; else seed=2315001; fi
+            node scripts/rnad/evaluate-selection-outcome-rank.mjs \
+              --v3 models/v3/selfplay/final-model.json \
+              --seed "$seed" --pairs 4 --ranks 3 \
+              --out "results/outcome-$role.json"
+          done
+          python -m scripts.rnad.learn_selection_outcome \
+            --train results/outcome-train.json \
+            --heldout results/outcome-heldout.json \
+            --out artifacts/outcome-linear --epochs 40
+      - name: Independent immutable evidence validation and full result summary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          from scripts.rnad.compare_v5_imitation_pilot import compare_pilot
+          root=Path('artifacts')
+          a=json.loads((root/'v4-heldout/heldout-imitation.json').read_text())
+          b=json.loads((root/'v5-heldout/heldout-imitation.json').read_text())
+          model=json.loads((root/'v5-rnad/report.json').read_text())
+          outcome=json.loads((root/'outcome-linear/report.json').read_text())
+          aq=json.loads(Path('results/v5-v3-aq-paired.json').read_text())
+          screen=compare_pilot(a,b)
+          if not (screen['strength_established'] is False
+              and model['completed_matches']==2
+              and model['feature_schema']=='rnad-three-phase-features-v5'
+              and aq['strength_established'] is False
+              and aq['champion_promoted'] is False
+              and outcome['selection_policy_deployed'] is False
+              and outcome['champion_promoted'] is False):
+              raise ValueError('Untrusted recovered v5 phase evidence')
+          print(json.dumps({'imitation':screen,'aq':aq,
+            'outcome':{k:v for k,v in outcome.items() if k!='choices'}},indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-v5-outcome-recovery-${{ github.run_id }}
+          path: |
+            artifacts/v5-rnad/report.json
+            artifacts/v5-rnad/final-model.json
+            artifacts/outcome-linear/
+            results/
+          retention-days: 30
+          if-no-files-found: warn

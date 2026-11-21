@@ -1,0 +1,123 @@
+name: RNAD I5 v4 draft selection isolated exact AQ paired A/B
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/PHASE_ABLATION_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-v4-phase-ablation-one-writer
+  cancel-in-progress: false
+jobs:
+  ablation:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Validate source, strict phase A/B and history contracts
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-v4-phase-ablation.test.js test/rnad-v4-features.test.js
+      - name: Download immutable research model and independent v3 battle baseline
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/stage1 models/v3 results
+          gh run download 43954319981 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-phase-iteration-43954319981 \
+            --dir artifacts/stage1
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 \
+            --dir models/v3
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {PersistentRNADInference} from './scripts/rnad/infer.mjs';
+          import {weightsSha256 as AQ_SHA} from './models/aq-base.mjs';
+          const m=JSON.parse(readFileSync('docs/research/rnad/PHASE_ABLATION_MANIFEST.json'));
+          if(m.schema!=='rnad-i5-v4-phase-ablation-v1'||
+             m.iteration!==1||m.stage1_run!==43954319981||
+             !Number.isSafeInteger(m.seed)||m.seed<1||
+             !Number.isSafeInteger(m.pairs)||m.pairs<1||m.pairs>100)
+            throw new Error('Invalid versioned phase screen manifest');
+          const hash=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const v3='models/v3/selfplay/final-model.json';
+          const teacher='artifacts/stage1/v4-supervised/trained-model.json';
+          const rnad='artifacts/stage1/v4-rnad/final-model.json';
+          if(hash(v3)!=='c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'||
+             hash(teacher)!=='9149c7b43c0abbaf1dcdb505a64b1d0d283627ce2a360a748f2d2976dec510e4'||
+             hash(rnad)===hash(teacher)||
+             AQ_SHA!=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e')
+            throw new Error('Frozen model/provenance SHA mismatch');
+          if(new PersistentRNADInference(v3).featureSchema!=='rnad-three-phase-features-v3'||
+             new PersistentRNADInference(teacher).featureSchema!=='rnad-three-phase-features-v4'||
+             new PersistentRNADInference(rnad).featureSchema!=='rnad-three-phase-features-v4')
+            throw new Error('Incompatible versioned model features');
+          console.log(JSON.stringify({v3_sha:hash(v3),teacher_sha:hash(teacher),
+            continued_sha:hash(rnad),seed:m.seed,pairs:m.pairs}));
+          JS
+      - name: Phase-isolated policy swaps with identical independent seed pairs
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/PHASE_ABLATION_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for source in supervised rnad; do
+            if [ "$source" = supervised ]; then
+              source_file="artifacts/stage1/v4-supervised/trained-model.json"
+            else
+              source_file="artifacts/stage1/v4-rnad/final-model.json"
+            fi
+            for mode in all-v3 draft-v4 selection-v4 both-v4; do
+              echo "Evaluating source=$source phase=$mode"
+              node scripts/rnad/evaluate-v4-composite-vs-aq.mjs \
+                --v4 "$source_file" --v3 models/v3/selfplay/final-model.json \
+                --seed "$(field seed)" --pairs "$(field pairs)" \
+                --mode "$mode" --out "results/$source-$mode.json"
+            done
+          done
+      - name: Verify every full-AQ paired receipt and score each isolated phase
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {compareV4PhaseArms} from './scripts/rnad/compare-v4-phase-arms.mjs';
+          const sourceSha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const output=[];
+          for(const source of ['supervised','rnad']){
+            const get=mode=>JSON.parse(readFileSync('results/'+source+'-'+mode+'.json'));
+            const base=get('all-v3');
+            for(const mode of ['draft-v4','selection-v4','both-v4']){
+              const r=compareV4PhaseArms(base,get(mode));
+              if(r.source_sha!==sourceSha||
+                 r.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b')
+                throw new Error('Source or engine mismatch in paired phase screen');
+              output.push({source,...r});
+            }
+          }
+          writeFileSync('results/phase-ablation-summary.json',
+            JSON.stringify({schema:'rnad-v4-phase-ablation-study-v1',
+              source_sha:sourceSha,screen_only:true,
+              confidence_is_seed_clustered:true,results:output,
+              champion_promoted:false},null,2)+'\n');
+          console.log(JSON.stringify(output.map(x=>({
+            source:x.source,mode:x.candidate_mode,
+            baseline_wins:x.baseline_wins,candidate_wins:x.candidate_wins,
+            paired_delta:x.delta,ci95:x.conservative_95pct_delta_bounds}))));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-v4-isolated-screen-${{ github.run_id }}
+          path: results/
+          retention-days: 30
+          if-no-files-found: warn

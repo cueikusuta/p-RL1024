@@ -1,0 +1,104 @@
+name: RNAD-003 128 paired seed greedy balanced-v2 versus original-v2
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-003-greedy-balanced-v2
+  cancel-in-progress: false
+jobs:
+  compare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ROOT: artifacts/balanced-greedy
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Download validated balanced teacher model and earlier same-seed greedy-v2 evidence
+        run: |
+          node scripts/verify-snapshot.mjs
+          mkdir -p "$ROOT/balanced" "$ROOT/original" "$ROOT/reports"
+          gh run download 43743931532 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-v2-balanced-43743931532 --dir "$ROOT/balanced"
+          gh run download 43744199284 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-supervised-greedy-43744199284 --dir "$ROOT/original"
+          test -s "$ROOT/balanced/aq-supervised-v2-balanced/trained-model.json"
+          test -s "$ROOT/balanced/aq-supervised-v2-balanced/teacher-report.json"
+          test -s "$ROOT/original/reports/v2-greedy.json"
+      - name: Check exact independent semantic feature, source, teacher SHA and phase balancing
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=Path(os.environ['ROOT'])
+          p=json.loads((r/'balanced/aq-supervised-v2-balanced/teacher-report.json').read_text())
+          m=json.loads((r/'balanced/aq-supervised-v2-balanced/trained-model.json').read_text())
+          if (p.get('feature_schema')!='rnad-three-phase-features-v2' or
+              m.get('feature_schema')!='rnad-three-phase-features-v2' or
+              p.get('phase_balanced') is not True or
+              p.get('teacher_completed_matches')!=128 or
+              p.get('teacher_updates')!=512 or
+              p.get('teacher_id')!='rnad-aq-public-belief-v2' or
+              p.get('is_champion') is not False):
+              raise ValueError('Unexpected balanced AQ teacher model')
+          print('Verified 128-Match balanced semantic v2 family and frozen AQ teacher')
+          PY
+      - name: Run 256 real Basic-opponent Matches with greedy balanced v2
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/balanced/aq-supervised-v2-balanced/trained-model.json" \
+            --seed 997001 --pairs 128 --selection-mode greedy \
+            --out "$ROOT/reports/v2-balanced-greedy.json"
+      - name: Verify identical seed/seat assignments and conservative per-seed advantage
+        run: |
+          python - <<'PY'
+          import hashlib,json,math,os
+          from pathlib import Path
+          r=Path(os.environ['ROOT'])
+          a=json.loads((r/'original/reports/v2-greedy.json').read_text())
+          b=json.loads((r/'reports/v2-balanced-greedy.json').read_text())
+          sha=hashlib.sha256((r/'balanced/aq-supervised-v2-balanced/trained-model.json').read_bytes()).hexdigest()
+          if (a['schema']!=b['schema'] or
+              a['inference_selection_mode']!='greedy' or
+              b['inference_selection_mode']!='greedy' or
+              b['model_sha256']!=sha or a['model_sha256']==sha or
+              a['pairs']!=b['pairs'] or a['pairs']!=128 or
+              a['matches']!=b['matches'] or b['matches']!=256 or
+              b['wins']!=sum(row['won'] for row in b['rows']) or
+              a['wins']!=sum(row['won'] for row in a['rows'])):
+              raise ValueError('Untrusted matched independent comparison')
+          expected={(s,seat) for s in range(997001,997129) for seat in (0,1)}
+          source={(x['seed'],x['candidateSeat']):x['won'] for x in a['rows']}
+          target={(x['seed'],x['candidateSeat']):x['won'] for x in b['rows']}
+          if set(source)!=set(target) or set(target)!=expected:
+              raise ValueError('Bad paired outcome seed/seat coverage')
+          diff=(b['wins']-a['wins'])/256
+          half=math.sqrt(2*math.log(40)/128)
+          summary={'schema':'rnad-003-v2-balanced-greedy-paired-comparison-v1',
+              'pairs':128,'matches_each':256,'original_v2_greedy_wins':a['wins'],
+              'balanced_v2_greedy_wins':b['wins'],'win_rate_difference':diff,
+              'seed_block_hoeffding95_diff':[max(-1,diff-half),min(1,diff+half)],
+              'positive_difference_statistically_established':diff>half,
+              'is_champion':False}
+          (r/'reports/summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(json.dumps(summary),flush=True)
+          PY
+      - name: Retain real complete Match outcomes and both frozen student models
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-balanced-greedy-${{ github.run_id }}
+          path: |
+            artifacts/balanced-greedy/reports/
+            artifacts/balanced-greedy/balanced/aq-supervised-v2-balanced/trained-model.json
+          if-no-files-found: warn
+          retention-days: 30

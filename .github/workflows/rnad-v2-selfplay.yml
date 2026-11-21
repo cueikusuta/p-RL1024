@@ -1,0 +1,167 @@
+name: RNAD-003 GitHub-hosted semantic-v2 warmstart and true 16-Match R-NaD
+on:
+  # Previous versions were verified on GitHub-hosted CPU; avoid duplicate
+  # costly training every time the large Draft PR receives a commit.
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-003-v2-accepted-selfplay-i5
+  cancel-in-progress: false
+jobs:
+  v2-selfplay:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest # Never self-hosted
+    timeout-minutes: 130
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      ROOT: artifacts/rnad003-v2
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Install GitHub-hosted pinned CPU runtime and verify frozen engine
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-three-phase-features-v2.test.js test/rnad-greedy-policy.test.js
+          python -m py_compile scripts/rnad/train.py scripts/rnad/verify_resume.py scripts/rnad/verify_smoke.py
+          node --check scripts/rnad/export-trajectory.mjs
+      - name: Restore prior independent frozen AQ teacher supervised v2 policy (not old RNAD-002)
+        run: |
+          mkdir -p "$ROOT"
+          gh run download 43743931532 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-v2-balanced-43743931532 --dir "$ROOT"
+          test -s "$ROOT/aq-supervised-v2-balanced/trained-model.json"
+          test -s "$ROOT/aq-supervised-v2-balanced/teacher-report.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=Path(os.environ['ROOT'])
+          p=json.loads((r/'aq-supervised-v2-balanced/teacher-report.json').read_text())
+          m=json.loads((r/'aq-supervised-v2-balanced/trained-model.json').read_text())
+          if not (p.get('teacher_id')=='rnad-aq-public-belief-v2' and
+              p.get('teacher_completed_matches')==128 and
+              p.get('phase_balanced') is True and
+              p.get('feature_schema')==m.get('feature_schema')=='rnad-three-phase-features-v2' and
+              p.get('is_champion') is False):
+              raise ValueError('Invalid semantic v2 teacher initialization')
+          print('Verified 128-match independently frozen AQ teacher provenance')
+          PY
+      - name: Train 16 real complete four-win R-NaD v2 Matches from the frozen AQ teacher
+        run: |
+          python -m scripts.rnad.train \
+            --three-phase --features-v2 \
+            --initial-model "$ROOT/aq-supervised-v2-balanced/trained-model.json" \
+            --seed 1100201 --matches 16 --out "$ROOT/selfplay"
+      - name: Verify all 16 authority accepted Matches and exact model/magnet/checkpoint identity
+        run: |
+          python -m scripts.rnad.verify_smoke \
+            --three-phase --features-v2 --seed 1100201 --matches 16 \
+            --out "$ROOT/selfplay"
+      - name: Verify uninterrupted versus resumed full-state v2 teacher initialized learning
+        run: |
+          python -m scripts.rnad.verify_resume \
+            --three-phase --features-v2 --seed 1100401 \
+            --initial-model "$ROOT/aq-supervised-v2-balanced/trained-model.json"
+      - name: Evaluate frozen teacher against Basic on 128 unseen paired seeds, greedy mode
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/aq-supervised-v2-balanced/trained-model.json" \
+            --seed 1101201 --pairs 128 \
+            --out "$ROOT/teacher-basic-greedy.json" --selection-mode greedy
+      - name: Evaluate RNAD-trained v2 against the SAME Basic 128 seed pairs, greedy mode
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model "$ROOT/selfplay/final-model.json" \
+            --seed 1101201 --pairs 128 \
+            --out "$ROOT/rnad-basic-greedy.json" --selection-mode greedy
+      - name: Direct student against teacher on separate 64 unseen seed pairs, greedy mode
+        run: |
+          node scripts/rnad/evaluate-direct.mjs \
+            --teacher "$ROOT/aq-supervised-v2-balanced/trained-model.json" \
+            --rnad "$ROOT/selfplay/final-model.json" \
+            --seed 1101601 --pairs 64 --selection-mode greedy \
+            --out "$ROOT/teacher-vs-rnad-greedy.json"
+      - name: Strictly compare all authority accepted independent outcome series and determine research continuation
+        run: |
+          python - <<'PY'
+          import hashlib,json,math,os
+          from pathlib import Path
+          r=Path(os.environ['ROOT'])
+          t=json.loads((r/'teacher-basic-greedy.json').read_text())
+          a=json.loads((r/'rnad-basic-greedy.json').read_text())
+          d=json.loads((r/'teacher-vs-rnad-greedy.json').read_text())
+          report=json.loads((r/'selfplay/report.json').read_text())
+          idx=json.loads((r/'selfplay/checkpoints/latest.json').read_text())
+          h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          teacher=r/'aq-supervised-v2-balanced/trained-model.json'
+          model=r/'selfplay/final-model.json'
+          if not (report['model_id']=='RNAD-003-3phase-v2' and
+              report['schema']=='rnad-three-phase-v2-training-report-v1' and
+              report['completed_matches']==report['updates']==16 and
+              idx['metadata']['completed_matches']==16 and
+              idx['metadata']['model_id']=='RNAD-003-3phase-v2' and
+              idx['metadata']['observation_schema_version']=='rnad-three-phase-features-v2' and
+              idx['metadata']['initialization_sha256']==h(teacher) and
+              idx['checkpoint_sha256']==report['last_match_checkpoint_sha'] and
+              d['teacher_model_sha256']==h(teacher) and d['rnad_model_sha256']==h(model) and
+              t['model_sha256']==h(teacher) and a['model_sha256']==h(model) and
+              d['inference_selection_mode']=='greedy' and
+              d['model_feature_schema']=='rnad-three-phase-features-v2' and
+              d['pairs']==64 and d['matches']==128 and
+              t['matches']==a['matches']==256 and
+              t['pairs']==a['pairs']==128):
+              raise ValueError('Mismatched or stale v2 teacher/RNAD evidence')
+          for label,x in [('teacher',t),('rnad',a)]:
+              assert x['inference_selection_mode']=='greedy'
+              assert x['wins']==sum(int(row['won']) for row in x['rows'])
+              assert {(row['seed'],row['candidateSeat']) for row in x['rows']}=={
+                  (s,seat) for s in range(1101201,1101329) for seat in (0,1)}
+          assert d['wins']==sum(int(row['won']) for row in d['rows'])
+          assert {(row['seed'],row['rnadSeat']) for row in d['rows']}=={
+              (s,seat) for s in range(1101601,1101665) for seat in (0,1)}
+          diff=(a['wins']-t['wins'])/256
+          # A diagnostic screen only: do NOT declare material improvement.
+          no_large_regression=(a['win_rate']>=t['win_rate']-.08 and
+                               d['win_rate']>=.40)
+          summary={'schema':'rnad-003-v2-16-match-real-learning-comparison-v1',
+              'teacher_vs_basic_wins':t['wins'],
+              'trained_vs_basic_wins':a['wins'],
+              'trained_vs_teacher_wins':d['wins'],
+              'trained_vs_teacher_matches':d['matches'],
+              'trained_vs_basic_winrate_delta':diff,
+              'candidate_for_128_training_study':no_large_regression,
+              'champion_promoted':False}
+          (r/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(json.dumps(summary),flush=True)
+          PY
+      - name: Retain full optimizer+magnet/scheduler+RNG checkpoint and direct evidence, no Champion
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-v2-selfplay-${{ github.run_id }}
+          path: |
+            artifacts/rnad003-v2/summary.json
+            artifacts/rnad003-v2/teacher-basic-greedy.json
+            artifacts/rnad003-v2/rnad-basic-greedy.json
+            artifacts/rnad003-v2/teacher-vs-rnad-greedy.json
+            artifacts/rnad003-v2/aq-supervised-v2-balanced/trained-model.json
+            artifacts/rnad003-v2/selfplay/report.json
+            artifacts/rnad003-v2/selfplay/final-model.json
+            artifacts/rnad003-v2/selfplay/checkpoints/latest.json
+            artifacts/rnad003-v2/selfplay/checkpoints/checkpoint-u16-*.pt
+          if-no-files-found: warn
+          retention-days: 30

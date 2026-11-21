@@ -1,0 +1,21 @@
+{
+  "schema": "rnad-i5-shared-main-generation0-launch-v1",
+  "source_sha": "036fadf68e83c50c4733be2d5bdc518f944650e3",
+  "expert_draft_run": 44096608535,
+  "expert_selection_run": 44067733118,
+  "expert_selection_js_run": 44085352444,
+  "frozen_legacy_pool_run": 43757054212,
+  "generation": 0,
+  "actor_count": 20,
+  "seed_clusters_per_actor": 32,
+  "matches_per_actor": 64,
+  "complete_matches_per_generation": 1280,
+  "optimizer_minibatch_matches": 32,
+  "optimizer_updates": 40,
+  "only_one_shared_main_model": true,
+  "github_hosted_cpu_only": true,
+  "early_research_before_formal_teacher_top1_gate": true,
+  "formal_league_entry_gate_passed": false,
+  "champion_promoted": false,
+  "main_merged": false
+}

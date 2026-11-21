@@ -1,0 +1,33 @@
+{
+  "schema": "rnad-i5-early-overnight-v3-league-20261117-v1",
+  "training_source_sha": "7e03795b7eeae803280059da45ac36b837563012",
+  "authorized_early_start_before_three_phase_top1_gate": true,
+  "early_exploratory_not_official_champion_league": true,
+  "independent_review_P1_open": true,
+  "runner": "ubuntu-latest",
+  "maximum_parallel_jobs": 20,
+  "independent_series": 20,
+  "league_series": 15,
+  "selfplay_series": 5,
+  "wave_count": 2,
+  "max_training_seconds_per_wave": 17280,
+  "expected_wall_clock_hours_approx": 10,
+  "source_frozen_no_revision_between_waves": true,
+  "opponents": [
+    "base128",
+    "base256",
+    "c005"
+  ],
+  "v3_league_series": 15,
+  "v5_selfplay_warmstart_run": 44037414890,
+  "v5_selfplay_warmstart_model": "battle-focus256-v5",
+  "features": "v3-league-v5-selfplay",
+  "switch_guard": "anti-loop-v1",
+  "neuRD_vtrace_training": true,
+  "match_winner_four_wins_authoritative": true,
+  "algorithm": "perolat-neurd-vtrace-eta-0.2-magnet-4",
+  "league_training_started": true,
+  "league_entry_statistical_gate_passed": false,
+  "champion_promoted": false,
+  "main_merged": false
+}

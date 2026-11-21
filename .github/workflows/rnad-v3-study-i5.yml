@@ -1,0 +1,279 @@
+name: RNAD-004 v3 features and 1-vs-4 updates diagnostic
+# Heavy four-arm 16-Match training is manual-only. PR paths filters
+# inspect the full cumulative diff and would rerun this study on every sync.
+# Preserve already-started pinned pilots; do not duplicate costly training.
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  contracts:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU correctness requirements
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Verify frozen engine and distinct v3/migration/update contract
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m py_compile scripts/rnad/neural.py scripts/rnad/train.py
+          node --check src/ml/rnad-phase-features-v3.js
+          node --check scripts/rnad/infer.mjs
+          node --check scripts/rnad/export-trajectory.mjs
+          node --check scripts/dev/simulator/rnad-match.js
+          node --check scripts/rnad/evaluate-direct.mjs
+          node --check scripts/rnad/evaluate-neural-basic.mjs
+          node --test test/rnad-v3-features.test.js \
+            test/rnad-three-phase-features-v2.test.js \
+            test/rnad-switch-loop-guard.test.js
+          python -m unittest discover -s test -p 'rnad_v3_test.py' -v
+
+  pilot:
+    needs: contracts
+    if: needs.contracts.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        arm: [v2-u1, v3-u1, v3-u4, v3-league]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARM: ${{ matrix.arm }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Set up pinned CPU trainer and frozen initial model
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          mkdir -p models "artifacts/$ARM" results
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+      - name: Train exact 16 finished 4-win Matches; 1 vs 4 genuine clipped off-policy updates
+        run: |
+          python - <<'PY'
+          import os,json,hashlib
+          from pathlib import Path
+          from scripts.rnad.train import train,current_git_sha,frozen_engine_sha
+          from scripts.rnad.neural import (
+              RNADNetwork,migrate_v2_export_to_v3,export_json,
+              THREE_PHASE_FEATURE_SCHEMA_V3)
+          root=Path('artifacts')/os.environ['ARM']
+          old=Path('models/base128.json')
+          manifest=json.loads(Path('models/manifest.json').read_text())
+          sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          if not (manifest['schema']=='rnad-i5-queued-evaluation-models-v1'
+              and manifest['source_sha']=='f08a9587d6a7033546eab00ffa6479399ca71c2f'
+              and manifest['engine_sha']==frozen_engine_sha()
+              and manifest['models']['base128']==sha(old)):
+              raise ValueError('Invalid frozen origin model')
+          usev3=os.environ['ARM'].startswith('v3-')
+          steps=4 if os.environ['ARM']=='v3-u4' else 1
+          useleague=os.environ['ARM']=='v3-league'
+          league_pool=None
+          if usev3:
+              entries=[]
+              for name in ('base128','base256','c005'):
+                  v2=Path('models')/(name+'.json')
+                  if manifest['models'][name]!=sha(v2):
+                      raise ValueError('Frozen opponent hash mismatch')
+                  upgraded=RNADNetwork(state_features=48,action_features=32)
+                  assert migrate_v2_export_to_v3(upgraded,v2)==sha(v2)
+                  dest=root/('frozen-'+name+'-v3.json')
+                  export_json(upgraded,dest,
+                      feature_schema=THREE_PHASE_FEATURE_SCHEMA_V3)
+                  entries.append({'name':name,'path':str(dest),
+                                  'sha256':sha(dest)})
+              (root/'frozen-v3.json').write_bytes(
+                  (root/'frozen-base128-v3.json').read_bytes())
+              if useleague:
+                  league_pool=root/'league-pool.json'
+                  league_pool.write_text(json.dumps({
+                    'schema':'rnad-v3-frozen-league-pool-v1',
+                    'models':entries},sort_keys=True)+'\n')
+          reports=[]
+          for k in range(4):
+              result=train(seed=1830001,matches=4,out=str(root/'selfplay'),
+                  resume=k>0,initial_model=str(old),
+                  three_phase=True,features_v2=not usev3,
+                  features_v3=usev3,migrate_from_v2=usev3,
+                  switch_guard='anti-loop-v1',switch_cost='none',
+                  updates_per_match=steps,
+                  league_pool=str(league_pool) if useleague else None)
+              expected=(k+1)*4
+              if not (result['completed_matches']==expected and
+                  result['updates']==expected*steps and
+                  result['source_sha']==current_git_sha() and
+                  result['engine_sha']==frozen_engine_sha() and
+                  result['initialization_sha256']==sha(old) and
+                  result['is_champion'] is False and
+                  len(result['results'])==4):
+                  raise ValueError('Untrusted or incomplete R-NaD v3 pilot')
+              latest=json.loads((root/'selfplay/checkpoints/latest.json').read_text())
+              meta=latest['metadata']
+              checkpoint=root/'selfplay/checkpoints'/latest['checkpoint_file']
+              if not (meta['completed_matches']==expected
+                  and meta['updates']==expected*steps
+                  and latest['checkpoint_sha256']==sha(checkpoint)
+                  and meta['completed_match_ids']==[
+                    'rnad-match-'+str(x) for x in range(1830001,1830001+expected)]
+                  and meta['next_match_seed']==1830001+expected):
+                  raise ValueError('Missing exact accepted boundary or checkpoint')
+              if usev3 and not(meta['optimizer_updates_per_match']==steps
+                  and meta['initialization_feature_schema']==
+                      'rnad-three-phase-features-v2'
+                  and meta['observation_schema_version']==
+                      'rnad-three-phase-features-v3'):
+                  raise ValueError('V3 source-bound migration metadata absent')
+              reports.append({'match_count':expected,'optimizer_updates':expected*steps,
+                'checkpoint_sha256':latest['checkpoint_sha256'],
+                'mean_critic_loss':sum(x['critic_loss'] for x in result['results'])/4})
+              for p in (root/'selfplay/checkpoints').glob('checkpoint-u*.pt'):
+                  if p!=checkpoint:p.unlink()
+              print(json.dumps({'arm':os.environ['ARM'],**reports[-1]}),flush=True)
+          report={'schema':'rnad-v3-update-ablation-pilot-v1',
+            'arm':os.environ['ARM'],'source_sha':current_git_sha(),
+            'engine_sha':frozen_engine_sha(),'seed':1830001,
+            'completed_matches':16,'optimizer_updates':16*steps,
+            'feature_schema':'rnad-three-phase-features-v3' if usev3
+                else 'rnad-three-phase-features-v2',
+            'origin_sha256':sha(old),
+             'league':useleague,
+            'trained_sha256':sha(root/'selfplay/final-model.json'),
+            'is_champion':False,'segments':reports}
+          (root/'pilot-report.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-v3-pilot-${{ matrix.arm }}-${{ github.run_id }}
+          path: |
+            artifacts/${{ matrix.arm }}/pilot-report.json
+            artifacts/${{ matrix.arm }}/frozen-v3.json
+            artifacts/${{ matrix.arm }}/frozen-*-v3.json
+            artifacts/${{ matrix.arm }}/league-pool.json
+            artifacts/${{ matrix.arm }}/selfplay/final-model.json
+            artifacts/${{ matrix.arm }}/selfplay/checkpoints/latest.json
+            artifacts/${{ matrix.arm }}/selfplay/checkpoints/checkpoint-u*.pt
+          if-no-files-found: warn
+          retention-days: 30
+
+  evaluate:
+    needs: pilot
+    if: needs.pilot.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 135
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        arm: [v2-u1, v3-u1, v3-u4, v3-league]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARM: ${{ matrix.arm }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Restore exact 16-Match pilot and frozen v2 origin
+        run: |
+          set -euo pipefail
+          mkdir -p models "artifacts/$ARM" results
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --name "rnad-v3-pilot-$ARM-$GITHUB_RUN_ID" --dir "artifacts/$ARM"
+          node scripts/verify-snapshot.mjs
+      - name: New-seed both-seat complete 4-win comparisons
+        run: |
+          set -euo pipefail
+          MODEL="artifacts/$ARM/selfplay/final-model.json"
+          FROZEN=models/base128.json
+          if [[ "$ARM" == v3-* ]]; then FROZEN="artifacts/$ARM/frozen-v3.json"; fi
+          test -f "$MODEL"
+          test -f "$FROZEN"
+          node scripts/rnad/evaluate-neural-basic.mjs --model "$MODEL" \
+            --seed 1831001 --pairs 24 --selection-mode greedy \
+            --switch-guard anti-loop-v1 --out "results/basic-$ARM.json"
+          node scripts/rnad/evaluate-direct.mjs --teacher "$FROZEN" --rnad "$MODEL" \
+            --seed 1832001 --pairs 24 --selection-mode greedy \
+            --guard-teacher anti-loop-v1 --guard-rnad anti-loop-v1 \
+            --out "results/direct-$ARM.json"
+      - name: Validate provenance, two seats, all 4-win Matches
+        run: |
+          python - <<'PY'
+          import os,json,hashlib
+          from pathlib import Path
+          arm=os.environ['ARM'];path=Path('artifacts')/arm
+          report=json.loads((path/'pilot-report.json').read_text())
+          data={name:json.loads(Path('results',f'{name}-{arm}.json').read_text())
+                for name in ('basic','direct')}
+          sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          frozen=path/'frozen-v3.json' if arm.startswith('v3-') else Path('models/base128.json')
+          model=path/'selfplay/final-model.json'
+          if not(report['source_sha']==data['basic']['source_sha']==
+              data['direct']['source_sha'] and
+              report['engine_sha']==data['basic']['engine_sha']==
+              data['direct']['engine_sha'] and
+              report['trained_sha256']==sha(model)==data['basic']['model_sha256']==
+              data['direct']['rnad_model_sha256'] and
+              data['direct']['teacher_model_sha256']==sha(frozen)):
+              raise ValueError('Source/model/engine mismatch in pilot')
+          for name,result in data.items():
+              seat='rnadSeat' if name=='direct' else 'candidateSeat'
+              seed=1832001 if name=='direct' else 1831001
+              if not(result['matches']==48 and result['pairs']==24
+                 and len(result['rows'])==48 and
+                 result['wins']==sum(x['won'] for x in result['rows'])
+                 and {(x['seed'],x[seat]) for x in result['rows']}==
+                    {(n,s) for n in range(seed,seed+24) for s in (0,1)}
+                 and all(x['score'][x[seat] if x['won'] else 1-x[seat]]==4
+                         for x in result['rows'])
+                 and result['inference_selection_mode']=='greedy'
+                 and (result.get('is_champion') is False if name=='direct'
+                      else result.get('champion_promoted') is False)):
+                  raise ValueError('Untrusted complete held-out pair matrix')
+          result={'schema':'rnad-v3-update-pilot-verified-v1',
+            'arm':arm,'source_sha':report['source_sha'],
+            'feature_schema':report['feature_schema'],
+            'model_sha256':sha(model),'completed_matches':16,
+            'optimizer_updates':report['optimizer_updates'],
+            'vs_basic':data['basic']['wins'],
+            'vs_frozen_direct':data['direct']['wins'],
+            'matches_each':48,'proven_improvement':False,
+            'is_champion':False}
+          Path('results',f'verified-{arm}.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result),flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-v3-eval-${{ matrix.arm }}-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 30

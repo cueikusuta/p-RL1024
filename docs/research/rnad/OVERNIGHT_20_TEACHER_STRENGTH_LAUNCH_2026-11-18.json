@@ -1,0 +1,18 @@
+{
+  "schema": "rnad-i5-overnight-same-actor-top1-strength-launch-v1",
+  "model_run": 44221678145,
+  "real_aq_eval_run": 44262950098,
+  "models": 20,
+  "teacher": "rnad-aq-public-strategy-selection-v1",
+  "teacher_is_not_exact_original_aq_match_policy": true,
+  "teacher_seed_first": 8700001,
+  "teacher_seed_last": 8700512,
+  "independent_teacher_matches": 512,
+  "per_schema_parts": 4,
+  "matches_per_part": 128,
+  "same_teacher_seeds_for_all_models": true,
+  "original_aq_real_match_seeds_are_distinct": true,
+  "no_training": true,
+  "model_selection_on_teacher_holdout": false,
+  "no_champion_promotion": true
+}

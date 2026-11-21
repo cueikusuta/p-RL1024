@@ -1,0 +1,163 @@
+name: RNAD I5 draft-selection gated v4 research iteration
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - 'docs/research/rnad/PHASE_ITERATION_MANIFEST.json'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-phase-iteration-one-writer
+  cancel-in-progress: false
+jobs:
+  phase_iteration:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install bounded pinned CPU learning dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Verify source and all contracts
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-v4-features.test.js test/rnad-selection-oracle.test.js test/rnad-public-strategy-teacher.test.js
+          python -m unittest discover -s test -p 'rnad_*_test.py' -v
+      - name: Strict manifest and old v2 baseline integrity
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/phase-iteration/base
+          gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-semantic-v2-43743143190 --dir artifacts/phase-iteration/base
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/PHASE_ITERATION_MANIFEST.json').read_text())
+          needed={'schema','iteration','teacher_seed','teacher_matches','epochs',
+                  'heldout_seed','heldout_matches','selfplay_seed','selfplay_matches',
+                  'aq_seed','aq_pairs'}
+          if set(m)!=needed or m['schema']!='rnad-i5-phase-iteration-v1' or (
+              any(type(m[k]) is not int for k in needed-{'schema'}) or
+              not 1<=m['iteration']<=99 or
+              not 1<=m['teacher_matches']<=256 or
+              not 1<=m['epochs']<=6 or
+              not 1<=m['heldout_matches']<=32 or
+              not 1<=m['selfplay_matches']<=16 or
+              not 1<=m['aq_pairs']<=100 or
+              any(m[k]<1 for k in ['teacher_seed','heldout_seed','selfplay_seed','aq_seed'])):
+              raise ValueError('Invalid bounded one-shot experiment manifest')
+          if not (m['teacher_seed']+m['teacher_matches']<m['heldout_seed'] and
+              m['heldout_seed']+m['heldout_matches']<m['selfplay_seed'] and
+              m['selfplay_seed']+m['selfplay_matches']<m['aq_seed']):
+              raise ValueError('Overlapping experiment seed blocks')
+          p=Path('artifacts/phase-iteration/base/aq-supervision-v2/trained-model.json')
+          if hashlib.sha256(p.read_bytes()).hexdigest()!=(
+              '9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b'):
+              raise ValueError('Frozen v2 AQ imitator SHA changed')
+          Path('artifacts/phase-iteration/manifest-used.json').write_text(
+              json.dumps(m,indent=2)+'\n')
+          print('Validated immutable baseline and source-scoped one-shot manifest')
+          PY
+      - name: Train v2 and v4 with identical new AQ strategy teacher budget and seeds
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/PHASE_ITERATION_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          python -m scripts.rnad.train_teacher \
+            --out artifacts/phase-iteration/v2-retrained \
+            --seed "$(field teacher_seed)" --matches "$(field teacher_matches)" \
+            --epochs "$(field epochs)" --three-phase --features-v2 \
+            --phase-balanced --teacher aq-public-strategy-selection
+          python -m scripts.rnad.train_teacher \
+            --out artifacts/phase-iteration/v4-supervised \
+            --seed "$(field teacher_seed)" --matches "$(field teacher_matches)" \
+            --epochs "$(field epochs)" --three-phase --features-v4 \
+            --phase-balanced --teacher aq-public-strategy-selection
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --model artifacts/phase-iteration/v2-retrained/trained-model.json \
+            --teacher aq-public-strategy-selection --features-v2 \
+            --seed "$(field heldout_seed)" --matches "$(field heldout_matches)" \
+            --out artifacts/phase-iteration/v2-unseen
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --model artifacts/phase-iteration/v4-supervised/trained-model.json \
+            --teacher aq-public-strategy-selection --features-v4 \
+            --seed "$(field heldout_seed)" --matches "$(field heldout_matches)" \
+            --out artifacts/phase-iteration/v4-unseen
+          if [ "$(field heldout_matches)" -ge 24 ]; then
+            python -m scripts.rnad.phase_imitation_goals \
+              --baseline artifacts/phase-iteration/v2-unseen/heldout-imitation.json \
+              --candidate artifacts/phase-iteration/v4-unseen/heldout-imitation.json \
+              --allow-feature-upgrade --out artifacts/phase-iteration/phase-screen.json
+          fi
+      - name: Run bounded v4 R-NaD continuation from supervised initializer
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/PHASE_ITERATION_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          python -m scripts.rnad.train \
+            --seed "$(field selfplay_seed)" --matches "$(field selfplay_matches)" \
+            --three-phase --features-v4 --switch-guard anti-loop-v1 \
+            --initial-model artifacts/phase-iteration/v4-supervised/trained-model.json \
+            --out artifacts/phase-iteration/v4-rnad
+      - name: Compare v4 teacher vs continued R-NaD on exact frozen AQ
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/PHASE_ITERATION_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for arm in v2-retrained v4-supervised v4-rnad; do
+            file="artifacts/phase-iteration/$arm/trained-model.json"
+            if [ "$arm" = v4-rnad ]; then
+              file="artifacts/phase-iteration/v4-rnad/final-model.json"
+            fi
+            node scripts/rnad/evaluate-vs-aq-full.mjs \
+              --model "$file" --seed "$(field aq_seed)" --pairs "$(field aq_pairs)" \
+              --phase-mode neural-all --switch-guard anti-loop-v1 \
+              --out "artifacts/phase-iteration/$arm-vs-aq.json"
+          done
+          node scripts/rnad/compare-original-aq-paired.mjs \
+            artifacts/phase-iteration/v2-retrained-vs-aq.json \
+            artifacts/phase-iteration/v4-supervised-vs-aq.json \
+            artifacts/phase-iteration/v2-v4-paired.json
+          node scripts/rnad/compare-original-aq-paired.mjs \
+            artifacts/phase-iteration/v4-supervised-vs-aq.json \
+            artifacts/phase-iteration/v4-rnad-vs-aq.json \
+            artifacts/phase-iteration/supervised-rnad-paired.json
+          python - <<'PY'
+          import json, pathlib
+          root=pathlib.Path('artifacts/phase-iteration')
+          records=[json.loads((root/(s+'-vs-aq.json')).read_text())
+                   for s in ['v2-retrained','v4-supervised','v4-rnad']]
+          for r in records:
+              assert r['matches']==2*r['pairs'] and len(r['rows'])==r['matches']
+              assert not r['champion_promoted'] and r['aq_base_model_sha256']==(
+                '5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e')
+          assert records[0]['seed']==records[1]['seed']==records[2]['seed']
+          print(json.dumps({'v2_wins':records[0]['wins'],
+             'v4_wins':records[1]['wins'],'rnad_wins':records[2]['wins'],
+             'matches':records[0]['matches'],
+             'strength_claimed':False}))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-phase-iteration-${{ github.run_id }}
+          path: artifacts/phase-iteration/
+          if-no-files-found: warn
+          retention-days: 30

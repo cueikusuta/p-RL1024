@@ -1,0 +1,14 @@
+{
+  "schema": "rnad-i5-selection-focus-v1",
+  "iteration": 3,
+  "origin_run": 43957735875,
+  "teacher_seed": 2070001,
+  "teacher_matches": 64,
+  "epochs": 4,
+  "heldout_seed": 2071001,
+  "heldout_matches": 32,
+  "selfplay_seed": 2072001,
+  "selfplay_matches": 16,
+  "aq_seed": 2073001,
+  "aq_pairs": 32
+}

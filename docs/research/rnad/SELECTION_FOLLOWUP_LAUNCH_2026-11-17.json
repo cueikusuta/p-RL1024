@@ -1,0 +1,20 @@
+{
+  "schema": "rnad-i5-selection-followup-v1",
+  "teacher_source_run": 44032488678,
+  "reference_four_arm_run": 44039529263,
+  "train_match_counts": [
+    128,
+    256
+  ],
+  "network_widths": [
+    64,
+    96,
+    128
+  ],
+  "epochs": 6,
+  "development_heldout_matches": 128,
+  "fresh_confirmatory_holdout": false,
+  "teacher_visited_only": true,
+  "league_training_started": false,
+  "champion_promoted": false
+}

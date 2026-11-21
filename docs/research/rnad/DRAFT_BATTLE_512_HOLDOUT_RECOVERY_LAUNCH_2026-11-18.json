@@ -1,0 +1,21 @@
+{
+  "schema": "rnad-i5-draft-battle-512-holdout-recovery-launch-v1",
+  "failed_original_training_run": 44096608535,
+  "teacher_source_sha": "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c",
+  "old_student_run": 44032488678,
+  "old_battle_model_run": 44037414890,
+  "new_student_model_artifact": 14337115909,
+  "failed_seed": 2522144,
+  "seed_start": 2522001,
+  "requested_complete_valid_heldout_matches": 512,
+  "maximum_candidate_seed_count": 1024,
+  "maximum_rejected_teacher_matches": 8,
+  "reject_only_exact_teacher_declared_utility_invariant": true,
+  "no_model_retraining": true,
+  "no_change_to_teacher_source_or_labels": true,
+  "evaluation_only_on_teacher_valid_complete_matches": true,
+  "statistical_claim_only_conditional_on_teacher_filter": true,
+  "candidate_selection_locked_before_evaluation": true,
+  "league_entry_allowed": false,
+  "champion_promoted": false
+}

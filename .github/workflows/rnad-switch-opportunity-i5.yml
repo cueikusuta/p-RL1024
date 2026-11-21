@@ -1,0 +1,207 @@
+name: RNAD-003 opportunity-cost switching — normal and c005 128-Match extended learning
+on:
+  # First passing contracts run: 43787170970 (before this trigger edit).
+  # Keep costly study manual-only after the initial launch.
+  workflow_dispatch:
+permissions: {}
+jobs:
+  contracts:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Snapshot, source syntax, all switching reward/provenance contracts
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m py_compile scripts/rnad/train.py \
+            scripts/rnad/research_switch_opportunity.py \
+            scripts/rnad/evaluate_switch_opportunity.py
+          node --check scripts/rnad/export-trajectory.mjs
+          node --check scripts/rnad/switch-opportunity.mjs
+          node --test test/rnad-switch-opportunity.test.js \
+            test/rnad-switch-loop-guard.test.js \
+            test/rnad-switch-training-support.test.js \
+            test/rnad-greedy-policy.test.js \
+            test/rnad-stage0-contract.test.js
+
+  learn:
+    needs: contracts
+    if: needs.contracts.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model: [base128, base256, c005]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODEL: ${{ matrix.model }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned GitHub-hosted CPU trainer
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Restore immutable original models (not overwritten)
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          mkdir -p models artifacts
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+          python - <<'PY'
+          import json,hashlib,os
+          from pathlib import Path
+          p=Path('models');name=os.environ['MODEL']
+          manifest=json.loads((p/'manifest.json').read_text())
+          data=(p/(name+'.json')).read_bytes()
+          content=json.loads(data)
+          if not (manifest['schema']=='rnad-i5-queued-evaluation-models-v1'
+            and manifest['source_sha']=='f08a9587d6a7033546eab00ffa6479399ca71c2f'
+            and manifest['engine_sha']=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'
+            and manifest['models'][name]==hashlib.sha256(data).hexdigest()
+            and content['schema']=='rnad-small-gru-v1'
+            and content['feature_schema']=='rnad-three-phase-features-v2'
+            and manifest['is_champion'] is False):
+            raise ValueError('Wrong immutable actor or source')
+          PY
+      - name: Learn 64 completed full Matches each, extend c005 to 128 on exact same new checkpoint
+        run: |
+          python -m scripts.rnad.research_switch_opportunity \
+            --model "$MODEL" --initial "models/$MODEL.json" \
+            --out "artifacts/opportunity-$MODEL"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-opportunity-learn-${{ matrix.model }}-${{ github.run_id }}
+          path: |
+            artifacts/opportunity-${{ matrix.model }}/study-report.json
+            artifacts/opportunity-${{ matrix.model }}/model-u*.json
+            artifacts/opportunity-${{ matrix.model }}/selfplay/report.json
+            artifacts/opportunity-${{ matrix.model }}/selfplay/final-model.json
+            artifacts/opportunity-${{ matrix.model }}/selfplay/checkpoints/latest.json
+            artifacts/opportunity-${{ matrix.model }}/selfplay/checkpoints/checkpoint-u*.pt
+          if-no-files-found: warn
+          retention-days: 30
+
+  evaluate:
+    needs: learn
+    if: needs.learn.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model: [base128, base256, c005]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODEL: ${{ matrix.model }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Retrieve only same-run archived learning artifacts + original frozen model
+        run: |
+          set -euo pipefail
+          mkdir -p models "artifacts/opportunity-$MODEL" results
+          node scripts/verify-snapshot.mjs
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir models
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --name "rnad-i5-opportunity-learn-$MODEL-$GITHUB_RUN_ID" \
+            --dir "artifacts/opportunity-$MODEL"
+          test -f "artifacts/opportunity-$MODEL/study-report.json"
+          test -f "artifacts/opportunity-$MODEL/model-u64.json"
+      - name: Held-out greedy direct/BASIC same-seed seat-paired complete 4-win evaluation
+        run: |
+          python -m scripts.rnad.evaluate_switch_opportunity \
+            --model "$MODEL" --initial "models/$MODEL.json" \
+            --trained "artifacts/opportunity-$MODEL" \
+            --out "results/eval-$MODEL"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-opportunity-eval-${{ matrix.model }}-${{ github.run_id }}
+          path: results/eval-${{ matrix.model }}/
+          if-no-files-found: warn
+          retention-days: 30
+
+  aggregate:
+    needs: evaluate
+    if: needs.evaluate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download exact three evaluation artifact reports from this run
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --pattern "rnad-i5-opportunity-eval-*-$GITHUB_RUN_ID" --dir output
+      - name: Verify common seed/source and no champion promotion
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('output')
+          reports={}
+          for f in root.rglob('evaluation-report.json'):
+              x=json.loads(f.read_text())
+              if x.get('schema')!='rnad-switch-opportunity-paired-evaluation-v1':
+                  raise ValueError('Invalid evaluation result')
+              m=x['initial_model']
+              if m in reports: raise ValueError('Duplicate model')
+              reports[m]=x
+          if set(reports)!={'base128','base256','c005'}:
+              raise ValueError('Expected three independent trained model comparisons')
+          if len({(x['source_sha'],x['engine_sha']) for x in reports.values()})!=1:
+              raise ValueError('Mixed experiment environment')
+          for name,x in reports.items():
+              expected={'original-basic','u64-basic','u64-vs-original'}
+              if name=='c005':
+                  expected.update({'u128-basic','u128-vs-original',
+                                   'u128-vs-u64'})
+              if (set(x['results'])!=expected or
+                  x['train_matches']!=(128 if name=='c005' else 64) or
+                  not x['all_full_four_win'] or x['is_champion'] is not False or
+                  any(y['matches']!=128 for y in x['results'].values())):
+                  raise ValueError('Invalid complete evaluation matrix')
+          out={'schema':'rnad-opportunity-learning-matrix-v1',
+               'experiments':reports,
+               'strength_improvement_statistically_proven':False,
+               'independent_review_approved':False,'is_champion':False}
+          (root/'summary.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps({k:v['results'] for k,v in reports.items()}),
+                flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-opportunity-summary-${{ github.run_id }}
+          path: output/summary.json
+          if-no-files-found: error
+          retention-days: 30

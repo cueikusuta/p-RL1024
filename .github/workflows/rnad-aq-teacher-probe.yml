@@ -1,0 +1,35 @@
+name: RNAD-002 frozen AQ-Base public teacher authority and paired probe
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-aq-teacher-probe-i5
+  cancel-in-progress: true
+jobs:
+  frozen-aq-probe:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Verify historical model and engine, then full-Match teacher authority
+        run: |
+          node scripts/verify-snapshot.mjs
+          mkdir -p artifacts/aq-teacher-probe
+          node scripts/rnad/probe-aq-teacher.mjs --seed 994601 --pairs 32 \
+            --out artifacts/aq-teacher-probe/paired.json
+      - name: Save source-bound and immutable paired outcome evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-aq-teacher-probe-${{ github.run_id }}
+          path: artifacts/aq-teacher-probe/paired.json
+          if-no-files-found: warn
+          retention-days: 30

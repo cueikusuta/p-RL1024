@@ -1,0 +1,84 @@
+name: RNAD-002 GitHub-hosted 3-phase neural Match smoke
+on:
+  # Full three-phase training smoke passed on preceding PR heads.
+  # Keep research CPU work opt-in; Stage 0 contract tests still run on PR.
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-002-3phase-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  three-phase-smoke:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest # NEVER self-hosted for RNAD.
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Pinned CPU PyTorch and NumPy for RNAD-002
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Verify frozen authoritative Match engine and three-phase contracts
+        run: |
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-phase-features.test.js test/rnad-three-phase.test.js
+      - name: Execute one real complete 4-win three-phase neural training Match
+        run: |
+          python -m scripts.rnad.train \
+            --three-phase --seed 975120 --matches 1 --out artifacts/rnad-3phase
+      - name: Prove 3-phase Match training stop-resume bitwise equivalence
+        run: |
+          python -m scripts.rnad.verify_resume --three-phase --seed 975123
+      - name: Verify mixed-seat evaluation with frozen Stage0 opponent
+        run: |
+          node scripts/rnad/evaluate.mjs \
+            --model artifacts/rnad-3phase/final-model.json \
+            --seed 988781 --pairs 2 --out artifacts/rnad-3phase/paired-smoke.json
+      - name: Train exactly 16 real complete four-win three-phase Matches
+        run: |
+          python -m scripts.rnad.train \
+            --three-phase --seed 975141 --matches 16 \
+            --out artifacts/rnad-3phase-16
+      - name: Verify all 16 unique authority-accepted full phase trajectories
+        run: |
+          python -m scripts.rnad.verify_smoke \
+            --three-phase --seed 975141 --matches 16 \
+            --out artifacts/rnad-3phase-16
+      - name: Held-out 8-seed paired full-Match evaluation (diagnostic only)
+        run: |
+          node scripts/rnad/evaluate.mjs \
+            --model artifacts/rnad-3phase-16/final-model.json \
+            --seed 988783 --pairs 8 \
+            --out artifacts/rnad-3phase-16/heldout.json
+      - name: Retain non-Champion research checkpoint evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-002-three-phase-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/rnad-3phase/report.json
+            artifacts/rnad-3phase/final-model.json
+            artifacts/rnad-3phase/checkpoints/latest.json
+            artifacts/rnad-3phase/checkpoints/checkpoint-*.pt
+            artifacts/rnad-3phase/paired-smoke.json
+            artifacts/rnad-3phase-16/report.json
+            artifacts/rnad-3phase-16/final-model.json
+            artifacts/rnad-3phase-16/checkpoints/latest.json
+            artifacts/rnad-3phase-16/checkpoints/checkpoint-u16-*.pt
+            artifacts/rnad-3phase-16/heldout.json
+          if-no-files-found: warn
+          retention-days: 30

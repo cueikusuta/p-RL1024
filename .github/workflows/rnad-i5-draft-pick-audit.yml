@@ -1,0 +1,112 @@
+name: RNAD I5 accepted draft-pick human audit (bounded)
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/DRAFT_PICK_AUDIT_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-draft-audit-one-writer
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install fixed CPU reporting dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Validate manifest and real-acceptance contracts
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p 'rnad_draft_report_test.py' -v
+          node --test test/rnad-public-utilities.test.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("docs/research/rnad/DRAFT_PICK_AUDIT_MANIFEST.json").read_text())
+          assert m.get("schema")=="rnad-i5-draft-audit-v1"
+          assert set(m)=={"schema","seed","matches","reference_run"}
+          assert isinstance(m["seed"],int) and 1<=m["seed"]<=2**32-3
+          assert isinstance(m["matches"],int) and 1<=m["matches"]<=2
+          assert m["reference_run"]==43957735875
+          print(m)
+          PY
+      - name: Retrieve frozen real v4 imitation model
+        run: |
+          set -euo pipefail
+          mkdir -p models/v4
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir models/v4
+          test -s models/v4/artifacts/v4-utility/trained-model.json
+          sha256sum models/v4/artifacts/v4-utility/trained-model.json
+      - name: Export complete authoritative AQ draft decisions with named offers
+        run: |
+          set -euo pipefail
+          mkdir -p traces
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path("docs/research/rnad/DRAFT_PICK_AUDIT_MANIFEST.json").read_text())
+          for i in range(m["matches"]):
+              seed=m["seed"]+i
+              subprocess.run(["node","scripts/rnad/export-teacher.mjs",
+                "--seed",str(seed),"--out",f"traces/teacher-{seed}.json",
+                "--three-phase","true",
+                "--teacher","aq-public-strategy-selection",
+                "--features-v4","true","--utility-labels","true",
+                "--draft-review","true"],check=True,timeout=480)
+          PY
+      - name: Render actual picks and student counterfactual top-five
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.report_draft_picks \
+            --trace traces/teacher-*.json \
+            --model models/v4/artifacts/v4-utility/trained-model.json \
+            --out results/draft-audit --max-picks 40
+          test -s results/draft-audit/DRAFT_PICKS.md
+          cat results/draft-audit/DRAFT_PICKS.md >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,105p' results/draft-audit/DRAFT_PICKS.md
+      - name: Download frozen v3 battle and selection control
+        run: |
+          set -euo pipefail
+          mkdir -p models/v3
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          test -s models/v3/selfplay/final-model.json
+      - name: Record actual accepted v4 draft choices in original AQ four-win Match
+        run: |
+          set -euo pipefail
+          node scripts/rnad/audit-live-draft-picks.mjs \
+            --v4 models/v4/artifacts/v4-utility/trained-model.json \
+            --v3 models/v3/selfplay/final-model.json \
+            --seed 2441001 --seat 0 --out results/draft-audit
+          test -s results/draft-audit/LIVE_DRAFT_PICKS.md
+          cat results/draft-audit/LIVE_DRAFT_PICKS.md >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,115p' results/draft-audit/LIVE_DRAFT_PICKS.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-pick-audit-${{ github.run_id }}
+          path: |
+            results/draft-audit/DRAFT_PICKS.md
+            results/draft-audit/draft-picks.json
+            results/draft-audit/LIVE_DRAFT_PICKS.md
+            results/draft-audit/live-draft-picks.json
+          retention-days: 30
+          if-no-files-found: warn

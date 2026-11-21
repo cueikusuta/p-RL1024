@@ -1,0 +1,21 @@
+{
+    "schema": "rnad-i5-overnight-20-real-aq-heldout-launch-v1",
+    "evaluation_schema": "rnad-i5-overnight-20-real-aq-paired-part-v1",
+    "original_training_run_id": 44221678145,
+    "immutable_training_source_sha": "833f4039b69bbad64dc7a28c059d4b934004e5bf",
+    "models": 20,
+    "parts_per_model": 2,
+    "independent_seed_clusters_per_part": 512,
+    "heldout_first_seed": 8600001,
+    "heldout_last_seed": 8601024,
+    "matches_per_model": 2048,
+    "total_complete_four_win_evaluation_matches": 40960,
+    "benchmark": "AQ-Base-001 exact integrated strategy-match",
+    "seat_swap": true,
+    "greedy_no_training": true,
+    "model_selection_on_heldout": false,
+    "familywise_alpha": 0.05,
+    "formal_league_gate_passed": false,
+    "champion_promoted": false,
+    "main_merged": false
+}

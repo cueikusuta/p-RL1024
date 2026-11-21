@@ -1,0 +1,129 @@
+name: RNAD I5 A4096 cross-phase authority acceptance smoke
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_A4096_THREEPHASE_SMOKE_LAUNCH_2026-11-17.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-a4096-threephase-acceptance-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify immutable hybrid research launch and actor syntax
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --check scripts/rnad/smoke-a4096-threephase-composite.mjs
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/SELECTION_A4096_THREEPHASE_SMOKE_LAUNCH_2026-11-17.json').read_text())
+          assert m=={
+            'schema':'rnad-i5-a4096-threephase-hybrid-acceptance-smoke-launch-v1',
+            'draft_frozen_run':44032488678,
+            'draft_model':'soft256-e6.json',
+            'draft_teacher_source':'022aa9cd5b4ac37514df1d845ea00c11c3c13a5c',
+            'selection_export_run':44085352444,
+            'selection_model':'selection-A-4096-e60-s90252.pt',
+            'selection_teacher_source':'a7224b05eeef49650794b24546576119dffed951',
+            'battle_fixed':'basic',
+            'seed_start':2501001,
+            'complete_match_smoke_count':2,
+            'different_teacher_sources_not_same_integrated_training':True,
+            'league_started':False,
+            'champion_promoted':False,
+          }
+          PY
+          test "$(gh api repos/cueikusuta/p-RL1024/actions/runs/44085352444 --jq .conclusion)" = success
+          test "$(gh api repos/cueikusuta/p-RL1024/actions/runs/44032488678 --jq '.jobs_url | length')" -gt 0
+      - name: Retrieve and SHA-lock independent frozen draft and selection weights
+        run: |
+          set -euo pipefail
+          mkdir -p frozen/draft frozen/selection results/hybrid
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-draft-imitation --dir frozen/draft
+          gh run download 44085352444 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-A4096-vs-A2048-public-js-SHA-checked --dir frozen/selection
+          test -s frozen/draft/draft-imitation-256-report.json
+          test -s frozen/draft/soft256-e6.json
+          test -s frozen/selection/A4096.json
+          test -s frozen/selection/checksums.json
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          d=json.loads(Path('frozen/draft/draft-imitation-256-report.json').read_text())
+          assert d['source_sha']=='022aa9cd5b4ac37514df1d845ea00c11c3c13a5c'
+          assert d['train_matches']==256 and d['heldout_matches']==128
+          row=d['models']['soft256-e6']
+          draft=Path('frozen/draft/soft256-e6.json')
+          draft_sha=hashlib.sha256(draft.read_bytes()).hexdigest()
+          assert draft_sha==row['sha256']
+          sel=json.loads(Path('frozen/selection/checksums.json').read_text())
+          p=Path('frozen/selection/A4096.json')
+          js_sha=hashlib.sha256(p.read_bytes()).hexdigest()
+          assert js_sha==sel['new_sha256']
+          assert sel['new_source_model_sha256']=='6efe87c1b30f08b964a17f6f1a8c585f1f8d37d73df9afdcf2c2cd908b23dc21'
+          model=json.loads(p.read_text())
+          assert model['source_model_filename']=='selection-A-4096-e60-s90252.pt'
+          assert model['source_sha']=='a7224b05eeef49650794b24546576119dffed951'
+          Path('frozen/pins.json').write_text(json.dumps({
+            'draft_sha256':draft_sha,
+            'selection_js_sha256':js_sha,
+            'draft_source_sha':d['source_sha'],
+            'selection_source_sha':model['source_sha'],
+            'distinct_teacher_sources':True,
+            'is_three_phase_trained_policy':False
+          },indent=2)+'\n')
+          PY
+      - name: Complete two authoritative four-win Matches with acceptance-only 3-phase handoffs
+        run: |
+          set -euo pipefail
+          DRAFT_SHA="$(python -c "import json;print(json.load(open('frozen/pins.json'))['draft_sha256'])")"
+          SELECTION_SHA="$(python -c "import json;print(json.load(open('frozen/pins.json'))['selection_js_sha256'])")"
+          node scripts/rnad/smoke-a4096-threephase-composite.mjs \
+            --draft frozen/draft/soft256-e6.json --draft-sha "$DRAFT_SHA" \
+            --selection frozen/selection/A4096.json --selection-sha "$SELECTION_SHA" \
+            --seed 2501001 --out results/hybrid/smoke.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('results/hybrid/smoke.json').read_text())
+          assert r['schema']=='rnad-i5-hybrid-threephase-a4096-acceptance-smoke-v1'
+          assert r['complete_four_win_matches']==2 and len(r['rows'])==2
+          assert [x['seed'] for x in r['rows']]==[2501001,2501002]
+          assert r['integrated_execution'] is True
+          assert r['trained_three_phase_policy'] is False
+          assert r['same_teacher_source_for_all_phases'] is False
+          assert r['league_entry_gate_passed'] is False
+          assert r['strength_established'] is False
+          assert r['league_started'] is False and r['champion_promoted'] is False
+          lines=['# A4096 選出 × DeepSets256 ドラフト × Basic 戦闘 3phase受理smoke',
+             '','権威4勝完全Match 2件の全3phaseハンドオフを検証（性能推定不可）。',
+             '事前SHA固定・権威受理後のドラフト→選出→戦闘情報伝搬を確認。',
+             'ドラフト/選出は異なる教師source、戦闘は教師学習済みモデルでない。',
+             '**統合3phase教師Top1リーグゲートは未検証・合格不可。**']
+          Path('results/hybrid/SMOKE.md').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+          cat results/hybrid/SMOKE.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-A4096-threephase-acceptance-smoke
+          path: |
+            results/hybrid/
+            frozen/pins.json
+          retention-days: 90
+          if-no-files-found: warn

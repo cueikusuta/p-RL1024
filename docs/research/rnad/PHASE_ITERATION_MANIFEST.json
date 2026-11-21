@@ -1,0 +1,13 @@
+{
+  "schema": "rnad-i5-phase-iteration-v1",
+  "iteration": 4,
+  "teacher_seed": 2020001,
+  "teacher_matches": 128,
+  "epochs": 4,
+  "heldout_seed": 2021001,
+  "heldout_matches": 32,
+  "selfplay_seed": 2022001,
+  "selfplay_matches": 16,
+  "aq_seed": 2023001,
+  "aq_pairs": 16
+}

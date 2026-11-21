@@ -1,0 +1,203 @@
+name: RNAD I5 strict draft battle 512 teacher holdout recovery and paired confirmation
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/DRAFT_BATTLE_512_HOLDOUT_RECOVERY_LAUNCH_2026-11-18.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-frozen-draft-battle512-holdout-one-recovery
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify user-visible recovery plan and original immutable teacher snapshot
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          python -m py_compile scripts/rnad/recover_draft_battle_holdout_512.py scripts/rnad/draft_battle_learning_512_recovery.py test/rnad_draft_battle_holdout_recovery_test.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/DRAFT_BATTLE_512_HOLDOUT_RECOVERY_LAUNCH_2026-11-18.json').read_text())
+          assert m=={
+            'schema':'rnad-i5-draft-battle-512-holdout-recovery-launch-v1',
+            'failed_original_training_run':44096608535,
+            'teacher_source_sha':'022aa9cd5b4ac37514df1d845ea00c11c3c13a5c',
+            'old_student_run':44032488678,
+            'old_battle_model_run':44037414890,
+            'new_student_model_artifact':14337115909,
+            'failed_seed':2522144,
+            'seed_start':2522001,
+            'requested_complete_valid_heldout_matches':512,
+            'maximum_candidate_seed_count':1024,
+            'maximum_rejected_teacher_matches':8,
+            'reject_only_exact_teacher_declared_utility_invariant':True,
+            'no_model_retraining':True,
+            'no_change_to_teacher_source_or_labels':True,
+            'evaluation_only_on_teacher_valid_complete_matches':True,
+            'statistical_claim_only_conditional_on_teacher_filter':True,
+            'candidate_selection_locked_before_evaluation':True,
+            'league_entry_allowed':False,
+            'champion_promoted':False,
+          }
+          PY
+          git cat-file -e 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c^{commit}
+          gh api repos/cueikusuta/p-RL1024/actions/runs/44096608535/artifacts --jq '.artifacts[].name' |
+            grep -Fx rnad-i5-draft-battle-512-frozen-trained-model-archive
+      - name: Preflight strict filtered seed-manifest and paired-cluster tests before teacher collection
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_draft_battle_holdout_recovery_test.py' -v
+          python -m unittest discover -s test -p 'rnad_draft_battle_learning_512_test.py' -v
+
+  gather_verified:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    env:
+      RNAD_RECOVERY_LAUNCH_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c, fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify original unchanged teacher authority and execute fixed candidate seed filter
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          node scripts/verify-snapshot.mjs
+          git show "$RNAD_RECOVERY_LAUNCH_SHA:scripts/rnad/recover_draft_battle_holdout_512.py" > scripts/rnad/recover_draft_battle_holdout_512.py
+          python -m scripts.rnad.recover_draft_battle_holdout_512 --out fresh
+          test "$(find fresh -name 'teacher-*.json' | wc -l)" -eq 512
+          test -s fresh/accepted-manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('fresh/accepted-manifest.json').read_text())
+          assert d['unseen_complete_matches']==512
+          assert len(d['accepted_seeds'])==512
+          assert d['scorer_or_teacher_policy_altered'] is False
+          assert d['teacher_success_filter_applied_before_any_model_evaluation'] is True
+          assert len(d['rejected_seeds'])<=8
+          print('Strict-authority holdout accepted',len(d['accepted_seeds']),
+                'rejected and recorded:',d['rejected_seeds'],flush=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-battle512-fresh-512-strict-teacher-accepted
+          path: fresh/
+          retention-days: 90
+          if-no-files-found: warn
+
+  confirm:
+    needs: [preflight, gather_verified]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RNAD_RECOVERY_LAUNCH_SHA: ${{ github.sha }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c, fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU model evaluator
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Recover exact prior old/new model bytes and original-source authority traces
+        run: |
+          set -euo pipefail
+          mkdir -p models/old-draft models/old-battle models/new fresh results
+          git show "$RNAD_RECOVERY_LAUNCH_SHA:scripts/rnad/recover_draft_battle_holdout_512.py" > scripts/rnad/recover_draft_battle_holdout_512.py
+          git show "$RNAD_RECOVERY_LAUNCH_SHA:scripts/rnad/draft_battle_learning_512_recovery.py" > scripts/rnad/draft_battle_learning_512_recovery.py
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 --name rnad-i5-256-draft-imitation --dir models/old-draft
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 --name rnad-i5-256-battle-only-recovery --dir models/old-battle
+          gh run download 44096608535 --repo cueikusuta/p-RL1024 --name rnad-i5-draft-battle-512-frozen-trained-model-archive --dir models/new
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 --name rnad-i5-draft-battle512-fresh-512-strict-teacher-accepted --dir fresh
+          test -s models/old-draft/draft-imitation-256-report.json
+          test -s models/old-draft/soft256-e6.json
+          test -s models/old-battle/battle/trained-model.json
+          test -s models/new/draft512/draft512-e6.json
+          test -s models/new/battle512/trained-model.json
+          test -s fresh/accepted-manifest.json
+          python -m py_compile scripts/rnad/draft_battle_learning_512_recovery.py
+      - name: Independently compare 256 versus 512 draft and battle Top1 on same verified 512 seed clusters
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.draft_battle_learning_512_recovery evaluate \
+            --draft-old models/old-draft/soft256-e6.json \
+            --draft-old-report models/old-draft/draft-imitation-256-report.json \
+            --draft-new models/new/draft512/draft512-e6.json \
+            --draft-new-report models/new/draft512/study.json \
+            --battle-old models/old-battle/battle/trained-model.json \
+            --battle-old-report models/old-battle/battle/teacher-report.json \
+            --battle-new models/new/battle512/trained-model.json \
+            --battle-new-report models/new/battle512/teacher-report.json \
+            --holdout-dir fresh --holdout-manifest fresh/accepted-manifest.json \
+            --out results/independent-confirmation
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          r=json.loads(Path('results/independent-confirmation/study.json').read_text())
+          m=json.loads(Path('fresh/accepted-manifest.json').read_text())
+          assert r['heldout_verified_seeds']==m['accepted_seeds']
+          assert r['heldout_verified_seed_count']==512
+          assert r['holdout_seed_manifest_sha256']==hashlib.sha256(
+            Path('fresh/accepted-manifest.json').read_bytes()).hexdigest()
+          assert r['strict_public_utility_invariant_never_disabled'] is True
+          assert r['same_three_phase_integrated_policy_evaluated'] is False
+          assert r['league_entry_allowed'] is False
+          assert r['champion_promoted'] is False
+          for phase in ('draft','battle'):
+            p=r[phase]
+            assert p['independent_seed_clusters']==512
+            assert len(p['seed_rows'])==512
+            assert {x['seed'] for x in p['seed_rows']}==set(m['accepted_seeds'])
+            assert p['accepted_teacher_decisions']>0
+          PY
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          items={}
+          for name in ('recover_draft_battle_holdout_512.py',
+                       'draft_battle_learning_512_recovery.py'):
+            p=Path('scripts/rnad')/name
+            items[name]=hashlib.sha256(p.read_bytes()).hexdigest()
+          Path('results/independent-confirmation/recovery-code-sha256.json').write_text(
+            json.dumps({'launch_head':os.environ['RNAD_RECOVERY_LAUNCH_SHA'],
+              'frozen_teacher_commit':'022aa9cd5b4ac37514df1d845ea00c11c3c13a5c',
+              'evaluation_python_sha256':items,
+              'models_reused_from_successful_prior_train':True,
+              'strength_established':False},indent=2)+'\n')
+          PY
+          cat results/independent-confirmation/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-battle512-verified-512-Match-paired-CI
+          path: results/independent-confirmation/
+          retention-days: 90
+          if-no-files-found: warn

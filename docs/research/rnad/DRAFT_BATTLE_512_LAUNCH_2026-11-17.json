@@ -1,0 +1,30 @@
+{
+  "schema": "rnad-i5-draft-battle-scaling-512-v1",
+  "teacher_source_sha": "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c",
+  "teacher": "rnad-aq-public-strategy-selection-v1",
+  "old_teacher_run": 44032488678,
+  "old_battle_recovery_run": 44037414890,
+  "old_train": [
+    2471001,
+    256
+  ],
+  "previous_dev_used_do_not_reuse": [
+    2472001,
+    128
+  ],
+  "additional_train": [
+    2520001,
+    256
+  ],
+  "independent_fresh_holdout": [
+    2522001,
+    512
+  ],
+  "draft_training": "fresh_scratch_old256_plus_new256_soft6",
+  "battle_training": "old256_weights_plus_new256_battlefocus_hard6_new_optimizer",
+  "bootstrap_replicates": 10000,
+  "phase_delta_ci": "paired_seed_cluster_approximate_two_sided_95pct",
+  "experiment_selection_locked_before_holdout": true,
+  "league_started": false,
+  "champion_promoted": false
+}

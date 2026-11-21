@@ -1,0 +1,69 @@
+"""Reproducibility gate: two uninterrupted completed Matches vs save/resume."""
+import argparse
+import json
+import tempfile
+from pathlib import Path
+
+from scripts.rnad.train import train
+
+
+def verify(seed=975023,three_phase=False,
+           features_v2=False,initial_model=None):
+    with tempfile.TemporaryDirectory() as root:
+        a=Path(root)/'continuous'
+        b=Path(root)/'interrupted'
+        uninterrupted=train(seed=seed,matches=2,out=str(a),
+                            three_phase=three_phase,features_v2=features_v2,
+                            initial_model=initial_model)
+        train(seed=seed,matches=1,out=str(b),three_phase=three_phase,
+              features_v2=features_v2,initial_model=initial_model)
+        # Changing the objective or magnet schedule cannot silently
+        # continue an existing policy series under the same model label.
+        for changed in ({'eta':.05},{'magnet_period':5}):
+            try:
+                train(seed=seed,matches=1,out=str(b),resume=True,
+                      three_phase=three_phase,features_v2=features_v2,
+                      initial_model=initial_model,**changed)
+            except ValueError as exc:
+                if 'checkpoint' not in str(exc).lower() and 'identity' not in str(exc).lower():
+                    raise
+            else:
+                raise AssertionError(
+                    'Checkpoint accepted a changed R-NaD learning schedule')
+        resumed=train(seed=seed,matches=1,out=str(b),resume=True,
+                      three_phase=three_phase,features_v2=features_v2,
+                      initial_model=initial_model)
+        fields=('model_sha256','magnet_sha256',
+                'completed_matches','updates')
+        for key in fields:
+            if uninterrupted[key]!=resumed[key]:
+                raise AssertionError('Checkpoint resume diverged in '+key+
+                    ': '+repr(uninterrupted[key])+' != '+repr(resumed[key]))
+        first=json.loads((a/'rollouts'/f'accepted-seed{seed}.json').read_text())
+        second=json.loads((b/'rollouts'/f'accepted-seed{seed}.json').read_text())
+        if first!=second:
+            raise AssertionError('Initial accepted Match changed across runs')
+        seed2=(seed%0xffffffff)+1
+        next1=json.loads((a/'rollouts'/f'accepted-seed{seed2}.json').read_text())
+        next2=json.loads((b/'rollouts'/f'accepted-seed{seed2}.json').read_text())
+        if next1!=next2:
+            raise AssertionError('Resumed policy changes authoritative Match behavior')
+        return {'schema':'rnad-resume-equivalence-v1','seed':seed,
+                'three_phase':three_phase,'features_v2':features_v2,
+                'completed_matches':2,
+                'model_sha256':uninterrupted['model_sha256'],
+                'magnet_sha256':uninterrupted['magnet_sha256'],
+                'trajectories_identical':True,
+                'model_weights_bitwise_equal':True}
+
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser()
+    p.add_argument('--seed',type=int,default=975023)
+    p.add_argument('--three-phase',action='store_true')
+    p.add_argument('--features-v2',action='store_true')
+    p.add_argument('--initial-model',default=None)
+    a=p.parse_args()
+    print(json.dumps(verify(a.seed,three_phase=a.three_phase,
+                            features_v2=a.features_v2,
+                            initial_model=a.initial_model),indent=2))

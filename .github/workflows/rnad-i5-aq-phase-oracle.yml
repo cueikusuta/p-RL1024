@@ -1,0 +1,106 @@
+name: RNAD I5 public AQ phase oracle versus frozen original AQ
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/PHASE_ORACLE_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-aq-public-phase-oracle
+  cancel-in-progress: false
+jobs:
+  oracle:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify source and frozen AQ/v3 model identity
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-vs-aq-full.test.js test/rnad-aq-aggregate.test.js
+          mkdir -p artifacts/v3 results
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir artifacts/v3
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {createOpponent,weightsSha256 as AQ_SHA} from './models/aq-base.mjs';
+          const m=JSON.parse(readFileSync('docs/research/rnad/PHASE_ORACLE_MANIFEST.json'));
+          if(m.schema!=='rnad-public-phase-oracle-v1'||m.iteration!==1||
+             !Number.isSafeInteger(m.seed)||m.seed<1||
+             !Number.isSafeInteger(m.pairs)||m.pairs<1||m.pairs>100)
+             throw new Error('Invalid independent phase oracle seed manifest');
+          const p='artifacts/v3/selfplay/final-model.json';
+          const h=createHash('sha256').update(readFileSync(p)).digest('hex');
+          if(h!=='c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'||
+             createOpponent().modelSha256!==AQ_SHA)
+            throw new Error('Original AQ or frozen v3 model mismatch');
+          JS
+      - name: Evaluate public-phase AQ oracle and two control modes on new paired seeds
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/PHASE_ORACLE_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for mode in neural-all aq-structure-neural-battle aq-public-strategy-neural-battle; do
+            node scripts/rnad/evaluate-vs-aq-full.mjs \
+              --model artifacts/v3/selfplay/final-model.json \
+              --seed "$(field seed)" --pairs "$(field pairs)" \
+              --phase-mode "$mode" --switch-guard anti-loop-v1 \
+              --out "results/$mode.json"
+          done
+      - name: Confirm matched seed and exact AQ identity without promotion
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {aggregateOriginalAQReports} from './scripts/rnad/aggregate-original-aq.mjs';
+          const names=['neural-all','aq-structure-neural-battle',
+            'aq-public-strategy-neural-battle'];
+          const results=names.map(name=>JSON.parse(readFileSync('results/'+name+'.json')));
+          const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const proven=results.map(r=>aggregateOriginalAQReports([r],{
+            seedStart:r.seed,seedCount:r.pairs}));
+          const control=results[0],base=new Map(control.rows.map(r=>[
+            r.seed+':'+r.candidateSeat,Number(r.won)]));
+          const deltas=results.slice(1).map((report,i)=>{
+            const c=new Map(report.rows.map(r=>[r.seed+':'+r.candidateSeat,Number(r.won)]));
+            if(c.size!==base.size||report.seed!==control.seed||
+               report.pairs!==control.pairs||
+               report.model_sha256!==control.model_sha256||
+               report.source_sha!==source||proven[i+1].source_sha!==source||
+               [...base.keys()].some(key=>!c.has(key)))
+              throw new Error('Unmatched teacher oracle seed, model or seat');
+            const gain=[...base].reduce((a,[key,v])=>a+c.get(key)-v,0)/base.size;
+            const half=Math.sqrt(2*Math.log(40)/report.pairs);
+            return {mode:report.phase_mode,control_wins:control.wins,
+              oracle_wins:report.wins,pairs:report.pairs,paired_delta:gain,
+              conservative_95pct_delta_bounds:[
+                Math.max(-1,gain-half),Math.min(1,gain+half)],
+              improvement_statistically_established:gain-half>0};
+          });
+          if(proven[0].source_sha!==source)
+            throw new Error('Mixed origin benchmark source');
+          const report={schema:'rnad-aq-public-phase-oracle-paired-v1',
+            source_sha:source,original_aq_sha256:control.aq_base_model_sha256,
+            v3_model_sha256:control.model_sha256,seed:control.seed,
+            pairs:control.pairs,control_wins:control.wins,deltas,
+            champion_promoted:false};
+          writeFileSync('results/oracle-summary.json',JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify(report));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-public-phase-oracle-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 30

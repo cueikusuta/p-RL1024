@@ -1,0 +1,234 @@
+name: RNAD I5 controlled optimizer 1 vs 4 same-seed A/B full training and real AQ
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/CONTROLLED_UPDATES_AQ_LAUNCH_2026-11-18.json
+permissions: {}
+concurrency:
+  group: rnad-i5-20261118-controlled-optimizer-updates-one-shot
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned official Node 22.14.0 with SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.11'}
+      - name: Install exact CPU torch from locked source
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Lock preregistered only-one-variable comparison and authority smoke
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --check scripts/rnad/evaluate_controlled_updates_vs_aq.mjs
+          node --check scripts/rnad/analyze_controlled_updates_vs_aq.mjs
+          python -m py_compile scripts/rnad/train_controlled_updates_2026.py
+          node --test test/rnad-vs-aq-full.test.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('docs/research/rnad/CONTROLLED_UPDATES_AQ_LAUNCH_2026-11-18.json').read_text())
+          expected={
+            'schema':'rnad-i5-20261118-controlled-c005-u1-u4-launch-v1',
+            'initial_model':'c005-v2-to-v3','source_archive_run':43757054212,
+            'frozen_opponents':['base128','base256','c005'],
+            'trainer':'R-NaD-NeuRD-V-trace-accepted-four-win',
+            'training_seed_first':6500001,'accepted_training_matches_per_arm':2048,
+            'training_arms':[1,4],'same_initial_weights':True,
+            'same_training_match_seed_stream':True,
+            'same_frozen_opponents':True,'same_learning_rate_eta_magnet':True,
+            'only_treatment':'optimizer_updates_per_complete_accepted_match',
+            'heldout_seed_first':8800001,'heldout_seed_last':8802048,
+            'heldout_paired_seed_clusters':2048,'seat_swap':True,
+            'real_aq_complete_matches':8192,
+            'model_selection_on_heldout':False,'champion_promoted':False,
+            'formal_league_gate_passed':False,'main_merged':False}
+          assert m==expected, 'Unregistered controlled R-NaD optimizer A/B source'
+          PY
+          mkdir -p model-input
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir model-input
+          python -m scripts.rnad.train_controlled_updates_2026 \
+            --updates 1 --model-dir model-input --out preflight/u1 --matches 1
+          python -m scripts.rnad.train_controlled_updates_2026 \
+            --updates 4 --model-dir model-input --out preflight/u4 --matches 1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('preflight/u1/controlled-train-report.json').read_text())
+          b=json.loads(Path('preflight/u4/controlled-train-report.json').read_text())
+          assert a['initial_v3_model_sha256']==b['initial_v3_model_sha256']
+          assert a['frozen_opponent_model_sha256']==b['frozen_opponent_model_sha256']
+          assert a['initial_seed']==b['initial_seed']
+          assert a['optimizer_updates']==1 and b['optimizer_updates']==4
+          assert a['completed_matches']==b['completed_matches']==1
+          PY
+  train:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        updates: [1, 4]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned official Node 22.14.0 with SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.11'}
+      - name: Install exact CPU torch
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Get immutable c005 and three frozen R-NaD opponent source models
+        run: |
+          set -euo pipefail
+          mkdir -p model-input
+          gh run download 43757054212 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-queue-models-43757054212 --dir model-input
+      - name: Train exactly 2048 accepted complete four-win Matches, one frozen writer
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.train_controlled_updates_2026 \
+            --updates ${{ matrix.updates }} --model-dir model-input \
+            --out controlled --matches 2048
+          test -s controlled/controlled-train-report.json
+          test -s controlled/final-model.json
+          test -s controlled/checkpoints/latest.json
+      - name: Preserve full-state exact restart and accepted seed journal even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-controlled-u${{ matrix.updates }}-trained
+          path: |
+            controlled/checkpoints/latest.json
+            controlled/checkpoints/checkpoint-u*.pt
+            controlled/final-model.json
+            controlled/initial-model.json
+            controlled/league-pool.json
+            controlled/frozen/*.json
+            controlled/controlled-identity.json
+            controlled/controlled-train-report.json
+            controlled/controlled-training-journal.ndjson
+          if-no-files-found: warn
+          retention-days: 90
+  evaluate:
+    needs: [preflight, train]
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        updates: [1, 4]
+        part: [0, 1, 2, 3]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned official Node 22.14.0 with SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Recover SHA-verified frozen controlled model checkpoint
+        run: |
+          set -euo pipefail
+          mkdir -p controlled results
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-controlled-u${{ matrix.updates }}-trained --dir controlled
+      - name: Actual 512 unseen Match seeds times both seats vs original AQ-Base
+        run: |
+          set -euo pipefail
+          node scripts/rnad/evaluate_controlled_updates_vs_aq.mjs \
+            --dir controlled --updates ${{ matrix.updates }} \
+            --part ${{ matrix.part }} --out results/study.json
+          test -s results/study.json
+      - name: Preserve unseen real AQ four-win paired evaluations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: controlled-u${{ matrix.updates }}-p${{ matrix.part }}
+          path: results/study.json
+          if-no-files-found: warn
+          retention-days: 90
+  summarize:
+    needs: [preflight, train, evaluate]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned official Node 22.14.0 with SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Strictly compare corresponding heldout seed and seat with familywise source
+        run: |
+          set -euo pipefail
+          mkdir -p reports summary
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --pattern 'controlled-u*-p*' --dir reports
+          node scripts/rnad/analyze_controlled_updates_vs_aq.mjs reports summary
+          test -s summary/REPORT.json
+          cat summary/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve controlled R-NaD optimizer ablation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-controlled-u1-vs-u4-real-aq-paired-report
+          path: |
+            summary/REPORT.json
+            summary/REPORT.md
+          if-no-files-found: warn
+          retention-days: 90

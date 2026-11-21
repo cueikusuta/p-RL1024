@@ -1,0 +1,105 @@
+name: RNAD I5 preselected 75pct v4 selection independent AQ confirmation
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/SELECTION_BLEND_CONFIRM_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-v4-selection-blend-confirm-one-shot
+  cancel-in-progress: false
+jobs:
+  confirm:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    permissions: {contents: read,actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Validate source and preselected model, prohibit reused selection seed
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-v4-phase-ablation.test.js test/rnad-v4-features.test.js
+          node --test test/rnad-i5-study-seeds.test.js
+          node scripts/rnad/verify-i5-study-seeds.mjs \
+            docs/research/rnad/I5_STUDY_SEED_LEDGER_2026-11-17.json \
+            docs/research/rnad/SELECTION_BLEND_CONFIRM_MANIFEST.json
+          mkdir -p archive/v4 models/v3 results
+          gh run download 43957735875 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-utility-iteration-43957735875 --dir archive/v4
+          gh run download 43829072730 --repo cueikusuta/p-RL1024 \
+            --name rnad-v3-u4-checkpoint-128-43829072730 --dir models/v3
+          mapfile -t files < <(find archive/v4 -type f -path '*/v4-utility/trained-model.json')
+          test "${#files[@]}" -eq 1
+          cp "${files[0]}" models/v4-utility.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {createOpponent,weightsSha256} from './models/aq-base.mjs';
+          const hash=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const m=JSON.parse(readFileSync('docs/research/rnad/SELECTION_BLEND_CONFIRM_MANIFEST.json'));
+          if(m.schema!=='rnad-i5-selection-blend-independent-confirm-v1'||
+             m.version!==1||m.selected_screen_run!==43962423945||
+             m.selected_mode!=='selection-threequarter-v4'||
+             m.v4_source_run!==43957735875||
+             !Number.isSafeInteger(m.seed)||m.seed<1||
+             !Number.isSafeInteger(m.pairs)||m.pairs<32||m.pairs>100||
+             (m.seed>=2060000&&m.seed<2090000))
+            throw new Error('Invalid independent predeclared 75pct-v4 confirmation');
+          if(hash('models/v4-utility.json')!==
+              '3624014308a4667a15cf2a567dc7836cf6b8e60a6e754eac3b9d0dbfe4ad0c8c'||
+             hash('models/v3/selfplay/final-model.json')!==
+              'c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'||
+             createOpponent().modelSha256!==weightsSha256)
+            throw new Error('Untrusted original AQ or model SHA');
+          JS
+      - name: Independently confirm preselected 75pct v4 blend against frozen v3 on paired seed+seat
+        run: |
+          set -euo pipefail
+          m=docs/research/rnad/SELECTION_BLEND_CONFIRM_MANIFEST.json
+          field() { node -e 'const m=require("./"+process.argv[1]);console.log(m[process.argv[2]])' "$m" "$1"; }
+          for mode in all-v3 selection-threequarter-v4; do
+            node scripts/rnad/evaluate-v4-composite-vs-aq.mjs \
+              --v4 models/v4-utility.json --v3 models/v3/selfplay/final-model.json \
+              --seed "$(field seed)" --pairs "$(field pairs)" \
+              --mode "$mode" --out "results/$mode.json"
+          done
+      - name: Inspect independent paired delta, do not promote or claim based on screen
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {compareV4PhaseArms} from './scripts/rnad/compare-v4-phase-arms.mjs';
+          const base=JSON.parse(readFileSync('results/all-v3.json'));
+          const variant=JSON.parse(readFileSync('results/selection-threequarter-v4.json'));
+          const r=compareV4PhaseArms(base,variant,{familySize:1});
+          const src=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(r.source_sha!==src||r.baseline_mode!=='all-v3'||
+             r.candidate_mode!=='selection-threequarter-v4'||
+             r.champion_promoted!==false)
+            throw new Error('Untrusted independent phase A/B evidence');
+          const result={schema:'rnad-i5-preselected-75pct-selection-confirm-v1',
+            selected_on_run:43962423945,source_sha:src,
+            preliminary_only:true,champion_promoted:false,
+            paired_comparison:r};
+          writeFileSync('results/confirmation.json',JSON.stringify(result,null,2)+'\n');
+          console.log(JSON.stringify({
+            pairs:r.independent_seeds,baseline_wins:r.baseline_wins,
+            selected_wins:r.candidate_wins,paired_delta:r.delta,
+            independent_CI:r.conservative_95pct_delta_bounds,
+            improved:r.improved_with_95pct_confidence}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-independent-blend-confirm-${{ github.run_id }}
+          path: results/
+          if-no-files-found: warn
+          retention-days: 30

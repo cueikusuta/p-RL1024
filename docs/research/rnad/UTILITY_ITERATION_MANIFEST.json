@@ -1,0 +1,14 @@
+{
+  "schema": "rnad-v4-utility-iteration-manifest-v1",
+  "iteration": 1,
+  "pilot_run": 43954319981,
+  "teacher_seed": 2040001,
+  "teacher_matches": 32,
+  "epochs": 3,
+  "heldout_seed": 2041001,
+  "heldout_matches": 32,
+  "selfplay_seed": 2042001,
+  "selfplay_matches": 8,
+  "aq_seed": 2043001,
+  "aq_pairs": 16
+}

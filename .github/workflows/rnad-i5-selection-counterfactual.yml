@@ -1,0 +1,63 @@
+name: RNAD I5 selection public-feature counterfactual audit
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_COUNTERFACTUAL_LAUNCH_2026-11-17.json]
+permissions: {}
+jobs:
+  audit:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Frozen game and actor projection contract
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-selection-specialist.test.js test/rnad-v5-features.test.js
+      - name: Compare public own ability/item/move perturbations without new teacher Matches
+        run: |
+          set -euo pipefail
+          node scripts/rnad/selection-counterfactual-audit.mjs --out selection-counterfactual-report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('selection-counterfactual-report.json').read_text())
+          lines=[
+            '# v5公開／自軍特徴量・仮想反事実感度',
+            '',
+            '実教師データと勝率を使用しない。自軍の仮想変更が非合法なセットになり得るため、不一致や不感度は正式な教師utility衝突の証明ではない。',
+            '',
+            '| 変更対象 | 試行数 | 入力に表れる | 入力に表れない |',
+            '|---|---:|---:|---:|',
+          ]
+          for key,label in [
+            ('own_ability_id_changes','自軍特性ID'),
+            ('own_item_id_changes','自軍持ち物ID'),
+            ('own_move_id_changes','自軍技ID')]:
+              x=data[key]
+              lines.append(f"| {label} | {x['total']} | {x['distinguished']} | {x['indistinguishable']} |")
+          lines.extend(['',
+              f"相手非公開セット変更で不変: {data['opponent_private_set_is_noninterfering']}",
+              f"公開相手6種族変更で変化: {data['public_opponent_preview_changes_features']}",
+              f"自軍素早さ変更で変化: {data['known_own_speed_changes_features']}",
+              '',
+              'これはv5表現の感度診断。必要な全情報を表せているという保証はない。'])
+          summary='\n'.join(lines)+'\n'
+          Path('SELECTION_COUNTERFACTUAL_REPORT.md').write_text(summary)
+          print(summary)
+          PY
+          cat SELECTION_COUNTERFACTUAL_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-counterfactual-audit
+          path: |
+            selection-counterfactual-report.json
+            SELECTION_COUNTERFACTUAL_REPORT.md
+          if-no-files-found: error
+          retention-days: 90

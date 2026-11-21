@@ -1,0 +1,92 @@
+name: RNAD-I5 exact frozen AQ-Base versus v2 neural / hybrid pilot
+on:
+  # Initial corrected AQ comparison run #43825661067 is pinned already.
+  # Manual only for further expensive experiments; no recurring execution.
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-real-aq-source-bound-pilot
+  cancel-in-progress: false
+jobs:
+  comparison:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {arm: v2-all-neural, phase_mode: neural-all}
+          - {arm: v2-aq-draft-selection, phase_mode: aq-structure-neural-battle}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARM: ${{ matrix.arm }}
+      PHASE_MODE: ${{ matrix.phase_mode }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Validate original engine, original AQ weights and bounded adapter
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --check scripts/rnad/evaluate-vs-aq-full.mjs
+          node --test test/rnad-vs-aq-full.test.js
+          mkdir -p artifacts/frozen-v2 results
+          gh run download 43743143190 --repo cueikusuta/p-RL1024 \
+            --name rnad-003-aq-semantic-v2-43743143190 --dir artifacts/frozen-v2
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {createOpponent,weightsSha256} from './models/aq-base.mjs';
+          const model='artifacts/frozen-v2/aq-supervision-v2/trained-model.json';
+          const archive=JSON.parse(readFileSync(
+            'artifacts/frozen-v2/aq-supervision-v2/teacher-report.json'));
+          const hash=createHash('sha256').update(readFileSync(model)).digest('hex');
+          if(hash!=='9d58d7ca9095be83a247593369850a0ed5e40296b77075d0c474335ac125a58b'||
+             archive.source_sha!=='7d98e7c18800010ef05b7a4064653fc27c794f42'||
+             archive.feature_schema!=='rnad-three-phase-features-v2'||
+             archive.trained_model_sha256!=='732b7b3651a48a4fd6f21c12974e6f041239424104d511efe2b328ab1b12970d'||
+             archive.teacher_weights_sha256!==weightsSha256||
+             createOpponent().modelSha256!==weightsSha256)
+            throw new Error('Original AQ/frozen v2 research model provenance mismatch');
+          JS
+      - name: Play eight seed pairs against REAL frozen AQ-Base in authoritative Match
+        run: |
+          set -euo pipefail
+          node scripts/rnad/evaluate-vs-aq-full.mjs \
+            --model artifacts/frozen-v2/aq-supervision-v2/trained-model.json \
+            --seed 1970001 --pairs 8 --phase-mode "$PHASE_MODE" \
+            --switch-guard anti-loop-v1 --out "results/$ARM.json"
+      - name: Verify both seats, complete four-win and statistical non-promotion
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const x=JSON.parse(readFileSync('results/'+process.env.ARM+'.json'));
+          const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(x.schema!=='rnad-vs-original-aq-base-full-match-paired-v1'||
+             x.source_sha!==source||
+             x.engine_sha!=='ea81165993110ee9fb3a09dcb97c6708c0d7397b'||
+             x.aq_base_model_sha256!=='5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e'||
+             x.seed!==1970001||x.pairs!==8||x.matches!==16||
+             x.rows.length!==16||x.champion_promoted!==false||
+             x.rows.some(r=>r.seed<1970001||r.seed>1970008||
+               ![0,1].includes(r.candidateSeat)||r.score[r.won?r.candidateSeat:1-r.candidateSeat]!==4||
+               r.accepted_decisions<2*r.rounds)||
+             new Set(x.rows.map(r=>r.seed+':'+r.candidateSeat)).size!==16||
+             x.wins!==x.rows.filter(r=>r.won).length)
+            throw new Error('Original AQ paired trial incomplete or untrusted');
+          console.log(JSON.stringify({arm:process.env.ARM,wins:x.wins,
+            matches:x.matches,rate:x.win_rate,ci95:x.paired_hoeffding_95pct}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-original-aq-${{ matrix.arm }}-${{ github.run_id }}
+          path: results/${{ matrix.arm }}.json
+          if-no-files-found: warn
+          retention-days: 30

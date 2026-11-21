@@ -1,0 +1,335 @@
+name: RNAD I5 draft and battle additional 256 to 512 accepted teacher Match scaling
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/DRAFT_BATTLE_512_LAUNCH_2026-11-17.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-draft-battle-512-one-study
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Validate frozen source and preregistered seed-disjoint single candidate
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          git cat-file -e 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c^{commit}
+          python -m py_compile scripts/rnad/draft_battle_learning_512.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('docs/research/rnad/DRAFT_BATTLE_512_LAUNCH_2026-11-17.json')
+          m=json.loads(p.read_text())
+          assert m=={
+            'schema':'rnad-i5-draft-battle-scaling-512-v1',
+            'teacher_source_sha':'022aa9cd5b4ac37514df1d845ea00c11c3c13a5c',
+            'teacher':'rnad-aq-public-strategy-selection-v1',
+            'old_teacher_run':44032488678,
+            'old_battle_recovery_run':44037414890,
+            'old_train':[2471001,256],
+            'previous_dev_used_do_not_reuse':[2472001,128],
+            'additional_train':[2520001,256],
+            'independent_fresh_holdout':[2522001,512],
+            'draft_training':'fresh_scratch_old256_plus_new256_soft6',
+            'battle_training':'old256_weights_plus_new256_battlefocus_hard6_new_optimizer',
+            'bootstrap_replicates':10000,
+            'phase_delta_ci':'paired_seed_cluster_approximate_two_sided_95pct',
+            'experiment_selection_locked_before_holdout':True,
+            'league_started':False,
+            'champion_promoted':False,
+          }
+          seeds=[set(range(a,a+n)) for a,n in [
+              m['old_train'],m['previous_dev_used_do_not_reuse'],
+              m['additional_train'],m['independent_fresh_holdout']]]
+          assert all(not seeds[i] & seeds[j]
+                     for i in range(len(seeds)) for j in range(i+1,len(seeds)))
+          PY
+      - name: Test additional training statistics and safe phase gates
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+          python -m unittest discover -s test -p 'rnad_draft_battle_learning_512_test.py' -v
+          python -m unittest discover -s test -p 'rnad_league_entry_gate_test.py' -v
+      - name: Seal experimental scaling code for frozen-source train/evaluation
+        run: |
+          set -euo pipefail
+          sha256sum scripts/rnad/draft_battle_learning_512.py > draft-battle-512-code.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-draft-battle-512-source-tested
+          path: |
+            scripts/rnad/draft_battle_learning_512.py
+            draft-battle-512-code.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  gather_train:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify exact original 256-Match teacher authority and generate new 256
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          node scripts/verify-snapshot.mjs
+          mkdir -p traces/train-new
+          python - <<'PY'
+          import subprocess
+          for i in range(256):
+              seed=2520001+i
+              subprocess.run([
+                  'node','scripts/rnad/export-teacher.mjs',
+                  '--seed',str(seed),
+                  '--out',f'traces/train-new/teacher-{seed}.json',
+                  '--three-phase','true',
+                  '--teacher','aq-public-strategy-selection',
+                  '--features-v5','true',
+                  '--utility-labels','true',
+                  '--draft-review','true'], check=True,
+                  stdout=subprocess.DEVNULL,timeout=480)
+              if (i+1)%32==0:
+                  print('NEW TEACHER TRAIN accepted',i+1,'of 256',flush=True)
+          PY
+          test "$(find traces/train-new -type f -name 'teacher-*.json' | wc -l)" -eq 256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-draft-battle-512-new-256-train-complete
+          path: traces/train-new/
+          retention-days: 90
+          if-no-files-found: error
+
+  train:
+    needs: gather_train
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned source-compatible CPU PyTorch
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Restore old accepted 256 data and frozen draft/battle model source + sealed support
+        run: |
+          set -euo pipefail
+          mkdir -p support input/old input/new models/draft-old models/battle-old results
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-source-tested --dir support
+          (cd support && sha256sum -c draft-battle-512-code.sha256)
+          cp support/scripts/rnad/draft_battle_learning_512.py scripts/rnad/draft_battle_learning_512.py
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-3phase-256-accepted-teacher-data --dir input/old
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-new-256-train-complete --dir input/new
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-draft-imitation --dir models/draft-old
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-battle-only-recovery --dir models/battle-old
+          test "$(find input/old/traces/train -name 'teacher-*.json' | wc -l)" -eq 256
+          test "$(find input/new -name 'teacher-*.json' | wc -l)" -eq 256
+          test -s models/draft-old/soft256-e6.json
+          test -s models/draft-old/draft-imitation-256-report.json
+          test -s models/battle-old/battle/trained-model.json
+          test -s models/battle-old/battle/teacher-report.json
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          p=lambda x:json.loads(Path(x).read_text())
+          d=p('models/draft-old/draft-imitation-256-report.json')
+          b=p('models/battle-old/battle/teacher-report.json')
+          assert d['source_sha']==b['source_sha']=='022aa9cd5b4ac37514df1d845ea00c11c3c13a5c'
+          assert d['engine_sha']==b['engine_sha']
+          assert d['train_matches']==b['teacher_completed_matches']==256
+          assert b['phase_profile']=='battle-focus' and b['utility_hard_label_mix']==0.
+          assert d['models']['soft256-e6']['sha256']==hashlib.sha256(
+            Path('models/draft-old/soft256-e6.json').read_bytes()).hexdigest()
+          PY
+      - name: 'Train fixed DeepSets draft: from scratch on old256 + fresh256, 6 epochs'
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.draft_battle_learning_512 train-draft \
+            --old-dir input/old/traces/train --new-dir input/new \
+            --out results/draft512
+      - name: 'Train fixed battle-focused v5: warm-start old256 on new256 accepted Matches'
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.train_teacher \
+            --three-phase --features-v5 --teacher aq-public-strategy-selection \
+            --utility-distillation --utility-mix 0 \
+            --phase-balanced --phase-profile battle-focus \
+            --seed 2520001 --matches 256 --epochs 6 \
+            --initial-model models/battle-old/battle/trained-model.json \
+            --reuse-teacher-traces input/new --out results/battle512
+          test -s results/battle512/trained-model.json
+          test -s results/battle512/teacher-report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-battle-512-frozen-trained-model-archive
+          path: |
+            results/draft512/
+            results/battle512/
+          retention-days: 90
+          if-no-files-found: warn
+
+  gather_fresh:
+    needs: train
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Generate wholly unseen 512 complete four-win authority-accepted AQ teacher Matches
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          node scripts/verify-snapshot.mjs
+          mkdir -p traces/fresh
+          python - <<'PY'
+          import subprocess
+          for i in range(512):
+              seed=2522001+i
+              subprocess.run([
+                  'node','scripts/rnad/export-teacher.mjs',
+                  '--seed',str(seed),
+                  '--out',f'traces/fresh/teacher-{seed}.json',
+                  '--three-phase','true',
+                  '--teacher','aq-public-strategy-selection',
+                  '--features-v5','true',
+                  '--utility-labels','true',
+                  '--draft-review','true'], check=True,
+                  stdout=subprocess.DEVNULL,timeout=480)
+              if (i+1)%64==0:
+                  print('UNSEEN HELDOUT accepted',i+1,'of 512',flush=True)
+          PY
+          test "$(find traces/fresh -type f -name 'teacher-*.json' | wc -l)" -eq 512
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-draft-battle-512-new-512-accepted-fresh
+          path: traces/fresh/
+          retention-days: 90
+          if-no-files-found: error
+
+  evaluate:
+    needs: [train, gather_fresh]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 022aa9cd5b4ac37514df1d845ea00c11c3c13a5c
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install frozen-source CPU PyTorch
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Recover frozen references, SHA-sealed code, trained models, unseen 512 teacher Match traces
+        run: |
+          set -euo pipefail
+          mkdir -p support models/draft-old models/battle-old models/new fresh results
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-source-tested --dir support
+          (cd support && sha256sum -c draft-battle-512-code.sha256)
+          cp support/scripts/rnad/draft_battle_learning_512.py scripts/rnad/draft_battle_learning_512.py
+          gh run download 44032488678 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-draft-imitation --dir models/draft-old
+          gh run download 44037414890 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-256-battle-only-recovery --dir models/battle-old
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-frozen-trained-model-archive --dir models/new
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-draft-battle-512-new-512-accepted-fresh --dir fresh
+          test -s models/draft-old/soft256-e6.json
+          test -s models/battle-old/battle/trained-model.json
+          test -s models/new/draft512/draft512-e6.json
+          test -s models/new/battle512/trained-model.json
+          test "$(find fresh -name 'teacher-*.json' | wc -l)" -eq 512
+      - name: Paired fresh 512 independent completed teacher Match cluster Top1 and 95pct bootstrap CI
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.draft_battle_learning_512 evaluate \
+            --draft-old models/draft-old/soft256-e6.json \
+            --draft-old-report models/draft-old/draft-imitation-256-report.json \
+            --draft-new models/new/draft512/draft512-e6.json \
+            --draft-new-report models/new/draft512/study.json \
+            --battle-old models/battle-old/battle/trained-model.json \
+            --battle-old-report models/battle-old/battle/teacher-report.json \
+            --battle-new models/new/battle512/trained-model.json \
+            --battle-new-report models/new/battle512/teacher-report.json \
+            --holdout-dir fresh --out results/independent-confirmation
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('results/independent-confirmation/study.json').read_text())
+          assert r['schema']=='rnad-i5-draft-battle-learning-scale512-v1'
+          assert r['independent_fresh_holdout']==[2522001,512]
+          assert r['draft_and_battle_are_separate_models'] is True
+          assert r['same_three_phase_integrated_policy_evaluated'] is False
+          assert r['league_entry_allowed'] is False
+          assert r['league_started'] is False and r['champion_promoted'] is False
+          for phase in ['draft','battle']:
+              p=r[phase]
+              assert p['independent_seed_clusters']==512
+              assert len(p['seed_rows'])==512
+              assert p['accepted_teacher_decisions']>0
+              assert {v['seed'] for v in p['seed_rows']}==set(range(2522001,2522513))
+          PY
+          cat results/independent-confirmation/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-draft-battle-512-fresh-paired-confirmation
+          path: results/independent-confirmation/
+          retention-days: 90
+          if-no-files-found: warn

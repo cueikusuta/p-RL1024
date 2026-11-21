@@ -1,0 +1,18 @@
+{
+  "schema": "rnad-i5-selection-fresh-confirmation-v1",
+  "frozen_teacher_source_sha": "022aa9cd5b4ac37514df1d845ea00c11c3c13a5c",
+  "development_study_run": 44042088126,
+  "fresh_seed_start": 2473001,
+  "fresh_complete_matches": 256,
+  "prior_train_seed_range": [
+    2471001,
+    2471256
+  ],
+  "prior_development_seed_range": [
+    2472001,
+    2472128
+  ],
+  "one_candidate_selected_before_fresh_labels": true,
+  "league_training_started": false,
+  "champion_promoted": false
+}

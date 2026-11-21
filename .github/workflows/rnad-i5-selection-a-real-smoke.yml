@@ -1,0 +1,55 @@
+name: RNAD I5 A1024 real four-win Match contract smoke
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_A_REAL_SMOKE_LAUNCH_2026-11-17.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-A-selection-real-contract-smoke-once
+  cancel-in-progress: false
+jobs:
+  smoke:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify research snapshot, contract and registered smoke identity
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-selection-a-public-infer.test.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('docs/research/rnad/SELECTION_A_REAL_SMOKE_LAUNCH_2026-11-17.json').read_text())
+          assert x=={
+            'schema':'rnad-i5-A1024-real-fourwin-contract-smoke-v1',
+            'frozen_parity_run':44060832634,
+            'model_name':'selection-A-1024-e40-s90253.pt',
+            'seed':2490001,
+            'required_complete_four_win_matches':2,
+            'strength_judgment_allowed':False,
+            'league_started':False,
+            'champion_promoted':False,
+          }
+          PY
+      - name: Recover SHA-verified A1024 exported public actor weights
+        run: |
+          set -euo pipefail
+          mkdir -p frozen
+          gh run download 44060832634 --repo cueikusuta/p-RL1024 --name rnad-i5-A1024-public-js-parity --dir frozen
+          test -s frozen/A1024.json
+          test -s frozen/metadata.json
+      - name: Complete two authority-accepted real Matches without measuring strength
+        run: |
+          set -euo pipefail
+          SHA="$(python -c "import json;print(json.load(open('frozen/metadata.json'))['json_sha256'])")"
+          node scripts/rnad/evaluate-a-selection-headtohead.mjs \
+            --smoke frozen/A1024.json --sha256 "$SHA" --seed 2490001

@@ -1,0 +1,17 @@
+{
+  "schema": "rnad-i5-selection-A-real-512-pairs-study-v1",
+  "new_A_supervised_run": 44058355205,
+  "old_A_supervised_run": 44054675522,
+  "new_teacher_train_matches": 2048,
+  "old_teacher_train_matches": 1024,
+  "seed_start": 2490001,
+  "independent_seed_pairs": 512,
+  "tested_only_phase": "selection",
+  "draft_fixed": "strategy",
+  "battle_fixed": "basic",
+  "new_model_preselected_on_reused_dev": true,
+  "model_python_js_parity_required": true,
+  "no_AQ_strength_claim": true,
+  "league_started": false,
+  "champion_promoted": false
+}

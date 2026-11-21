@@ -1,0 +1,103 @@
+name: RNAD I5 archived selection-focus verify only (no expensive reruns)
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/SELECTION_FOCUS_VERIFY_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-focus-archive-verify
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {contents: read,actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Download source-pinned preexisting accepted teacher/Match evidence
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-v4-phase-ablation.test.js
+          mkdir -p archive results
+          gh run download 43963959489 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-v4-selection-focus-43963959489 --dir archive
+      - name: Check each frozen model, baseline row equality and source-bound A/B receipt
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
+          import {compareV4PhaseArms,compareV4PhaseModels}
+            from './scripts/rnad/compare-v4-phase-arms.mjs';
+          const m=JSON.parse(readFileSync('docs/research/rnad/SELECTION_FOCUS_VERIFY_MANIFEST.json'));
+          const source='0318361e60d012a23583580021431b1ceb9691ec';
+          if(m.schema!=='rnad-i5-selection-focus-verify-archive-v1'||
+             m.version!==1||m.training_run!==43963959489||
+             m.training_sha!==source)
+            throw new Error('Untrusted source-pinned selection-focus research manifest');
+          const hash=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const modelHashes={
+            original:'3624014308a4667a15cf2a567dc7836cf6b8e60a6e754eac3b9d0dbfe4ad0c8c',
+            focus:hash('archive/artifacts/selection-focus/trained-model.json'),
+            continued:hash('archive/artifacts/selection-focus-rnad/final-model.json'),
+          };
+          if(new Set(Object.values(modelHashes)).size!==3)
+            throw new Error('Invalid or indistinguishable trained models');
+          const get=(name,mode)=>JSON.parse(readFileSync(
+            'archive/results/'+name+'-'+mode+'.json'));
+          const names=['original','focus','continued'];
+          const control=names.map(name=>get(name,'all-v3'));
+          const json=x=>JSON.stringify(x);
+          for(let i=0;i<names.length;i++){
+            const ctrl=control[i],sel=get(names[i],'selection-v4');
+            if(ctrl.source_sha!==source||sel.source_sha!==source||
+               ctrl.v4_model_sha256!==modelHashes[names[i]]||
+               sel.v4_model_sha256!==modelHashes[names[i]]||
+               ctrl.v3_model_sha256!==
+                 'c5932531a2ed9e54079dbd915962624dadabc28a2e67893f0a38e96b4adeb75b'||
+               ctrl.seed!==2073001||ctrl.pairs!==32||
+               ctrl.wins!==control[0].wins||!ctrl.rows.every(
+                 (r,k)=>json(r)===json(control[0].rows[k])))
+              throw new Error('Mismatched original v3 or trained model AQ receipts');
+          }
+          const rows=names.map((name,i)=>({
+            name,...compareV4PhaseArms(control[i],
+                 get(name,'selection-v4'),{familySize:5}),
+          }));
+          const focus=compareV4PhaseModels(get('original','selection-v4'),
+            get('focus','selection-v4'),{familySize:5});
+          const continued=compareV4PhaseModels(get('focus','selection-v4'),
+            get('continued','selection-v4'),{familySize:5});
+          const out={schema:'rnad-i5-archived-selection-focus-verified-v1',
+            model_origin_sha:source,validation_source_sha:
+              execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),
+            model_hashes:modelHashes,predeclared_hypotheses:5,
+            familywise_method:'Bonferroni_Hoeffding95',
+            training_and_matches_reused_without_rerun:true,
+            rows,focus_vs_original:focus,continued_vs_focus:continued,
+            strength_established:false,champion_promoted:false};
+          writeFileSync('results/verified-selection-focus.json',
+            JSON.stringify(out,null,2)+'\n',{flag:'wx'});
+          console.log(JSON.stringify({
+            v3_control_wins:control[0].wins,
+            variants:rows.map(x=>({name:x.name,wins:x.candidate_wins,
+              delta:x.delta,CI:x.familywise_95pct_delta_bounds})),
+            focus_vs_original:focus.paired_delta,
+            continued_vs_focus:continued.paired_delta,
+            promotion:false}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-selection-focus-verified-${{ github.run_id }}
+          path: results/verified-selection-focus.json
+          retention-days: 30
+          if-no-files-found: error

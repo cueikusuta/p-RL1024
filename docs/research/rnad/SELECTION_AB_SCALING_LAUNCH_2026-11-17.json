@@ -1,0 +1,41 @@
+{
+  "schema": "rnad-i5-selection-AB-512-scaling-launch-v1",
+  "previous_full_teacher_run": 44047154334,
+  "train_blocks": [
+    [
+      2471001,
+      256
+    ],
+    [
+      2477001,
+      256
+    ]
+  ],
+  "reused_development_block": [
+    2472001,
+    128
+  ],
+  "new_confirmation_block": [
+    2479001,
+    512
+  ],
+  "arms": [
+    "A-decomposed-teacher",
+    "B-detailed-attention"
+  ],
+  "train_seeds": [
+    90251,
+    90252,
+    90253
+  ],
+  "checkpoint_epochs": [
+    10,
+    20
+  ],
+  "last_fresh_block_now_training": true,
+  "comparison_policy": "dev-selection-per-arm-before-fresh",
+  "fresh_two_comparison_familywise_confidence": 0.95,
+  "train_only": true,
+  "league_training_started": false,
+  "champion_promoted": false
+}

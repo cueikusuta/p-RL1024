@@ -1,0 +1,186 @@
+name: I5 shared Main G2 19-shard reuse egress-safe recovery
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/SHARED_G2_EGRESS_RESCUE_LAUNCH_2026-11-19.json
+permissions: {}
+concurrency:
+  group: rnad-i5-shared-main-g2-single-writer-recovery
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - name: Require all twenty previously accepted Actor shards, no concurrent Learner, exact continuation contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          d=json.load(open('docs/research/rnad/SHARED_G2_EGRESS_RESCUE_LAUNCH_2026-11-19.json'))
+          assert d == {
+            "schema":"rnad-i5-shared-g2-egress-rescue-v1",
+            "source_run_id":44325967962,
+            "training_source_sha":"af1c0b4c216a1846b44a0c80d6aefea94d504cd2",
+            "recovery_workflow_source_sha":subprocess.check_output(
+                ['git','rev-parse','HEAD^'],text=True).strip(),
+            "first_shared_generation":2,
+            "successful_actor_shards_to_reuse":19,
+            "failed_actor_shard_to_recover":16,
+            "strict_total_shards":20,
+            "complete_four_win_matches":1280,
+            "single_writer_optimizer_updates":40,
+            "preserve_10h_original_deadline":True,
+            "never_regenerate_successful_actor_shards":True,
+            "never_change_training_source_or_weights":True,
+            "research_only":True,
+            "champion_promoted":False,
+          },d
+          PY
+          test "$(gh api repos/cueikusuta/p-RL1024/actions/runs/44325967962 --jq .status)" = completed
+          ls="$(gh api 'repos/cueikusuta/p-RL1024/actions/runs/44325967962/artifacts?per_page=100' --jq '.artifacts[] | select(.expired == false) | .name')"
+          for id in $(seq 0 19); do
+            grep -Fxq "rnad-i5-cont-g2-actor-$id" <<< "$ls"
+          done
+          grep -Fxq "rnad-i5-cont-next-bootstrap-after-g1" <<< "$ls"
+          test "$(printf '%s\n' "$ls" | grep -Ec '^rnad-i5-cont-g2-actor-([0-9]|1[0-9])$')" -eq 20
+          gh api 'repos/cueikusuta/p-RL1024/actions/runs/44325967962/jobs?per_page=100&filter=latest' --jq '.jobs[] | [.name,.conclusion] | @tsv' > "$RUNNER_TEMP/latest-jobs.tsv"
+          grep -P '^g1 / g1 shared single writer and next handoff\tsuccess$' "$RUNNER_TEMP/latest-jobs.tsv"
+          ! grep -P '^g2 /.*shared single writer.*\tsuccess$' "$RUNNER_TEMP/latest-jobs.tsv"
+          echo "Accepted g2 Actor population exists. Original g2 Learner not committed."
+
+  learner:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Pin original 10-hour training source, not the recovery launch revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: af1c0b4c216a1846b44a0c80d6aefea94d504cd2
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify original snapshot and install CPU-only pinned optimizer
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = af1c0b4c216a1846b44a0c80d6aefea94d504cd2
+          node scripts/verify-snapshot.mjs
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Download previous g2 full bootstrap and twenty previously accepted shards with exponential backoff
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,subprocess,time,pathlib,shutil,json
+          run='44325967962'
+          names=[('rnad-i5-cont-next-bootstrap-after-g1','bootstrap')]
+          names += [(f'rnad-i5-cont-g2-actor-{n}',f'actors/actor-{n}') for n in range(20)]
+          budget=[10,25,50,90,150,200,240]
+          for i,(name,directory) in enumerate(names):
+              target=pathlib.Path(directory)
+              for attempt in range(len(budget)+1):
+                  if target.exists():
+                      shutil.rmtree(target)
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  p=subprocess.run(['gh','run','download',run,
+                                    '--repo','cueikusuta/p-RL1024',
+                                    '--name',name,'--dir',str(target)],
+                                   capture_output=True,text=True,timeout=120)
+                  if p.returncode==0:
+                      break
+                  if attempt==len(budget):
+                      raise RuntimeError(f'Failed to fetch immutable artifact {name} after backoff: {p.stderr[-1500:]}')
+                  print(json.dumps({'artifact':name,'attempt':attempt+1,
+                                    'backoff_seconds':budget[attempt],
+                                    'error':p.stderr[-320:]}),flush=True)
+                  time.sleep(budget[attempt])
+              if i and not (target/f'actor-{i-1}.json.gz').is_file():
+                  raise ValueError('Missing strictly named g2 Actor shard '+name)
+              print(json.dumps({'artifact_download_success':name,
+                                'reused_original_complete_match_shard':i>0}),flush=True)
+          PY
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import hashlib,json,subprocess
+          m=json.load(open('bootstrap/generation-manifest.json'))
+          c=json.load(open('bootstrap/continuation-context.json'))
+          assert m['generation']==2
+          assert m['seed_start']==9901281
+          assert m['source_sha']==subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert m['actor_count']==20 and m['optimizer_steps']==40
+          assert c['schema']=='rnad-i5-shared-league-handoff-v1'
+          assert c['budget_seconds']==36000 and c['source_run_id']==44318145987
+          for name,directory,sha in (
+              ('Main','actor',m['main_sha256']),
+              ('Magnet','magnet',m['magnet_sha256']),
+          ):
+              actual=hashlib.sha256(open(f'bootstrap/{directory}/manifest.json','rb').read()).hexdigest()
+              assert actual==sha,name
+          print('Restoring immutable g2 Main/Magnet/optimizer/seed/deadline from original')
+          PY
+      - name: Strict aggregate all 1280 original accepted Matches then train exactly one Main optimizer 40 steps
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_learner \
+            --bootstrap bootstrap --actors actors --out research-output \
+            --original-draft bootstrap/original-draft.json \
+            --original-selection-js bootstrap/original-selection-js.json
+          python - <<'PY'
+          import json
+          p=json.load(open('research-output/generation3-report.json'))
+          assert p['generation']==2 and p['next_generation']==3
+          assert p['accepted_complete_four_win_matches']==1280
+          assert p['optimizer_updates_completed']==40
+          assert p['cumulative_complete_matches']==3840
+          assert p['cumulative_optimizer_updates']==120
+          assert p['champion_promoted'] is False
+          PY
+      - name: Verify next-generation full-state handoff while preserving original ten-hour deadline
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_handoff \
+            --previous-bootstrap bootstrap --previous-result research-output \
+            --out next-bootstrap --budget-seconds 36000
+          (cd next-bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import json
+          r=json.load(open('next-bootstrap/handoff-report.json'))
+          c=json.load(open('next-bootstrap/continuation-context.json'))
+          assert r['generation']==3 and r['previous_generation']==2
+          assert r['exact_previous_complete_matches']==1280
+          assert all(r[k] is True for k in (
+              'optimizer_full_state_preserved','target_full_state_preserved',
+              'magnet_full_state_preserved','rng_full_state_preserved'))
+          assert c['budget_seconds']==36000 and c['source_run_id']==44318145987
+          assert c['deadline_epoch']==1795048584
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-shared-g2-egress-rescue-g3-learner-and-checkpoint
+          path: research-output/
+          retention-days: 90
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: rnad-i5-shared-g2-egress-rescue-g3-bootstrap
+          path: next-bootstrap/
+          retention-days: 90
+          if-no-files-found: error

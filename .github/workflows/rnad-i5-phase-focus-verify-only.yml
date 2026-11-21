@@ -1,0 +1,100 @@
+name: RNAD I5 phase-only v4 archived Match verification no retraining
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: ['docs/research/rnad/PHASE_FOCUS_VERIFY_MANIFEST.json']
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: rnad-i5-verify-phase-profile-archived-one-shot
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0,persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Verify source/engine and original failed-run archive provenance
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-v4-phase-ablation.test.js
+          mkdir -p archived results
+          gh run download 43964217094 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-phase-focused-43964217094 --dir archived
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const m=JSON.parse(readFileSync('docs/research/rnad/PHASE_FOCUS_VERIFY_MANIFEST.json'));
+          if(m.schema!=='rnad-i5-phase-focus-verify-archive-v1'||
+             m.version!==1||m.training_run!==43964217094||
+             m.training_sha!=='7a2a3cdba6b1b5a4b552038bba49f1409f8e6eac')
+            throw new Error('Mismatched failed-run archive manifest');
+          const hash=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          if(hash('archived/artifacts/all/final-model.json')!==
+              '3a4b2865ed693a1d88691c316628c9859b36200fcc69d68a050681fa98bca6ff'||
+             hash('archived/artifacts/selection-only/final-model.json')!==
+              'b547c7da39f3fdb055be3b6d597f3835d9b3cdab0c73cbda64dea41966466836')
+            throw new Error('Archived trained model bytes differ from completed run');
+          JS
+      - name: Check all-v3 baseline equivalence, then pair each model with its own baseline
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {compareV4PhaseArms,compareV4PhaseModels}
+            from './scripts/rnad/compare-v4-phase-arms.mjs';
+          const get=(name,mode)=>JSON.parse(readFileSync(
+            'archived/results/'+name+'-'+mode+'.json'));
+          const source='7a2a3cdba6b1b5a4b552038bba49f1409f8e6eac';
+          const ctrlA=get('all','all-v3');
+          const ctrlB=get('selection-only','all-v3');
+          const sameRows=(left,right)=>left.rows.length===right.rows.length&&
+            left.rows.every((x,i)=>JSON.stringify(x)===JSON.stringify(right.rows[i]));
+          if(ctrlA.source_sha!==source||ctrlB.source_sha!==source||
+             ctrlA.mode!=='all-v3'||ctrlB.mode!=='all-v3'||
+             ctrlA.v3_model_sha256!==ctrlB.v3_model_sha256||
+             ctrlA.aq_base_model_sha256!==ctrlB.aq_base_model_sha256||
+             ctrlA.wins!==ctrlB.wins||!sameRows(ctrlA,ctrlB))
+            throw new Error('Different v3 control receipts: cannot compare phase models');
+          const armAll=compareV4PhaseArms(ctrlA,get('all','selection-v4'),
+            {familySize:2});
+          const armFocus=compareV4PhaseArms(ctrlB,get('selection-only','selection-v4'),
+            {familySize:2});
+          const difference=compareV4PhaseModels(
+            get('all','selection-v4'),get('selection-only','selection-v4'),
+            {familySize:2});
+          if(armAll.source_sha!==source||armFocus.source_sha!==source||
+             difference.source_sha!==source||difference.champion_promoted)
+            throw new Error('Invalid preexisting source, model or paired receipts');
+          const out={schema:'rnad-i5-phase-focus-archive-verified-v1',
+            archive_run:43964217094,
+            archive_source_sha:source,verification_code_sha:
+              (await import('node:child_process')).execFileSync(
+                'git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),
+            archived_runs_not_retrained:true,
+            all:armAll,selection_only:armFocus,
+            selection_only_vs_all:difference,
+            strength_established:false,champion_promoted:false};
+          writeFileSync('results/phase-focus-verified.json',
+            JSON.stringify(out,null,2)+'\n',{flag:'wx'});
+          console.log(JSON.stringify({
+            control_wins:ctrlA.wins,all_wins:armAll.candidate_wins,
+            selection_only_wins:armFocus.candidate_wins,
+            between_arms_delta:difference.paired_delta,
+            familywise95:difference.familywise_95pct_delta_bounds,
+            source:source,promoted:false}));
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-phase-focus-verify-${{ github.run_id }}
+          path: results/phase-focus-verified.json
+          if-no-files-found: error
+          retention-days: 30

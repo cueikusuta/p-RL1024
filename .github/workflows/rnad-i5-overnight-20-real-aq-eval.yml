@@ -1,0 +1,192 @@
+name: RNAD I5 overnight frozen 20-model AQ-Base 40960 complete Match evaluation
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths:
+      - docs/research/rnad/OVERNIGHT_20_REAL_AQ_EVAL_LAUNCH_2026-11-18.json
+permissions: {}
+concurrency:
+  group: rnad-i5-overnight-20-aq-evaluation-one-shot-20261118
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned Node 22.14.0 with upstream SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin/node" --version
+      - name: Verify frozen sources, 20 models, fixed heldout design and negative contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --check scripts/rnad/evaluate-vs-aq-full.mjs
+          node --check scripts/rnad/evaluate-overnight-20-vs-aq.mjs
+          node --check scripts/rnad/aggregate-overnight-20-vs-aq.mjs
+          node --test test/rnad-vs-aq-full.test.js test/rnad-overnight-real-aq-eval.test.js
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {OVERNIGHT_EVAL_SCHEMA,TRAINING_SOURCE_SHA,ORIGINAL_OVERNIGHT_RUN,
+                  FIRST_HELDOUT_SEED,PAIRED_SEEDS_PER_PART,PARTS_PER_MODEL}
+            from './scripts/rnad/evaluate-overnight-20-vs-aq.mjs';
+          const x=JSON.parse(readFileSync(
+            'docs/research/rnad/OVERNIGHT_20_REAL_AQ_EVAL_LAUNCH_2026-11-18.json','utf8'));
+          const expected={
+            schema:'rnad-i5-overnight-20-real-aq-heldout-launch-v1',
+            evaluation_schema:OVERNIGHT_EVAL_SCHEMA,
+            original_training_run_id:ORIGINAL_OVERNIGHT_RUN,
+            immutable_training_source_sha:TRAINING_SOURCE_SHA,
+            models:20,parts_per_model:PARTS_PER_MODEL,
+            independent_seed_clusters_per_part:PAIRED_SEEDS_PER_PART,
+            heldout_first_seed:FIRST_HELDOUT_SEED,
+            heldout_last_seed:FIRST_HELDOUT_SEED+
+              PAIRED_SEEDS_PER_PART*PARTS_PER_MODEL-1,
+            matches_per_model:PAIRED_SEEDS_PER_PART*PARTS_PER_MODEL*2,
+            total_complete_four_win_evaluation_matches:40960,
+            benchmark:'AQ-Base-001 exact integrated strategy-match',
+            seat_swap:true,greedy_no_training:true,
+            model_selection_on_heldout:false,familywise_alpha:0.05,
+            formal_league_gate_passed:false,champion_promoted:false,main_merged:false
+          };
+          if(JSON.stringify(x)!==JSON.stringify(expected))
+            throw new Error('Unregistered or altered 20-model heldout experiment');
+          JS
+          gh api repos/cueikusuta/p-RL1024/actions/runs/44221678145/artifacts --paginate --jq '.artifacts[] | select(.expired == false) | .name' > "$RUNNER_TEMP/available.txt"
+          for shard in $(seq 0 19); do
+            grep -Fxq "rnad-i5-overnight-v3-wave2-${shard}" "$RUNNER_TEMP/available.txt"
+          done
+          mkdir -p preflight/0 preflight/3
+          gh run download 44221678145 --repo cueikusuta/p-RL1024 --name rnad-i5-overnight-v3-wave2-0 --dir preflight/0
+          gh run download 44221678145 --repo cueikusuta/p-RL1024 --name rnad-i5-overnight-v3-wave2-3 --dir preflight/3
+          node --input-type=module <<'JS'
+          import {verifyFrozenOvernightModel} from './scripts/rnad/evaluate-overnight-20-vs-aq.mjs';
+          import {evaluateAgainstOriginalAQ} from './scripts/rnad/evaluate-vs-aq-full.mjs';
+          for(const shard of [0,3]){
+            const frozen=verifyFrozenOvernightModel('preflight/'+shard,shard);
+            const r=evaluateAgainstOriginalAQ({modelPath:frozen.modelPath,
+              seed:8599901+shard,pairs:1,phaseMode:'neural-all',
+              switchGuard:'anti-loop-v1'});
+            if(r.matches!==2||r.rows.length!==2||
+              !r.rows.every(x=>x.score[x.won?x.candidateSeat:1-x.candidateSeat]===4))
+              throw new Error('V3/V5 true AQ full 4-win Match preflight failed');
+            console.log(JSON.stringify({shard,feature_family:frozen.mode,
+              sample_pair_matches:r.matches,preflight_only:true}));
+          }
+          JS
+
+  evaluate:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        part: [0, 1]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned Node 22.14.0 with upstream SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin/node" --version
+      - name: Restore SHA-verified unmodified wave2 weights and exact accepted Match state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/series results
+          gh run download 44221678145 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-overnight-v3-wave2-${{ matrix.shard }} --dir inputs/series
+          node --input-type=module <<'JS'
+          import {verifyFrozenOvernightModel} from './scripts/rnad/evaluate-overnight-20-vs-aq.mjs';
+          const result=verifyFrozenOvernightModel('inputs/series',${{ matrix.shard }});
+          console.log(JSON.stringify({shard:result.shard,model_sha256:result.model_sha256,
+            trained_matches:result.trained_matches,checkpoint_sha256:result.checkpoint_sha256}));
+          JS
+      - name: Real AQ-Base 512 independent paired seeds and 1024 complete 4-win Matches
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/rnad/evaluate-overnight-20-vs-aq.mjs \
+            --shard ${{ matrix.shard }} --part ${{ matrix.part }} \
+            --dir inputs/series --out results/study.json
+          test -s results/study.json
+      - name: Preserve heldout real AQ per-seat outcomes on failure or success
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-overnight-aq-s${{ matrix.shard }}-p${{ matrix.part }}
+          path: results/study.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  summarize:
+    needs: [preflight, evaluate]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Install pinned Node 22.14.0 with upstream SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=node-v22.14.0-linux-x64.tar.xz
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin/node" --version
+      - name: Aggregate exactly 40 independent frozen evidence artifacts and 40960 actual Matches
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence summary
+          gh run download "$GITHUB_RUN_ID" --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-overnight-aq-s*-p*' --dir evidence
+          node scripts/rnad/aggregate-overnight-20-vs-aq.mjs evidence summary
+          test -s summary/REPORT.md
+          test -s summary/REPORT.json
+          cat summary/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve pre-registered simultaneous-CI original AQ-Base results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-overnight-20-real-aq-40960-verification
+          path: |
+            summary/REPORT.md
+            summary/REPORT.json
+          if-no-files-found: warn
+          retention-days: 90

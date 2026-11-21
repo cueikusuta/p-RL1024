@@ -1,0 +1,181 @@
+name: RNAD I5 frozen A selection-only real four-win Match head-to-head
+on:
+  push:
+    branches: [feat/5-rnad-stage0-contracts]
+    paths: [docs/research/rnad/SELECTION_A_H2H_LAUNCH_2026-11-17.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-selection-A-real-match-512-seed-pairs
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Ensure 2048 A teacher research succeeded before starting separate Match evaluation
+        run: |
+          set -euo pipefail
+          node scripts/verify-snapshot.mjs
+          node --test test/rnad-selection-a-public-infer.test.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('docs/research/rnad/SELECTION_A_H2H_LAUNCH_2026-11-17.json').read_text())
+          assert x=={
+            'schema':'rnad-i5-selection-A-real-512-pairs-study-v1',
+            'new_A_supervised_run':44058355205,
+            'old_A_supervised_run':44054675522,
+            'new_teacher_train_matches':2048,
+            'old_teacher_train_matches':1024,
+            'seed_start':2490001,
+            'independent_seed_pairs':512,
+            'tested_only_phase':'selection',
+            'draft_fixed':'strategy',
+            'battle_fixed':'basic',
+            'new_model_preselected_on_reused_dev':True,
+            'model_python_js_parity_required':True,
+            'no_AQ_strength_claim':True,
+            'league_started':False,
+            'champion_promoted':False,
+          }
+          PY
+          test "$(gh api repos/cueikusuta/p-RL1024/actions/runs/44058355205 --jq .conclusion)" = success
+
+  export:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install pinned CPU torch
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check -r requirements-rnad.txt
+      - name: Recover sealed old and new A studies and public actor dev sample
+        run: |
+          set -euo pipefail
+          mkdir -p old new dev results/exports
+          gh run download 44054675522 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-A-1024-six-models --dir old
+          gh run download 44058355205 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-A-2048-six-models-and-dev --dir new
+          gh run download 44047154334 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-selection-AB-128-old-dev-rich --dir dev
+          test -s old/selection-A-1024-development.json
+          test -s new/selection-A-2048-development.json
+      - name: Export only preselected SHA-pinned A models and verify Python JS 60-score parity
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.export_selection_a_js \
+            --study old/selection-A-1024-development.json \
+            --model-dir old --dev-dir dev --family A1024 \
+            --out results/exports/A1024.json > results/exports/old-export.json
+          python -m scripts.rnad.export_selection_a_js \
+            --study new/selection-A-2048-development.json \
+            --model-dir new --dev-dir dev --family A2048 \
+            --out results/exports/A2048.json > results/exports/new-export.json
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          a=json.loads(Path('results/exports/old-export.json').read_text())
+          b=json.loads(Path('results/exports/new-export.json').read_text())
+          for f in (a,b):
+              assert hashlib.sha256(Path(f['file']).read_bytes()).hexdigest()==f['json_sha256']
+              assert f['parity_decisions']==60
+          Path('results/exports/checksums.json').write_text(json.dumps({
+              'old_sha256':a['json_sha256'],
+              'new_sha256':b['json_sha256'],
+              'old_source_model_sha256':a['source_model_sha256'],
+              'new_source_model_sha256':b['source_model_sha256'],
+              'match_seed_start':2490001,
+              'match_seed_pairs':512,
+          },indent=2)+'\n')
+          PY
+          OLD_SHA="$(python -c "import json;print(json.load(open('results/exports/checksums.json'))['old_sha256'])")"
+          NEW_SHA="$(python -c "import json;print(json.load(open('results/exports/checksums.json'))['new_sha256'])")"
+          node scripts/rnad/selection-a-public-infer.mjs --model results/exports/A1024.json --sha256 "$OLD_SHA"
+          node scripts/rnad/selection-a-public-infer.mjs --model results/exports/A2048.json --sha256 "$NEW_SHA"
+          node --test test/rnad-selection-a-public-infer.test.js
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-A-public-js-old-new-SHA-checked
+          path: results/exports/
+          retention-days: 90
+          if-no-files-found: error
+
+  compare:
+    needs: export
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22.14.0'}
+      - name: Load only PyTorch-parity-tested and externally SHA-verified A weights
+        run: |
+          set -euo pipefail
+          mkdir -p models results/real-match
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-A-public-js-old-new-SHA-checked --dir models
+          test -s models/checksums.json
+      - name: Play 512 independent seed pairs in both seats changing only selection A model
+        run: |
+          set -euo pipefail
+          OLD_SHA="$(python -c "import json;print(json.load(open('models/checksums.json'))['old_sha256'])")"
+          NEW_SHA="$(python -c "import json;print(json.load(open('models/checksums.json'))['new_sha256'])")"
+          node scripts/rnad/evaluate-a-selection-headtohead.mjs \
+            --old models/A1024.json --old-sha "$OLD_SHA" \
+            --new models/A2048.json --new-sha "$NEW_SHA" \
+            --seed 2490001 --out results/real-match/paired512.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('results/real-match/paired512.json').read_text())
+          assert x['schema']=='rnad-i5-frozen-A-selection-only-headtohead-v1'
+          assert x['win_rate_vs_frozen_A1024']['complete_matches']==1024
+          assert x['win_rate_vs_frozen_A1024']['independent_seed_clusters']==512
+          assert x['league_training_started'] is False
+          assert x['champion_promoted'] is False
+          w=x['win_rate_vs_frozen_A1024']
+          low,high=w['approximate_two_sided_95pct_cluster_bootstrap_ci']
+          lines=['# A2048 vs A1024 selection-only REAL four-win Match', '',
+            'Draft strategy, battle basic: equal for both sides; only selection changes.',
+            f"New A2048 direct H2H wins: {w['win_rate']:.2%} over 1024 real Matches",
+            f"1024 games from 512 independent seed clusters, two seats each.",
+            f"Paired 95% cluster CI: [{low:.2%}, {high:.2%}]",
+            f"Direct superiority supported: {w['statistically_supported_headtohead_superiority']}",
+            'This is NOT a test against AQ-Base and NOT the league/Champion gate.']
+          Path('results/real-match/SUMMARY.md').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+          cat results/real-match/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-A-selection-only-real-512-pair-Matches
+          path: results/real-match/
+          retention-days: 90
+          if-no-files-found: warn

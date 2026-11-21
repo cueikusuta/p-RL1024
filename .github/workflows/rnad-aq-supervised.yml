@@ -1,0 +1,81 @@
+name: RNAD-003 GitHub-hosted accepted AQ teacher 128 Match imitation
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/rnad/evaluate-neural-basic.mjs'
+      - 'scripts/rnad/evaluate_aq_imitation.py'
+      - '.github/workflows/rnad-aq-supervised.yml'
+permissions: {}
+concurrency:
+  group: rnad-003-aq-teacher-supervised-i5
+  cancel-in-progress: false
+jobs:
+  aq-pretraining:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.sha == '62632bb7f772361f8175ae03199e0264042eb735'
+    runs-on: ubuntu-latest
+    timeout-minutes: 160
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Pin CPU runtime and verify frozen AQ and game snapshot
+        run: |
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          node --check scripts/rnad/export-teacher.mjs
+          node --check scripts/rnad/evaluate-neural-basic.mjs
+      - name: Generate 128 accepted four-win AQ teacher Matches and pretrain 4 epochs
+        run: |
+          python -m scripts.rnad.train_teacher \
+            --three-phase --teacher aq-public-belief \
+            --seed 996001 --matches 128 --epochs 4 \
+            --out artifacts/aq-supervision
+      - name: Verify frozen teacher imitation accuracy on disjoint sixteen Matches
+        run: |
+          python -m scripts.rnad.evaluate_aq_imitation \
+            --model artifacts/aq-supervision/trained-model.json \
+            --seed 996301 --matches 16 \
+            --out artifacts/aq-imitation-heldout
+      - name: Independent 128 paired seeds (256 full Matches) vs immutable all-phase Basic
+        run: |
+          node scripts/rnad/evaluate-neural-basic.mjs \
+            --model artifacts/aq-supervision/trained-model.json \
+            --seed 997001 --pairs 128 \
+            --out artifacts/aq-supervision/basic-heldout.json
+      - name: Start real R-NaD continuation from the AQ-supervised three-phase model
+        run: |
+          python -m scripts.rnad.train \
+            --three-phase --seed 996501 --matches 16 \
+            --initial-model artifacts/aq-supervision/trained-model.json \
+            --out artifacts/aq-rnad-16
+      - name: Preserve immutable teacher/model/optimizer evidence and all held-out metrics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-003-aq-supervised-${{ github.run_id }}
+          path: |
+            artifacts/aq-supervision/teacher-report.json
+            artifacts/aq-supervision/initial-model.json
+            artifacts/aq-supervision/trained-model.json
+            artifacts/aq-supervision/basic-heldout.json
+            artifacts/aq-imitation-heldout/heldout-imitation.json
+            artifacts/aq-rnad-16/report.json
+            artifacts/aq-rnad-16/final-model.json
+            artifacts/aq-rnad-16/checkpoints/latest.json
+            artifacts/aq-rnad-16/checkpoints/checkpoint-u16-*.pt
+          if-no-files-found: warn
+          retention-days: 30

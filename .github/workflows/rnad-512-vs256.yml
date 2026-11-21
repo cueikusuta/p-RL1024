@@ -1,0 +1,127 @@
+name: RNAD-002 512 versus 256 independent paired 2048 Matches
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rnad-512-vs256.yml']
+permissions: {}
+concurrency:
+  group: rnad-512-vs256-i5
+  cancel-in-progress: false
+jobs:
+  paired-direct:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.pull_request.head.sha == '09cfa1cd042ca88e19d43429fdd104d6a7d33c34'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RNAD_SOURCE: 14976f08db19606d4f9787ad6a4dc7a814d8d850
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 14976f08db19606d4f9787ad6a4dc7a814d8d850
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+      - name: Retrieve exact 512/256 generation models from verified completed study
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RNAD_SOURCE"
+          node scripts/verify-snapshot.mjs
+          mkdir -p artifacts/rnad512eval
+          gh run download 43706288860 --repo cueikusuta/p-RL1024 \
+            --name rnad-002-generations-43706288860-1 \
+            --dir artifacts/rnad512eval
+          test -s artifacts/rnad512eval/generations/model-u256.json
+          test -s artifacts/rnad512eval/generations/model-u512.json
+          test -s artifacts/rnad512eval/generations/summary-2048.json
+      - name: Verify both independent model files and archived 512 training evidence
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          r=Path('artifacts/rnad512eval/generations')
+          old=json.loads((r/'progress.json').read_text())
+          summary=json.loads((r/'summary-2048.json').read_text())
+          new=json.loads((r/'generation-512.json').read_text())
+          base=json.loads((r/'model-u256.json').read_text())
+          latest=json.loads((r/'model-u512.json').read_text())
+          def digest(name):return hashlib.sha256((r/name).read_bytes()).hexdigest()
+          assert old['source_sha']=='14976f08db19606d4f9787ad6a4dc7a814d8d850'
+          assert old['snapshots'][-1]['generation']==256
+          assert summary['model_sha256']==digest('model-u256.json')
+          assert summary['evaluation_matches']==2048 and summary['continue_generation_512'] is True
+          assert new['completed_matches']==512
+          assert base['feature_schema']==latest['feature_schema']=='rnad-three-phase-features-v1'
+          assert digest('model-u256.json')!=digest('model-u512.json')
+          assert summary['champion_promoted'] is False and new['is_champion'] is False
+          print('Verified model-v256',digest('model-u256.json'))
+          print('Verified model-v512',digest('model-u512.json'))
+          PY
+      - name: Compare 512 versus 256 in 2048 independent four-win complete Matches, both seats
+        run: |
+          set -euo pipefail
+          root=artifacts/rnad512eval/generations
+          for block in $(seq 0 10); do
+            pairs=100
+            if [[ "$block" == 10 ]]; then pairs=24; fi
+            node scripts/rnad/evaluate-direct.mjs \
+              --teacher "$root/model-u256.json" --rnad "$root/model-u512.json" \
+              --seed "$((991201+100*block))" --pairs "$pairs" \
+              --out "$root/eval512-vs256-$block.json"
+          done
+      - name: Strictly aggregate all disjoint matched seed blocks; no automatic promotion
+        run: |
+          python - <<'PY'
+          import hashlib,json,math
+          from pathlib import Path
+          p=Path('artifacts/rnad512eval/generations')
+          expect=set(range(991201,992225))
+          shas=[hashlib.sha256((p/f'model-u{n}.json').read_bytes()).hexdigest()
+                for n in (256,512)]
+          seen=set();wins=0;files=sorted(p.glob('eval512-vs256-*.json'))
+          assert len(files)==11
+          for f in files:
+              x=json.loads(f.read_text())
+              assert x['schema']=='rnad-direct-neural-paired-match-v1'
+              assert x['source_sha']=='14976f08db19606d4f9787ad6a4dc7a814d8d850'
+              assert x['teacher_model_sha256']==shas[0] and x['rnad_model_sha256']==shas[1]
+              assert x['model_feature_schema']=='rnad-three-phase-features-v1'
+              assert x['is_champion'] is False
+              assert x['pairs'] in (100,24) and x['matches']==2*x['pairs']
+              assert x['wins']==sum(y['won'] for y in x['rows'])
+              for row in x['rows']:
+                  k=(row['seed'],row['rnadSeat'])
+                  assert k not in seen and k[0] in expect and k[1] in (0,1)
+                  assert isinstance(row['won'],bool)
+                  assert 4<=row['rounds']<=64
+                  assert max(row['score'])==4
+                  assert row['score'][k[1] if row['won'] else 1-k[1]]==4
+                  seen.add(k);wins+=int(row['won'])
+          assert seen=={(s,i) for s in expect for i in (0,1)}
+          q=wins/2048
+          half=math.sqrt(math.log(40)/(2*1024))
+          report={'schema':'rnad-512-vs-256-paired-eval-v1',
+              'matches':2048,'independent_seeds':1024,'wins_512':wins,
+              'win_rate_512':q,'paired_hoeffding95':[max(0,q-half),min(1,q+half)],
+              'improvement_statistically_confirmed':q-half>.5,
+              'is_champion':False,'model256_sha256':shas[0],
+              'model512_sha256':shas[1]}
+          (p/'eval512-vs256-summary.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report),flush=True)
+          PY
+      - name: Preserve model comparisons and complete trusted 512-generation sources
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-512-vs256-${{ github.run_id }}
+          path: |
+            artifacts/rnad512eval/generations/eval512-vs256-*.json
+            artifacts/rnad512eval/generations/model-u256.json
+            artifacts/rnad512eval/generations/model-u512.json
+          if-no-files-found: warn
+          retention-days: 30

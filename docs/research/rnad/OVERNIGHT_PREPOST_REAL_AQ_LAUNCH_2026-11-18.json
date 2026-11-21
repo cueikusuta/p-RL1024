@@ -1,0 +1,23 @@
+{
+  "schema": "rnad-i5-20261118-one-shot-prepost-v1",
+  "initial_origins": [
+    "base128",
+    "base256",
+    "c005",
+    "battle-focus256-v5"
+  ],
+  "final_shards": 20,
+  "original_training_run": 44221678145,
+  "post_evaluation_run": 44262950098,
+  "identical_evaluation_seeds_start": 8600001,
+  "identical_evaluation_seeds_end": 8601024,
+  "independent_paired_seeds_per_model": 1024,
+  "seat_swap": true,
+  "unique_pretrained_baselines": 4,
+  "new_complete_matches": 8192,
+  "reuse_existing_40960_final_complete_matches": true,
+  "familywise_95_correction_for_20_prepost_comparisons": true,
+  "no_additional_training": true,
+  "champion_promoted": false,
+  "main_merged": false
+}
