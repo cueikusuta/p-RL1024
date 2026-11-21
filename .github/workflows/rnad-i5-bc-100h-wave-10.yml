@@ -1,0 +1,190 @@
+name: I5 B+C immutable 100h wave 10 (379-398)
+on:
+  workflow_call:
+    inputs:
+      initial_artifact:
+        required: true
+        type: string
+    outputs:
+      should_continue:
+        value: ${{ jobs.g398.outputs.should_continue }}
+permissions: {}
+jobs:
+  g379:
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 379
+      bootstrap_artifact: ${{ inputs.initial_artifact }}
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g380:
+    needs: g379
+    if: ${{ needs.g379.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 380
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g379
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g381:
+    needs: g380
+    if: ${{ needs.g380.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 381
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g380
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g382:
+    needs: g381
+    if: ${{ needs.g381.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 382
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g381
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g383:
+    needs: g382
+    if: ${{ needs.g382.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 383
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g382
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g384:
+    needs: g383
+    if: ${{ needs.g383.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 384
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g383
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g385:
+    needs: g384
+    if: ${{ needs.g384.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 385
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g384
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g386:
+    needs: g385
+    if: ${{ needs.g385.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 386
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g385
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g387:
+    needs: g386
+    if: ${{ needs.g386.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 387
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g386
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g388:
+    needs: g387
+    if: ${{ needs.g387.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 388
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g387
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g389:
+    needs: g388
+    if: ${{ needs.g388.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 389
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g388
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g390:
+    needs: g389
+    if: ${{ needs.g389.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 390
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g389
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g391:
+    needs: g390
+    if: ${{ needs.g390.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 391
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g390
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g392:
+    needs: g391
+    if: ${{ needs.g391.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 392
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g391
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g393:
+    needs: g392
+    if: ${{ needs.g392.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 393
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g392
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g394:
+    needs: g393
+    if: ${{ needs.g393.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 394
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g393
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g395:
+    needs: g394
+    if: ${{ needs.g394.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 395
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g394
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g396:
+    needs: g395
+    if: ${{ needs.g395.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 396
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g395
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g397:
+    needs: g396
+    if: ${{ needs.g396.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 397
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g396
+      last_generation: 598
+    permissions: {contents: read, actions: write}
+  g398:
+    needs: g397
+    if: ${{ needs.g397.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 398
+      bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g397
+      last_generation: 598
+    permissions: {contents: read, actions: write}
