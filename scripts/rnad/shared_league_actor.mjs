@@ -174,13 +174,17 @@ function appendPublicFoe(history,foe){
   return [combined,...history.filter(p=>identity(p)!==identity(foe))]
     .slice(0,3).map((p,i)=>({...p,lastSeen:i}));
 }
-export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false}){
+export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false,trajectoryBattleSchema=null}){
   assert(finite(epsilon)&&epsilon>0&&epsilon<=.1,'Invalid behavior epsilon');
   const legacy=legacyPath!==null;
   const main=legacy?readLegacy(legacyPath,legacySha):readBundle(modelDir);
   const magnet=legacy?readLegacy(legacyPath,legacySha):readBundle(magnetDir);
   if(!legacy)assert(main.p.policy_id===magnet.p.policy_id&&
     main.p.generation===magnet.p.generation,'Main/Magnet generation mismatch');
+  const recordedSchema=trajectoryBattleSchema??(legacy?
+    'rnad-three-phase-features-v5':main.battle.featureSchema);
+  assert(['rnad-three-phase-features-v5','rnad-three-phase-features-v6']
+    .includes(recordedSchema),'Unapproved accepted trajectory Battle schema');
   const saved=[];
   let pending=null;
   let publicFoes=[];
@@ -190,8 +194,8 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
       assert([0,1].includes(seat)&&['draft','selection','battle'].includes(observation.phase),
         'Illegal seat/phase');
       const acceptedPublic=publicFoeSnapshot(observation);
-      if(!legacy&&observation.phase==='battle'&&
-         main.battle.featureSchema==='rnad-three-phase-features-v6')
+      if(observation.phase==='battle'&&
+         recordedSchema==='rnad-three-phase-features-v6')
         observation={...observation,publicOpponentHistory:publicFoes.map(p=>({...p}))};
       let logits,ref,value,phaseInput;
       if(legacy){
@@ -199,7 +203,8 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
         const m=magnet.inferProjected(observation,legalActions,seat);
         logits=x.logits;ref=m.logits;value=x.value;
         // Stored MAIN-visible accepted tensor, even for frozen v3 opponents.
-        phaseInput=encodeForLearner(observation,legalActions);
+        phaseInput=encodeForLearner(observation,legalActions,undefined,
+          recordedSchema);
       }else if(observation.phase==='draft'){
         const a=encodeOwnDraftPool(observation,legalActions);
         logits=main.draft.scoreEncoded(a);
@@ -227,7 +232,7 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
         const m=magnet.battle.inferProjected(observation,legalActions,seat);
         logits=a.logits;ref=m.logits;value=a.value;
         phaseInput=encodeForLearner(observation,legalActions,undefined,
-          main.battle.featureSchema);
+          recordedSchema);
       }
       assert(logits.length===legalActions.length&&
         ref.length===legalActions.length&&finite(value),'Bad model/legal candidates');
@@ -246,8 +251,8 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
       assert(p&&p.seat===seat&&p.round===round&&p.phase===phase&&
         same(p.action,action),'No matching accepted behavior');
       saved.push(p);
-      if(!legacy&&phase==='battle'&&
-         main.battle.featureSchema==='rnad-three-phase-features-v6')
+      if(phase==='battle'&&
+         recordedSchema==='rnad-three-phase-features-v6')
         publicFoes=appendPublicFoe(publicFoes,p.acceptedPublic);
       pending=null;
     }
@@ -296,7 +301,14 @@ export function createIntegratedAcceptedMatch({
     typeof policyId==='string'&&policyId&&
     ['self','historical','fixed','exploiter'].includes(role),
     'Invalid generation/actor/seat');
-  const own=session({modelDir:mainDir,magnetDir,epsilon});
+  // Frozen opponents may still infer with older v3/v5 widths, but every
+  // accepted event in this *new* generation is represented with the same
+  // learner-visible v6 schema. Replay never trains the frozen opponent.
+  const battleSchema=JSON.parse(readFileSync(join(mainDir,'battle.json'))).feature_schema;
+  assert(['rnad-three-phase-features-v5','rnad-three-phase-features-v6']
+    .includes(battleSchema),'Invalid Main Battle schema');
+  const own=session({modelDir:mainDir,magnetDir,epsilon,
+    trajectoryBattleSchema:battleSchema});
   assert(fileSha(join(mainDir,'manifest.json'))===mainSha&&
     fileSha(join(magnetDir,'manifest.json'))===magnetSha,
     'Actor main/magnet SHA not bound to generation');
@@ -305,10 +317,13 @@ export function createIntegratedAcceptedMatch({
       fileSha(join(opponentDir,'manifest.json'))===opponentSha,
     'Frozen opponent does not match generation registry');
   const other=role==='self'?
-    session({modelDir:mainDir,magnetDir,epsilon}):
+    session({modelDir:mainDir,magnetDir,epsilon,
+      trajectoryBattleSchema:battleSchema}):
     legacyOpponent?
-    session({legacyPath:legacyOpponent,legacySha:legacyOpponentSha,epsilon}):
-    session({modelDir:opponentDir,magnetDir:opponentDir,epsilon});
+    session({legacyPath:legacyOpponent,legacySha:legacyOpponentSha,epsilon,
+      trajectoryBattleSchema:battleSchema}):
+    session({modelDir:opponentDir,magnetDir:opponentDir,epsilon,
+      trajectoryBattleSchema:battleSchema});
   const sessions=[null,null];sessions[learnerSeat]=own;
   sessions[1-learnerSeat]=other;
   const id=`g${generation}-a${actorId}-s${seed}-seat${learnerSeat}`;
