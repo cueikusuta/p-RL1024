@@ -72,7 +72,7 @@ def verify_file_pins(root):
     require(pins.is_file(), "missing source bootstrap file pins")
     observed = set()
     for entry in pins.read_text().splitlines():
-        match = re.fullmatch(r"([0-9a-f]{64})  ([^\\\n]+)", entry)
+        match = re.fullmatch(r"([0-9a-f]{64})  (.+)", entry)
         require(match is not None, "invalid source pin line")
         expected, name = match.groups()
         p = (root / name).resolve()
