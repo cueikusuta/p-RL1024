@@ -1,0 +1,195 @@
+name: I5 G49 recovery from completed source-pinned actors (no actor replay)
+on:
+  push:
+    branches: [research/5-g49-strength-continuation]
+    paths: [docs/research/rnad/G49_REUSE_ACTORS_RECOVERY_2026-11-20.json]
+permissions: {}
+concurrency:
+  group: rnad-i5-g49-strength-single-writer
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - name: Verify recovery request is only a one-shot control commit
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          path='docs/research/rnad/G49_REUSE_ACTORS_RECOVERY_2026-11-20.json'
+          request=json.load(open(path))
+          expected={
+              'schema':'rnad-g49-reuse-complete-actors-recovery-v1',
+              'source_run_id':44704915507,
+              'source_sha':'a54ff4d14e2e5aa56cf35f44b95685a3f744cb69',
+              'generation':49, 'actor_count':20,
+              'complete_matches':1280, 'learner_updates':40,
+              'reuse_only':True, 'no_actor_replay':True,
+              'no_champion_promotion':True,
+          }
+          assert request==expected, 'Unapproved recovery source or scope'
+          changed=subprocess.check_output(
+              ['git','diff','--name-only','HEAD^','HEAD'],text=True).strip()
+          assert changed==path, 'Control commit may contain only the one-shot request'
+          print('Approved one-shot source-pinned G49 recovery; no new actor matches')
+          PY
+
+  recover:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RNAD_LEARNER_BACKEND: parallel
+      RNAD_PARALLEL_VECTOR: '1'
+      RNAD_LEARNER_CPU_WORKERS: '4'
+      RNAD_PREP_WORKERS: '4'
+      RNAD_PREP_FAST_JSON: '1'
+      RNAD_PREP_CODEC: orjson
+      RNAD_PROFILE_STAGING: '1'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout reviewed repair code only for artifact resolution and transport
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Checkout the EXACT original G49 training source, never reseal its SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: a54ff4d14e2e5aa56cf35f44b95685a3f744cb69
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: G49-G61 strict recovery and transport regression tests (control only)
+        working-directory: control
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s test -p rnad_shared_league_artifact_recovery_test.py -v
+          python -m unittest discover -s test -p rnad_shared_league_parallel_download_test.py -v
+      - name: Install pinned original learner dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4 orjson==3.13.0
+          python - <<'PY'
+          import os,orjson
+          from pathlib import Path
+          assert orjson.__version__ == '3.13.0'
+          assert Path('source/scripts/rnad/shared_league_learner.py').is_file()
+          assert os.environ['RNAD_PREP_WORKERS']=='4'
+          PY
+      - name: Retrieve the same immutable G49 bootstrap without rerunning actors
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7; do
+            rm -rf source/bootstrap
+            mkdir -p source/bootstrap
+            if gh run download 44704915507 --repo cueikusuta/p-RL1024 \
+                --name rnad-i5-strength-g49-bootstrap --dir source/bootstrap; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            delay=$((10 << (attempt - 1)))
+            if [ "$delay" -gt 180 ]; then delay=180; fi
+            sleep "$delay"
+          done
+          (cd source/bootstrap && sha256sum -c file-pins.sha256)
+      - name: Strictly resolve and download all original 20 G49 Actor artifacts
+        run: |
+          set -euo pipefail
+          cd control
+          for attempt in 1 2 3 4 5 6 7; do
+            if gh api 'repos/cueikusuta/p-RL1024/actions/runs/44704915507/artifacts?per_page=100' \
+                 --paginate --jq '.artifacts[] | {name,expired}' | \
+                 jq -s '{artifacts:.}' > listing.json; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            sleep "$((10*attempt))"
+          done
+          python -m scripts.rnad.shared_league_artifact_recovery resolve \
+            --generation 49 --artifact-json listing.json > resolved.json
+          test "$(jq -r '.source_artifacts | length' resolved.json)" -eq 20
+          python - <<'PY'
+          import json
+          a=json.load(open('resolved.json'))['source_artifacts']
+          assert a==[f'rnad-i5-cont-g49-actor-{i}' for i in range(20)], \
+              'No missing/recovered/mixed Actor is allowed in this fixed recovery'
+          PY
+          python -m scripts.rnad.shared_league_parallel_download \
+            --generation 49 --run-id 44704915507 \
+            --resolved resolved.json --out ../source/actors --workers 4 \
+            | tee actor-transport-report.json
+          for n in $(seq 0 19); do
+            test -s "../source/actors/actor-$n/actor-$n.json.gz"
+          done
+      - name: Use unmodified pinned G49 source to verify trajectories and train once
+        run: |
+          set -euo pipefail
+          cd source
+          test "$(git rev-parse HEAD)" = a54ff4d14e2e5aa56cf35f44b95685a3f744cb69
+          python - <<'PY'
+          import json, torch
+          from scripts.rnad.shared_league_contract import verify_manifest
+          m=json.load(open('bootstrap/generation-manifest.json'))
+          verify_manifest(m)
+          cp=torch.load('bootstrap/checkpoint-g0.pt',map_location='cpu',weights_only=True)
+          assert m['generation']==cp['generation']==49
+          assert m['source_sha']==cp['source_sha']=='a54ff4d14e2e5aa56cf35f44b95685a3f744cb69'
+          assert cp['cumulative_complete_matches']==62720
+          assert cp['cumulative_optimizer_updates']==1960
+          PY
+          python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
+          python -m scripts.rnad.shared_league_learner \
+            --bootstrap bootstrap --actors actors --out research-output \
+            --original-draft bootstrap/original-draft.json \
+            --original-selection-js bootstrap/original-selection-js.json
+          python - <<'PY'
+          import json
+          r=json.load(open('research-output/generation50-report.json'))
+          assert r['generation']==49 and r['next_generation']==50
+          assert r['accepted_complete_four_win_matches']==1280
+          assert r['optimizer_updates_completed']==40
+          assert r['cumulative_complete_matches']==64000
+          assert r['cumulative_optimizer_updates']==2000
+          assert r['champion_promoted'] is False
+          PY
+      - name: Validate full-state handoff without starting any G50 actors
+        run: |
+          set -euo pipefail
+          cd source
+          python -m scripts.rnad.shared_league_handoff \
+            --previous-bootstrap bootstrap --previous-result research-output \
+            --out next-bootstrap --budget-seconds 36000
+          (cd next-bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import json
+          m=json.load(open('next-bootstrap/generation-manifest.json'))
+          r=json.load(open('next-bootstrap/handoff-report.json'))
+          assert m['generation']==50
+          assert m['source_sha']=='a54ff4d14e2e5aa56cf35f44b95685a3f744cb69'
+          assert r['previous_generation']==49
+          assert r['optimizer_full_state_preserved'] is True
+          assert r['magnet_full_state_preserved'] is True
+          assert r['rng_full_state_preserved'] is True
+          PY
+          echo 'G49 recovery only: original source, existing 20 accepted Actors and exactly 40 updates; no G50 actors' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-cont-g49-full-learner-result
+          path: source/research-output/
+          retention-days: 30
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: rnad-i5-cont-next-bootstrap-after-g49
+          path: source/next-bootstrap/
+          retention-days: 30
+          if-no-files-found: error

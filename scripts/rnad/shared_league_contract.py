@@ -57,7 +57,7 @@ def actor_role(i, *, has_exploiter):
     _need(type(i) is int and 0 <= i < ACTORS, "Invalid actor ID")
     if i < 8:
         return "self"
-    if i < 14:
+    if i < 16:
         return "historical"
     if i < 18:
         return "fixed"
@@ -328,7 +328,7 @@ def verify_generation(manifest, actor_payloads):
     _need(ids == set(range(ACTORS)) and
           len(match_ids) == MATCHES_PER_GENERATION,
           "Missing actor or incomplete generation")
-    expected_roles = {"self": 8, "historical": 6, "fixed": 4, "exploiter": 2}
+    expected_roles = {"self": 8, "historical": 8, "fixed": 2, "exploiter": 2}
     if not manifest["opponents"]["exploiter"]:
         expected_roles["historical"] += expected_roles.pop("exploiter")
     _need(dict(roles) == expected_roles, "Opponent category quota mismatch")

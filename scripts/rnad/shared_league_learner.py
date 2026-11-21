@@ -36,9 +36,26 @@ from scripts.rnad.train_selection_specialist import TRIPLES
 SCHEMA = "rnad-shared-learner-full-state-v1"
 ETA = .2
 VALUE_WEIGHT = .5
+DRAFT_POLICY_GRADIENT_WEIGHT = 3.0  # Bounded surrogate scale; no reward/Q change.
+VALUE_TERMINAL_AUXILIARY_WEIGHT = .10  # Post-acceptance training label only.
 LR = 3e-5
 MAGNET_CADENCE = 4
 SHUFFLE_SEED = 11520261118
+
+
+def _phase_policy_weight(phase):
+    if phase not in ("draft", "selection", "battle"):
+        raise ValueError("Unknown trainable phase")
+    return DRAFT_POLICY_GRADIENT_WEIGHT if phase == "draft" else 1.0
+
+
+def _critic_loss(value, target, *, winner, actor):
+    """R-NaD V-trace plus accepted terminal target, never a policy input."""
+    if winner not in (0, 1) or actor not in (0, 1):
+        raise ValueError("Invalid winner or actor")
+    trace = torch.as_tensor(target, dtype=value.dtype, device=value.device)
+    terminal = value.new_tensor(1.0 if actor == winner else -1.0)
+    return (value - trace).square() + VALUE_TERMINAL_AUXILIARY_WEIGHT * (value - terminal).square()
 
 
 def _load(path):
@@ -199,16 +216,16 @@ def _match_loss(model, target, magnet, record, *, role):
     losses = defaultdict(list)
     critic = defaultdict(list)
     ratios = []
-    for (logits, value, phase), result in zip(inputs, targets):
+    for (logits, value, phase), result, event in zip(inputs, targets, record["events"]):
         ratios.append(result["ratio"])
         if logits is None:
             continue
-        losses[phase].append(neurd_policy_loss(
+        losses[phase].append(_phase_policy_weight(phase) * neurd_policy_loss(
             logits, result["q_targets"], beta=2., q_clip=10.,
             is_c=result["c"]))
-        critic[phase].append(
-            (value - torch.tensor(
-                result["value_target"], dtype=value.dtype))**2)
+        critic[phase].append(_critic_loss(
+            value, result["value_target"], winner=record["winner"],
+            actor=event["actor"]))
     if set(losses) != {"draft", "selection", "battle"}:
         raise ValueError("Cannot skip a phase when training integrated Main")
     balanced = sum(
@@ -314,8 +331,8 @@ def learn(*, bootstrap, actors, out, original_draft, original_selection_js,
         workers=prep_workers, fast_json=fast_json, codec=prep_codec,
         profile=profile_staging,
     )
-    expected_roles = {"self": 8, "historical": 6,
-                      "fixed": 4, "exploiter": 2}
+    expected_roles = {"self": 8, "historical": 8,
+                      "fixed": 2, "exploiter": 2}
     if not manifest["opponents"]["exploiter"]:
         expected_roles["historical"] += expected_roles.pop("exploiter")
     if (len(match_ids) != 1280 or

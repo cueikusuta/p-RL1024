@@ -1,0 +1,16 @@
+{
+  "schema": "rnad-i5-g50-g61-source-migration-launch-v1",
+  "source_sha": "3486890f5ba3e4858540857c4fde3c3493efe66a",
+  "previous_source_sha": "a54ff4d14e2e5aa56cf35f44b95685a3f744cb69",
+  "g49_recovery_run_id": 44707159157,
+  "g50_artifact_id": 14615009232,
+  "g50_bootstrap_artifact": "rnad-i5-cont-next-bootstrap-after-g49",
+  "first_generation": 50,
+  "last_generation": 61,
+  "matches_per_generation": 1280,
+  "updates_per_generation": 40,
+  "full_state_preservation": true,
+  "github_hosted_cpu_only": true,
+  "no_extra_strength_evaluation": true,
+  "no_champion_promotion": true
+}

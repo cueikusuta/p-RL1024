@@ -13,7 +13,7 @@ from collections import defaultdict
 
 import torch
 
-from scripts.rnad.shared_league_learner import ETA, VALUE_WEIGHT
+from scripts.rnad.shared_league_learner import ETA, VALUE_WEIGHT, _phase_policy_weight, _critic_loss
 from scripts.rnad.two_player import neurd_policy_loss, rnad_targets
 
 PHASES = ("draft", "selection", "battle")
@@ -340,7 +340,7 @@ def batched_match_losses(model, target, magnet, records_with_roles,
         phase_loss, phase_value = defaultdict(list), defaultdict(list)
         phase_policy = defaultdict(list)
         ratios = []
-        for (logits, value, phase), target_row in zip(inputs, targets):
+        for (logits, value, phase), target_row, event in zip(inputs, targets, record["events"]):
             ratios.append(target_row["ratio"])
             if logits is None:
                 continue
@@ -348,17 +348,17 @@ def batched_match_losses(model, target, magnet, records_with_roles,
                 phase_policy[phase].append((
                     logits, target_row["q_targets"], target_row["c"]))
             else:
-                phase_loss[phase].append(neurd_policy_loss(
+                phase_loss[phase].append(_phase_policy_weight(phase) * neurd_policy_loss(
                     logits, target_row["q_targets"], beta=2.0,
                     q_clip=10.0, is_c=target_row["c"]))
-            phase_value[phase].append(
-                (value - torch.tensor(
-                    target_row["value_target"], dtype=value.dtype)) ** 2)
+            phase_value[phase].append(_critic_loss(
+                value, target_row["value_target"], winner=record["winner"],
+                actor=event["actor"]))
         if linear_neurd == "1":
             if set(phase_policy) != set(PHASES):
                 raise ValueError("Cannot skip a phase when training integrated Main")
             balanced = sum(
-                linearized_neurd_loss_batch(phase_policy[p]) +
+                _phase_policy_weight(p) * linearized_neurd_loss_batch(phase_policy[p]) +
                 VALUE_WEIGHT * sum(phase_value[p]) / len(phase_value[p])
                 for p in PHASES
             ) / len(PHASES)

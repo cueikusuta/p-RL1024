@@ -1,0 +1,18 @@
+{
+  "schema": "rnad-i5-g137-source-pinned-ten-hour-v1",
+  "workflow_prelaunch_sha": "10d8642b2a366f222409b150bc06d9a716a1c5d0",
+  "training_source_sha": "4ac6ad652365318aa4f8b9736dffdd00cf696915",
+  "previous_completed_run_id": 44770410066,
+  "previous_completed_run_sha": "02b7c60b83b899985082554149a44b22964b252b",
+  "g137_bootstrap_artifact_id": 14686545955,
+  "g136_learner_result_artifact_id": 14685704164,
+  "first_generation": 137,
+  "last_generation": 237,
+  "budget_seconds": 36000,
+  "actor_count": 20,
+  "matches_per_generation": 1280,
+  "updates_per_generation": 40,
+  "github_hosted_cpu_only": true,
+  "preserve_full_main_target_optimizer_magnet_rng": true,
+  "no_champion_promotion": true
+}

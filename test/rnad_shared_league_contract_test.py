@@ -150,13 +150,13 @@ class SharedLeagueContractTest(unittest.TestCase):
         self.assertEqual(report["independent_seed_clusters"], 640)
         self.assertEqual(report["optimizer_steps_one_epoch"], OPTIMIZER_STEPS)
         self.assertEqual(report["opponent_roles"],
-                         {"self": 8, "historical": 8, "fixed": 4})
+                         {"self": 8, "historical": 10, "fixed": 2})
 
     def test_actual_exploiter_role_only_if_immutable_registry_populated(self):
         m = manifest(exploiter=True)
         report = verify_generation(m, [payload(m, i) for i in range(ACTORS)])
         self.assertEqual(report["opponent_roles"],
-                         {"self": 8, "historical": 6, "fixed": 4,
+                         {"self": 8, "historical": 8, "fixed": 2,
                           "exploiter": 2})
 
     def test_missing_or_duplicate_actor_fails_closed(self):

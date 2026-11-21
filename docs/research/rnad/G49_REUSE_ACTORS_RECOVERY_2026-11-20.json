@@ -1,0 +1,12 @@
+{
+  "schema": "rnad-g49-reuse-complete-actors-recovery-v1",
+  "source_run_id": 44704915507,
+  "source_sha": "a54ff4d14e2e5aa56cf35f44b95685a3f744cb69",
+  "generation": 49,
+  "actor_count": 20,
+  "complete_matches": 1280,
+  "learner_updates": 40,
+  "reuse_only": true,
+  "no_actor_replay": true,
+  "no_champion_promotion": true
+}

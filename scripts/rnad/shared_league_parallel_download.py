@@ -14,7 +14,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from scripts.rnad.shared_league_artifact_recovery import artifact_name
+from scripts.rnad.shared_league_artifact_recovery import artifact_name, MAX_RECOVERY_GENERATION
 
 REPO = "cueikusuta/p-RL1024"
 MAX_ATTEMPTS = 7
@@ -22,7 +22,7 @@ MAX_ATTEMPTS = 7
 
 def download_actors(*, generation, run_id, resolved, output, workers=4,
                     run=subprocess.run, sleep=time.sleep):
-    if type(generation) is not int or not 0 <= generation <= 48:
+    if type(generation) is not int or not 0 <= generation <= MAX_RECOVERY_GENERATION:
         raise ValueError("Invalid Actor generation")
     if type(run_id) is not int or run_id < 1:
         raise ValueError("Invalid immutable source run")

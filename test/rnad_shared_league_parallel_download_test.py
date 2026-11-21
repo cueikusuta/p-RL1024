@@ -44,6 +44,38 @@ class ParallelArtifactDownloadTest(unittest.TestCase):
                 self.assertTrue(
                     (Path(directory)/f"actor-{i}"/f"actor-{i}.json.gz").is_file())
 
+    def test_g49_g240_transport_rejects_mixed_source(self):
+        # Continued training uses the same strict 20/20 naming contract through G240.
+        for generation in (49, 61, 62, 63, 136, 137, 159, 160, 239, 240):
+            with self.subTest(generation=generation):
+                names = [artifact_name(generation, i) for i in range(20)]
+                seen = []
+
+                def fake_run(command, *, check, timeout, stdout):
+                    name = command[7]
+                    i = names.index(name)
+                    seen.append(i)
+                    (Path(command[9]) / f"actor-{i}.json.gz").write_bytes(
+                        b"synthetic-not-authority")
+                    return subprocess.CompletedProcess(command, 0)
+
+                with tempfile.TemporaryDirectory() as directory:
+                    report = download_actors(
+                        generation=generation, run_id=12345,
+                        resolved=names, output=directory, workers=1,
+                        run=fake_run, sleep=lambda _: None)
+                    self.assertEqual(report["generation"], generation)
+                    self.assertEqual(set(seen), set(range(20)))
+                with tempfile.TemporaryDirectory() as directory:
+                    with self.assertRaises(ValueError):
+                        download_actors(
+                            generation=generation, run_id=12345,
+                            resolved=names[:-1] +
+                            [artifact_name(generation-1, 19)],
+                            output=directory,
+                            run=lambda *_args, **_kw: self.fail(
+                                "Wrong-generation actor was downloaded"))
+
     def test_only_failed_actor_is_retried(self):
         counts = {}
         lock = threading.Lock()

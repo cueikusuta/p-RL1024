@@ -13,6 +13,8 @@ import sys
 from collections import Counter
 
 ACTORS = 20
+# Source-pinned G137 continuation is bounded to G240; reject unapproved later generations.
+MAX_RECOVERY_GENERATION = 240
 PREFIX = "rnad-i5-cont-g"
 FULL_NAME = re.compile(
     r"rnad-i5-cont-g(\d+)-(recovered-)?actor-(\d+)\Z"
@@ -20,7 +22,7 @@ FULL_NAME = re.compile(
 
 
 def artifact_name(generation: int, actor_id: int, recovered=False) -> str:
-    if (type(generation) is not int or not 0 <= generation <= 48 or
+    if (type(generation) is not int or not 0 <= generation <= MAX_RECOVERY_GENERATION or
         type(actor_id) is not int or not 0 <= actor_id < ACTORS):
         raise ValueError("Invalid shared league generation or logical actor")
     return (f"{PREFIX}{generation}-" +
