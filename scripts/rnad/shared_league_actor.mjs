@@ -170,8 +170,10 @@ export function approvedFixedSession(config,epsilon=.02){
     ['aqbase001','coretrioaq001'].includes(config.kind)&&
     config.aq_model_sha256===AQ_WEIGHTS_SHA&&
     config.core_trio_source_sha256===fileSha(
-      new URL('../../src/ai/draft-core-trio.js',import.meta.url)),
-    'Unapproved AQ/Core-Trio fixed opponent identity');
+      new URL('../../src/ai/draft-core-trio.js',import.meta.url))&&
+    config.source_git_sha===verifiedRunningSourceSha()&&
+    config.research_only===true&&config.epsilon===epsilon,
+    'Unapproved AQ/Core-Trio fixed opponent identity/source/epsilon');
   const aq=createOpponent();
   assert(aq.modelSha256===AQ_WEIGHTS_SHA,
     'Frozen AQ-Base weights did not match approved baseline');
