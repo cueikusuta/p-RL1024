@@ -1,6 +1,7 @@
 name: I5 B+C source-pinned 100h continuation wave (armed only after previous complete)
 on:
   workflow_dispatch: {}
+  push: {branches: [research/5-bc-100h-league], paths: [.github/workflows/rnad-i5-bc-100h-resume-wave.yml]}
 # To trigger the next safe wave, update this file to add:
 #   push: {branches: [research/5-bc-100h-league], paths: [.github/workflows/rnad-i5-bc-100h-resume-wave.yml]}
 # and increment the completed source Run + next wave / seed boundary; never
