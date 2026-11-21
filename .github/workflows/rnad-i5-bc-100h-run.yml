@@ -153,3 +153,13 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+
+  g199:
+    needs: smoke
+    if: ${{ needs.smoke.result == 'success' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: 199
+      bootstrap_artifact: rnad-i5-bc-g199-approved-bootstrap
+      last_generation: 199
+    permissions: {contents: read, actions: write}
