@@ -4,6 +4,9 @@ on:
     branches: [research/5-next-opponent-mix-b]
     paths:
       - .github/workflows/rnad-i5-b-smoke-to-learning.yml
+  workflow_dispatch: {}
+# Expensive three-generation learning is deliberately NOT triggered by every
+# source-code push. Every intentional launch runs the source-pinned smoke gate.
 permissions: {}
 concurrency:
   group: rnad-i5-b-research-learning
@@ -31,9 +34,10 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --disable-pip-version-check numpy==1.26.4
-      - name: Regression gate before authority smoke (second attempt)
+      - name: Verify shared Learner/actor profile and real fixed opponents before smoke
         run: |
           set -euo pipefail
+          python -m unittest discover -s test -p rnad_shared_league_contract_test.py -v
           node --test test/rnad-b-fixed-opponent.test.js
       - name: Validate immutable completed G195 baseline and fetch without modifying it
         run: |
