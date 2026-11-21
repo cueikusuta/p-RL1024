@@ -183,11 +183,17 @@ def transition(*, previous_bootstrap, previous_result, out,
     context_path = prev_root/"continuation-context.json"
     if context_path.exists():
         context = _read(context_path)
+        combined = context.get("new_budget_phase") == "B+C combined 100h research"
+        expected_run = 44897382403 if combined else 44318145987
         _assert(context.get("schema") == ARTIFACT_SCHEMA and
                 context.get("deadline_epoch", -1) >
                     context.get("start_epoch", 0) and
                 context.get("budget_seconds") == budget_seconds and
-                context.get("source_run_id") == 44318145987,
+                context.get("source_run_id") == expected_run and
+                (not combined or
+                 (budget_seconds == 360000 and
+                  context.get("requested_approx_hours") == 100 and
+                  context.get("original_generation") == 199)),
                 "Prior wave time budget changed or reset")
     else:
         _assert(old_gen == 0,
