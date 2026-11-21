@@ -90,10 +90,10 @@ def migrate(*, source, out):
 
     dst.mkdir(parents=True)
     main_sha=_seal_bundle(src/"actor", dst/"actor",
-                          expected_generation=62,old_sha=PINNED_OLD_SOURCE,
+                          expected_generation=PINNED_GENERATION,old_sha=PINNED_OLD_SOURCE,
                           new_sha=current_sha,engine=PINNED_ENGINE)
     magnet_sha=_seal_bundle(src/"magnet", dst/"magnet",
-                            expected_generation=62,old_sha=PINNED_OLD_SOURCE,
+                            expected_generation=PINNED_GENERATION,old_sha=PINNED_OLD_SOURCE,
                             new_sha=current_sha,engine=PINNED_ENGINE)
     new_history=[]
     for i in (134,135,136):
