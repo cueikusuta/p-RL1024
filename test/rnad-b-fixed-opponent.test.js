@@ -55,3 +55,22 @@ test('real authority view accepts exact AQ and Core-Trio draft proposals',()=>{
     }
   }
 });
+
+test('epsilon exploration binds real authority-selected own roster, not planned AQ selection',()=>{
+  // epsilon=1 is a functional edge test, not an experiment or strength estimate.
+  const aq=approvedFixedSession({...config('aqbase001'),epsilon:1},1);
+  const core=approvedFixedSession({...config('coretrioaq001'),epsilon:1},1);
+  const result=runRnadAcceptanceSmoke({
+    seed:20311029,matchId:'i5-b-epsilon-accepted-set',
+    sourceSha:verifiedRunningSourceSha(),
+    engineSnapshotSha:provenance.sourceCommit,
+    phasePolicies:[aq.func,core.func],maxRounds:1,
+    includeAcceptedHistory:true,
+  });
+  assert.equal(result.rounds,1);
+  for(const p of [aq,core]){
+    assert.ok(p.saved.some(x=>x.phase==='selection'));
+    assert.equal(p.pending,null);
+    assert.ok(p.saved.every(x=>x.policy_pi.every(v=>v>0)));
+  }
+});
