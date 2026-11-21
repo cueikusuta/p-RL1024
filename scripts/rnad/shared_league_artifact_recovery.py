@@ -13,8 +13,8 @@ import sys
 from collections import Counter
 
 ACTORS = 20
-# The G62 continuation is bounded to G160; reject future unapproved generations.
-MAX_RECOVERY_GENERATION = 160
+# Source-pinned G137 continuation is bounded to G240; reject unapproved later generations.
+MAX_RECOVERY_GENERATION = 240
 PREFIX = "rnad-i5-cont-g"
 FULL_NAME = re.compile(
     r"rnad-i5-cont-g(\d+)-(recovered-)?actor-(\d+)\Z"
