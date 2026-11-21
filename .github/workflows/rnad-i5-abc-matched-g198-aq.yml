@@ -1,0 +1,276 @@
+name: I5 A/B/C matched G198 2048 seed paired AQ comparison
+on:
+  push:
+    branches: [research/5-abc-matched-g198-aq-eval]
+    paths:
+      - .github/workflows/rnad-i5-abc-matched-g198-aq.yml
+  workflow_dispatch: {}
+permissions: {}
+concurrency:
+  group: rnad-i5-abc-g198-frozen-aq
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Deliberately use exactly the same evaluation source as the B/C rows
+      # produced by run #44921457899. New workflow metadata does not mutate
+      # the frozen model execution code.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 32e822ce1e78325e01bd1979e840d9429a635535
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Retrieve already-frozen B/C plan and G198 A artifact, verify IDs/bytes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 32e822ce1e78325e01bd1979e840d9429a635535
+          gh api repos/cueikusuta/p-RL1024/actions/artifacts/14703869307 \
+            --jq '{id,name,expired,workflow_run}' > a198-artifact.json
+          jq -e '.id==14703869307 and .workflow_run.id==44860357036 and
+            .name=="rnad-i5-cont-next-bootstrap-after-g198" and .expired==false' \
+            a198-artifact.json >/dev/null
+          for attempt in 1 2 3 4 5 6 7; do
+            rm -rf frozen-g195 a198-source
+            mkdir -p frozen-g195 a198-source
+            if gh run download 44921457899 --repo cueikusuta/p-RL1024 \
+              --name rnad-i5-abc-frozen-plan-and-bundles --dir frozen-g195 && \
+              gh run download 44860357036 --repo cueikusuta/p-RL1024 \
+              --name rnad-i5-cont-next-bootstrap-after-g198 --dir a198-source; then
+              break
+            fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            sleep "$((attempt*12))"
+          done
+          (cd a198-source && sha256sum -c file-pins.sha256)
+      - name: Precommit matched 3-way comparison before inspecting any heldout results
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,hashlib,shutil,subprocess
+          from pathlib import Path
+          sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          root=Path('frozen-g195')
+          index=json.loads((root/'sha256-index.json').read_text())
+          assert set(index)=={p.relative_to(root).as_posix()
+              for p in root.rglob('*') if p.is_file() and p.name!='sha256-index.json'}
+          for name,h in index.items():
+              assert sha(root/name)==h
+          p=json.loads((root/'plan.json').read_text())
+          assert p['source_sha']=='32e822ce1e78325e01bd1979e840d9429a635535'
+          assert p['seed_start']==120000001 and p['seed_blocks']==2048
+          assert p['familywise_alpha']==0.05
+          assert p['stage']=='final' and len(p['comparisons'])==3
+          old=Path('a198-source')
+          generation=json.loads((old/'generation-manifest.json').read_text())
+          actor=json.loads((old/'actor/manifest.json').read_text())
+          idx=json.loads((old/'checkpoint-index.json').read_text())
+          assert generation['generation']==199 and actor['generation']==199
+          assert generation['source_sha']==actor['source_sha']=='4ac6ad652365318aa4f8b9736dffdd00cf696915'
+          assert generation['battle_feature_schema'] if 'battle_feature_schema' in generation else 'rnad-three-phase-features-v5'
+          assert generation.get('battle_feature_schema','rnad-three-phase-features-v5')=='rnad-three-phase-features-v5'
+          assert generation.get('league_opponent_profile') is None
+          assert generation['engine_sha']==actor['engine_sha']==p['engine_sha']
+          assert generation['main_sha256']==sha(old/'actor/manifest.json')
+          assert generation['policy_manifest_sha256']==generation['main_sha256']
+          assert actor['schema']=='rnad-integrated-policy-actor-bundle-v1'
+          assert set(actor['files'])=={'draft','selection','battle','values'}
+          assert idx['generation']==199 and idx['sha256']==sha(old/'checkpoint-g0.pt')
+          target=Path('matched/A');target.mkdir(parents=True)
+          for head,h in actor['files'].items():
+              f=old/'actor'/(head+'.json')
+              assert sha(f)==h
+              shutil.copyfile(f,target/f.name)
+              assert sha(target/f.name)==h
+          battle=json.loads((target/'battle.json').read_text())
+          assert battle['feature_schema']=='rnad-three-phase-features-v5'
+          assert (battle['state_features'],battle['action_features'])==(96,48)
+          resealed={**actor,'source_sha':p['source_sha']}
+          (target/'manifest.json').write_text(
+              json.dumps(resealed,sort_keys=True,indent=2)+'\n')
+          newsha=sha(target/'manifest.json')
+          oldsha=p['model_sha256_by_id']['A']
+          assert newsha!=oldsha and newsha!=p['model_sha256_by_id']['B']
+          p['model_sha256_by_id']['A']=newsha
+          Path('matched/plan.json').write_text(json.dumps(p,sort_keys=True,indent=2)+'\n')
+          report={'schema':'rnad-i5-A198-g198-matched-audit-v1',
+                  'compared_models':{'A':'G198','B':'G198','C':'G198'},
+                  'reuses_B_C_run':44921457899,'evaluation_source_sha':p['source_sha'],
+                  'original_A_manifest_sha256':generation['main_sha256'],
+                  'A_g198_full_checkpoint_sha256':idx['sha256'],
+                  'A_g198_resealed_manifest_sha256':newsha,
+                  'previous_A_g195_manifest_sha256':oldsha,
+                  'A_head_sha256':actor['files'],
+                  'frozen_original_A_artifact_id':14703869307,
+                  'training_restarted':False,'champion_promoted':False,
+                  'preregistered_seed_start':p['seed_start'],
+                  'preregistered_seed_blocks':p['seed_blocks'],
+                  'no_holdout_outcomes_used_for_model_selection':True}
+          Path('matched/audit.json').write_text(
+              json.dumps(report,sort_keys=True,indent=2)+'\n')
+          print(json.dumps(report))
+          PY
+          node --input-type=module -e \
+            "import {readFileSync} from 'node:fs';import {verifyPlan} from './scripts/rnad/paired-league-eval.mjs';verifyPlan(JSON.parse(readFileSync('matched/plan.json')));"
+      - name: Separate execution smoke for A at G198, excluding actual holdout
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p=json.load(open('matched/plan.json'))
+          p.update(stage='development',seed_start=120020001,seed_blocks=128,
+                   independent_holdout_precommitted=False)
+          json.dump(p,open('smoke.json','w'),sort_keys=True)
+          PY
+          node scripts/rnad/paired-league-run.mjs \
+            --plan smoke.json --model-dir matched/A --model-id A \
+            --part 0 --parts 128 --out smoke-A198.json
+          test "$(jq -r '.matches' smoke-A198.json)" -eq 2
+          test "$(jq -r '.training_during_evaluation' smoke-A198.json)" = false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-abc-A198-matched-plan
+          path: matched/
+          retention-days: 30
+          if-no-files-found: error
+  paired_A198:
+    needs: preflight
+    if: needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        part: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 32e822ce1e78325e01bd1979e840d9429a635535
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22'}
+      - name: Verify matched A model and preregistered source
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-abc-A198-matched-plan --dir matched
+          node --input-type=module -e \
+            "import{readFileSync}from'node:fs';import{verifyPlan}from'./scripts/rnad/paired-league-eval.mjs';const p=verifyPlan(JSON.parse(readFileSync('matched/plan.json')));if(p.source_sha!=='32e822ce1e78325e01bd1979e840d9429a635535'||p.seed_blocks!==2048)throw Error('source/seed drift');"
+      - name: Evaluate 128 identical AQ seed blocks and both seats at G198
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          node scripts/rnad/paired-league-run.mjs \
+            --plan matched/plan.json --model-dir matched/A --model-id A \
+            --part ${{ matrix.part }} --parts 16 \
+            --out evidence/abc-A-${{ matrix.part }}.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-abc-A198-paired-part-${{ matrix.part }}
+          path: evidence/*.json
+          retention-days: 30
+          if-no-files-found: error
+  aggregate:
+    needs: [preflight,paired_A198]
+    if: needs.preflight.result == 'success' && needs.paired_A198.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 32e822ce1e78325e01bd1979e840d9429a635535
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: '22'}
+      - name: Download all A198 evidence and original unchanged B/C evidence
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-abc-A198-matched-plan --dir matched
+          mkdir -p evidence
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-abc-A198-paired-part-*' \
+            --merge-multiple --dir evidence
+          test "$(find evidence -name 'abc-A-*.json' | wc -l)" -eq 16
+          found=false
+          for attempt in $(seq 1 35); do
+            mkdir -p earlier
+            if gh run download 44921457899 --repo cueikusuta/p-RL1024 \
+               --pattern 'rnad-i5-abc-paired-[BC]-part-*' \
+               --merge-multiple --dir earlier; then
+              count="$(find earlier -maxdepth 1 -name 'abc-[BC]-*.json' | wc -l)"
+              if [ "$count" -eq 32 ]; then found=true;break;fi
+            fi
+            sleep 60
+          done
+          test "$found" = true
+          mv earlier/abc-[BC]-*.json evidence/
+          test "$(find evidence -name '*.json' | wc -l)" -eq 48
+          python - <<'PY'
+          from pathlib import Path
+          expected={f'abc-{m}-{i}.json' for m in ('A','B','C') for i in range(16)}
+          assert {p.name for p in Path('evidence').glob('*.json')}==expected
+          PY
+      - name: Matched-G198 95% Bonferroni full-N comparison, no model selection
+        run: |
+          set -euo pipefail
+          node scripts/rnad/paired-league-eval.mjs \
+            matched/plan.json matched-g198-report.json evidence/*.json
+          python - <<'PY'
+          import json
+          r=json.load(open('matched-g198-report.json'))
+          assert r['complete_four_win_matches']==12288
+          assert r['independent_seed_blocks']==2048
+          assert r['distinct_models']==3 and len(r['comparisons'])==3
+          assert r['familywise_alpha']==0.05
+          assert r['champion_promoted'] is False
+          lines=[
+            '## Matched G198 A/B/C vs common exact AQ-Base',
+            '- All A/B/C are frozen after G198; no A retraining',
+            '- 2048 independent seed blocks, 2 seats per model',
+            '- 4096 complete four-win Matches per model',
+            '- 3 preregistered contrasts, Bonferroni 95% familywise CI',
+            '- This is common-AQ paired comparison, not B/C direct head-to-head',
+            '- B trained against AQ; AQ benchmark is not a generalization test',
+            '| Comparison | Paired difference | simultaneous 95% CI | Positive result |',
+            '|---|---:|---:|---|'
+          ]
+          for c in r['comparisons']:
+              low,high=c['confidence_interval']
+              lines.append(
+                f"| {c['candidate_model_id']}−{c['baseline_model_id']} | "
+                f"{100*c['estimate']:+.3f}pp | [{100*low:+.3f}, {100*high:+.3f}]pp | "
+                f"{c['statistically_supported_gain']} |"
+              )
+          open('MATCHED_SUMMARY.md','w').write('\n'.join(lines)+'\n')
+          PY
+          cat MATCHED_SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-abc-matched-g198-final-comparison
+          path: |
+            matched-g198-report.json
+            MATCHED_SUMMARY.md
+            matched/plan.json
+            matched/audit.json
+          retention-days: 90
+          if-no-files-found: error
