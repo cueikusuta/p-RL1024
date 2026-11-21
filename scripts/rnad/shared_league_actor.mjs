@@ -178,7 +178,9 @@ export function approvedFixedSession(config,epsilon=.02){
   assert(aq.modelSha256===AQ_WEIGHTS_SHA,
     'Frozen AQ-Base weights did not match approved baseline');
   const saved=[];
-  let pending=null,round=null,ownSets=[],memory={},belief=null,guard=null;
+  // Exact AQ runner constructs anti-stall across the full four-win Match.
+  let pending=null,round=null,ownSets=[],memory={},belief=null;
+  const guard=createI877AntiStall({maxNonAttacks:5});
   let scores=[0,0];
   function equivalentAuthorityAction(legal,intended,phase){
     if(phase==='battle')return same(legal,intended);
@@ -201,7 +203,6 @@ export function approvedFixedSession(config,epsilon=.02){
       round=observation.round;
       scores=Array.isArray(publicView.score)?[...publicView.score]:[0,0];
       ownSets=[];memory={};belief=null;
-      guard=createI877AntiStall({maxNonAttacks:5});
       intended=config.kind==='coretrioaq001'?
         chooseCoreTrioTeam(publicView,{data,catalog:playableSets}):
         chooseStrategyTeam(publicView,{data,fastDraftValidation:true});
