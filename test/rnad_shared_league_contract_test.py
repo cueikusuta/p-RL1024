@@ -224,8 +224,15 @@ class SharedLeagueContractTest(unittest.TestCase):
             verify_actor(m,wrong)
         wrong_schema=copy.deepcopy(m)
         del wrong_schema["battle_feature_schema"]
+        # Construct a fresh envelope bound to the legacy manifest; changing
+        # a manifest without resealing must fail earlier on the SHA gate.
+        legacy_payload=payload(wrong_schema,0)
+        for left,right in zip(legacy_payload["matches"],x["matches"]):
+            for e,source in zip(left["events"],right["events"]):
+                if e["phase"]=="battle":
+                    e["phase_input"]=copy.deepcopy(source["phase_input"])
         with self.assertRaisesRegex(ValueError,"versioned battle"):
-            verify_actor(wrong_schema,x)
+            verify_actor(wrong_schema,legacy_payload)
 
     def test_model_dimensions_not_silently_accepted_as_integration(self):
         m = copy.deepcopy(self.manifest)
