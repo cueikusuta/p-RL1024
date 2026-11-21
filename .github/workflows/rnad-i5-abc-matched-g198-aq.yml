@@ -1,10 +1,6 @@
 name: I5 A/B/C matched G198 2048 seed paired AQ comparison
 on:
-  push:
-    branches: [research/5-abc-matched-g198-aq-eval]
-    paths:
-      - .github/workflows/rnad-i5-abc-matched-g198-aq.yml
-  workflow_dispatch: {}
+  workflow_dispatch: {} # No automatic repeated 4096-Match A198 evaluation on workflow edits
 permissions: {}
 concurrency:
   group: rnad-i5-abc-g198-frozen-aq
@@ -206,29 +202,21 @@ jobs:
           set -euo pipefail
           gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
             --name rnad-i5-abc-A198-matched-plan --dir matched
-          mkdir -p evidence
+          mkdir -p evidence old-A old-BC
           gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
-            --pattern 'rnad-i5-abc-A198-paired-part-*' \
-            --merge-multiple --dir evidence
-          test "$(find evidence -name 'abc-A-*.json' | wc -l)" -eq 16
-          found=false
-          for attempt in $(seq 1 35); do
-            mkdir -p earlier
-            if gh run download 44921457899 --repo cueikusuta/p-RL1024 \
-               --pattern 'rnad-i5-abc-paired-[BC]-part-*' \
-               --merge-multiple --dir earlier; then
-              count="$(find earlier -maxdepth 1 -name 'abc-[BC]-*.json' | wc -l)"
-              if [ "$count" -eq 32 ]; then found=true;break;fi
-            fi
-            sleep 60
-          done
-          test "$found" = true
-          mv earlier/abc-[BC]-*.json evidence/
-          test "$(find evidence -name '*.json' | wc -l)" -eq 48
+            --pattern 'rnad-i5-abc-A198-paired-part-*' --dir old-A
+          gh run download 44921457899 --repo cueikusuta/p-RL1024 \
+            --pattern 'rnad-i5-abc-paired-[BC]-part-*' --dir old-BC
           python - <<'PY'
           from pathlib import Path
+          import shutil
+          entries=list(Path('old-A').rglob('*.json'))+list(Path('old-BC').rglob('*.json'))
           expected={f'abc-{m}-{i}.json' for m in ('A','B','C') for i in range(16)}
-          assert {p.name for p in Path('evidence').glob('*.json')}==expected
+          assert len(entries)==48 and {p.name for p in entries}==expected
+          for p in entries:
+              pattern='rnad-i5-abc-A198-paired-part-' if p.name[4]=='A' else 'rnad-i5-abc-paired-'+p.name[4]+'-part-'
+              assert p.parent.name==pattern+p.stem.split('-')[-1]
+              shutil.copyfile(p,Path('evidence')/p.name)
           PY
       - name: Matched-G198 95% Bonferroni full-N comparison, no model selection
         run: |
