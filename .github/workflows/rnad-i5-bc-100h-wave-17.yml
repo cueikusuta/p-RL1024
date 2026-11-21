@@ -5,6 +5,10 @@ on:
       initial_artifact:
         required: true
         type: string
+      source_ref:
+        required: false
+        default: ''
+        type: string
     outputs:
       should_continue:
         value: ${{ jobs.g538.outputs.should_continue }}
@@ -16,6 +20,7 @@ jobs:
       generation: 519
       bootstrap_artifact: ${{ inputs.initial_artifact }}
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g520:
     needs: g519
@@ -25,6 +30,7 @@ jobs:
       generation: 520
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g519
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g521:
     needs: g520
@@ -34,6 +40,7 @@ jobs:
       generation: 521
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g520
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g522:
     needs: g521
@@ -43,6 +50,7 @@ jobs:
       generation: 522
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g521
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g523:
     needs: g522
@@ -52,6 +60,7 @@ jobs:
       generation: 523
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g522
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g524:
     needs: g523
@@ -61,6 +70,7 @@ jobs:
       generation: 524
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g523
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g525:
     needs: g524
@@ -70,6 +80,7 @@ jobs:
       generation: 525
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g524
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g526:
     needs: g525
@@ -79,6 +90,7 @@ jobs:
       generation: 526
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g525
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g527:
     needs: g526
@@ -88,6 +100,7 @@ jobs:
       generation: 527
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g526
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g528:
     needs: g527
@@ -97,6 +110,7 @@ jobs:
       generation: 528
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g527
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g529:
     needs: g528
@@ -106,6 +120,7 @@ jobs:
       generation: 529
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g528
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g530:
     needs: g529
@@ -115,6 +130,7 @@ jobs:
       generation: 530
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g529
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g531:
     needs: g530
@@ -124,6 +140,7 @@ jobs:
       generation: 531
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g530
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g532:
     needs: g531
@@ -133,6 +150,7 @@ jobs:
       generation: 532
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g531
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g533:
     needs: g532
@@ -142,6 +160,7 @@ jobs:
       generation: 533
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g532
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g534:
     needs: g533
@@ -151,6 +170,7 @@ jobs:
       generation: 534
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g533
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g535:
     needs: g534
@@ -160,6 +180,7 @@ jobs:
       generation: 535
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g534
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g536:
     needs: g535
@@ -169,6 +190,7 @@ jobs:
       generation: 536
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g535
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g537:
     needs: g536
@@ -178,6 +200,7 @@ jobs:
       generation: 537
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g536
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
   g538:
     needs: g537
@@ -187,4 +210,5 @@ jobs:
       generation: 538
       bootstrap_artifact: rnad-i5-cont-next-bootstrap-after-g537
       last_generation: 598
+      source_ref: ${{ inputs.source_ref || github.sha }}
     permissions: {contents: read, actions: write}
