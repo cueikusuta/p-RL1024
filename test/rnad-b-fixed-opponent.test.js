@@ -13,7 +13,7 @@ const coreSha=hash(new URL('../src/ai/draft-core-trio.js',import.meta.url));
 const config=kind=>({
   schema:'rnad-i5-authorized-fixed-opponent-v1',
   kind,aq_model_sha256:weightsSha256,core_trio_source_sha256:coreSha,
-  epsilon:.02,source_git_sha:'validated-in-full-bootstrap',
+  epsilon:.02,source_git_sha:verifiedRunningSourceSha(),
   research_only:true
 });
 test('fixed AQ/Core-Trio sessions reject unknown model or source identity',()=>{
@@ -28,6 +28,8 @@ test('fixed AQ/Core-Trio sessions reject unknown model or source identity',()=>{
   assert.throws(()=>approvedFixedSession({...config('aqbase001'),
     core_trio_source_sha256:'0'.repeat(64)}),/Unapproved/);
   assert.throws(()=>approvedFixedSession(config('invented')),/Unapproved/);
+  assert.throws(()=>approvedFixedSession({...config('aqbase001'),
+    source_git_sha:'0'.repeat(40)}),/Unapproved/);
 });
 test('real authority view accepts exact AQ and Core-Trio draft proposals',()=>{
   // A one-round compatibility smoke only; not a victory-rate estimate.
