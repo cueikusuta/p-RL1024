@@ -52,6 +52,12 @@ test('real authority view accepts exact AQ and Core-Trio draft proposals',()=>{
       assert.ok(event.behavior_prob>0&&event.behavior_prob<=1);
       assert.ok(Math.abs(event.policy_pi.reduce((a,b)=>a+b,0)-1)<1e-10);
       assert.ok(event.policy_pi.every(x=>x>0));
+      assert.ok(Math.abs(event.behavior_prob-
+        ((1-.02)*event.policy_pi[event.index]+.02/event.policy_pi.length))<1e-10,
+        'Recorded behavior mu must be exact epsilon mixture of frozen policy pi');
+      assert.ok(Math.abs(event.magnet_pi.reduce((a,b)=>a+b,0)-1)<1e-10);
+      assert.ok(Math.abs(event.magnet_pi[event.index]-
+        event.policy_pi[event.index])<1e-10);
     }
   }
 });
