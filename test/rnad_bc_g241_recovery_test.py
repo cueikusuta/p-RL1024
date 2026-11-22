@@ -47,7 +47,7 @@ class RecoveryBoundTest(unittest.TestCase):
         self.assertEqual(flow.count("git/blobs/"+NEW_BLOB),2)
         self.assertEqual(flow.count("git hash-object \"$target\""),2)
         self.assertEqual(flow.count("Non-boundary changes to validation module forbidden"),2)
-        self.assertEqual(flow.count("git rev-parse HEAD"),4)
+        self.assertEqual(flow.count("git rev-parse HEAD"),2)
         self.assertIn("ref: ${{ inputs.source_ref || github.sha }}",flow)
         self.assertIn("source_sha",Path("scripts/rnad/shared_league_contract.py").read_text())
 
