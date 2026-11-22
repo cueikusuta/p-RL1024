@@ -133,6 +133,35 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ inputs.source_ref || github.sha }}
+      - name: Install tightly scoped G241+ recovery validation patch (no model or learner changes)
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          target=scripts/rnad/shared_league_artifact_recovery.py
+          test "$(git hash-object "$target")" = 78691dfecab481a8ef9e233e08f3daf383eb58f4
+          gh api repos/cueikusuta/p-RL1024/git/blobs/a29ae5e46cff00598d84440071594275686029f2 --jq '.content' | base64 --decode > "$RUNNER_TEMP/recovery-validated.py"
+          test "$(git hash-object "$RUNNER_TEMP/recovery-validated.py")" = a29ae5e46cff00598d84440071594275686029f2
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path("scripts/rnad/shared_league_artifact_recovery.py")
+          old=p.read_text()
+          target=Path(os.environ["RUNNER_TEMP"])/"recovery-validated.py"
+          new=target.read_text()
+          before="# Source-pinned G137 continuation is bounded to G240; reject unapproved later generations.\nMAX_RECOVERY_GENERATION = 240"
+          after="# B+C 100h approved continuation has fixed waves through G598.\n# Keep the bound explicit: generation 599 and beyond fail closed.\nMAX_RECOVERY_GENERATION = 598"
+          assert old.count(before)==1
+          assert new==old.replace(before,after), "Non-boundary changes to validation module forbidden"
+          p.write_text(new)
+          from scripts.rnad.shared_league_artifact_recovery import artifact_name
+          assert artifact_name(241,19)=="rnad-i5-cont-g241-actor-19"
+          assert artifact_name(598,0)=="rnad-i5-cont-g598-actor-0"
+          try: artifact_name(599,0)
+          except ValueError: pass
+          else: raise AssertionError("G599 accepted outside authorized budget")
+          PY
+          test "$(git diff --name-only)" = "$target"
+          echo "Only the approved immutable recovery validator changed; model/learner source SHA remains pinned" >> "$GITHUB_STEP_SUMMARY"
       - name: Recover only missing immutable Actor artifact names, not successful IDs
         id: plan
         run: |
@@ -252,6 +281,35 @@ jobs:
           python -m pip install --disable-pip-version-check numpy==1.26.4
           node scripts/verify-snapshot.mjs
           python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
+      - name: Install tightly scoped G241+ recovery validation patch (no model or learner changes)
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          target=scripts/rnad/shared_league_artifact_recovery.py
+          test "$(git hash-object "$target")" = 78691dfecab481a8ef9e233e08f3daf383eb58f4
+          gh api repos/cueikusuta/p-RL1024/git/blobs/a29ae5e46cff00598d84440071594275686029f2 --jq '.content' | base64 --decode > "$RUNNER_TEMP/recovery-validated.py"
+          test "$(git hash-object "$RUNNER_TEMP/recovery-validated.py")" = a29ae5e46cff00598d84440071594275686029f2
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path("scripts/rnad/shared_league_artifact_recovery.py")
+          old=p.read_text()
+          target=Path(os.environ["RUNNER_TEMP"])/"recovery-validated.py"
+          new=target.read_text()
+          before="# Source-pinned G137 continuation is bounded to G240; reject unapproved later generations.\nMAX_RECOVERY_GENERATION = 240"
+          after="# B+C 100h approved continuation has fixed waves through G598.\n# Keep the bound explicit: generation 599 and beyond fail closed.\nMAX_RECOVERY_GENERATION = 598"
+          assert old.count(before)==1
+          assert new==old.replace(before,after), "Non-boundary changes to validation module forbidden"
+          p.write_text(new)
+          from scripts.rnad.shared_league_artifact_recovery import artifact_name
+          assert artifact_name(241,19)=="rnad-i5-cont-g241-actor-19"
+          assert artifact_name(598,0)=="rnad-i5-cont-g598-actor-0"
+          try: artifact_name(599,0)
+          except ValueError: pass
+          else: raise AssertionError("G599 accepted outside authorized budget")
+          PY
+          test "$(git diff --name-only)" = "$target"
+          echo "Only the approved immutable recovery validator changed; model/learner source SHA remains pinned" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify all twenty full accepted actor artifacts before any update
         run: |
           set -euo pipefail
