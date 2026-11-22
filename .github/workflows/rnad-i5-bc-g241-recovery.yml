@@ -1,7 +1,10 @@
 name: I5 B+C G241 recover immutable Actor evidence and resume 100h
 on:
   workflow_dispatch: {}
-# The push trigger is armed only after recovery code and contract CI pass.
+  push:
+    branches: [research/5-bc-100h-league]
+    paths: [.github/workflows/rnad-i5-bc-g241-recovery.yml]
+# Trigger only on this file; subsequent source commits do not silently replay G241.
 permissions: {}
 concurrency:
   group: rnad-i5-bc-100h-single-writer
