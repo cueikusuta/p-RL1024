@@ -1,8 +1,10 @@
 name: I5 B+C 100h wave4 from verified G241 recovery G259
 on:
   workflow_dispatch: {}
-# Intentionally manual-only until Run 45015759966 completed/success and the
-# G259 checkpoint has been independently checked. Arm a push trigger ONLY then.
+  push:
+    branches: [research/5-bc-100h-league]
+    paths: [.github/workflows/rnad-i5-bc-100h-wave04-recovery-resume.yml]
+# Trigger only for this file after successful source Run and independent G259 checkpoint verification.
 permissions: {}
 concurrency:
   group: rnad-i5-bc-100h-single-writer
