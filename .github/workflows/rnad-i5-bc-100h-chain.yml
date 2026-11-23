@@ -52,7 +52,309 @@ jobs:
             exit 0
           fi
           gh api --paginate 'repos/cueikusuta/p-RL1024/actions/runs?branch=research%2F5-bc-100h-league&per_page=100&created=%3E%3D2026-11-22' > runs.json
-          jq -se --arg title "I5 B+C chain G$START" --argjson current "$GITHUB_RUN_ID" '([.[].workflow_runs[]|select(.path==".github/workflows/rnad-i5-bc-100h-chain.yml" and .display_title==$title and .id<$current)]|length)==0' runs.json >/dev/null
+          # A superseded pending reservation with no jobs may be replaced; no started training may be replayed.
+          jq -sr --arg title "I5 B+C chain G$START" --argjson current "$GITHUB_RUN_ID" '.[].workflow_runs[]|select(.path==".github/workflows/rnad-i5-bc-100h-chain.yml" and .display_title==$title and .id<$current)|[.id,.status,.conclusion]|@tsv' runs.json > earlier.tsv
+          while IFS=
+          gh api --paginate "repos/cueikusuta/p-RL1024/actions/runs?head_sha=$GITHUB_SHA&per_page=100" > ci.json
+          jq -se --arg sha "$GITHUB_SHA" 'any(.[].workflow_runs[]; .path==".github/workflows/rnad-i5-bc-100h-auto-chain-contract-ci.yml" and .head_sha==$sha and .status=="completed" and .conclusion=="success")' ci.json >/dev/null
+          gh api --paginate 'repos/cueikusuta/p-RL1024/issues/14/comments?per_page=100' > review.json
+          jq -se --arg marker "RNAD_AUTO_CHAIN_REVIEW_GO $GITHUB_SHA" 'any(.[][]; .user.login=="cueikusuta" and (.body|split("\n")|index($marker))!=null)' review.json >/dev/null
+          gh api "repos/cueikusuta/p-RL1024/actions/runs/$PRIOR" > previous.json
+          jq -e --argjson id "$PRIOR" '.id==$id and .status=="completed" and .conclusion=="success" and .head_branch=="research/5-bc-100h-league" and .run_attempt==1' previous.json >/dev/null
+          if [ "$START" = 299 ]; then
+            test "$GITHUB_EVENT_NAME" = push
+            jq -e '.id==45287065252 and .head_sha=="efd3415c4590939c7b2edf0d7170c57a6f6989bb" and .path==".github/workflows/rnad-i5-bc-100h-wave05-recovery-resume.yml"' previous.json >/dev/null
+          else
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            jq -e --arg sha "$GITHUB_SHA" --arg title "I5 B+C chain G$((START-20))" '.head_sha==$sha and .path==".github/workflows/rnad-i5-bc-100h-chain.yml" and .display_title==$title' previous.json >/dev/null
+          fi
+          gh api --paginate "repos/cueikusuta/p-RL1024/actions/runs/$PRIOR/jobs?per_page=100" > jobs.json
+          jq -se --arg suffix "g$((START-1)) shared single writer and next handoff" '([.[].jobs[]|select((.name|endswith($suffix)) and .conclusion=="success")]|length)==1' jobs.json >/dev/null
+          gh api --paginate "repos/cueikusuta/p-RL1024/actions/runs/$PRIOR/artifacts?per_page=100" > artifacts.json
+          jq -se --arg n "rnad-i5-cont-next-bootstrap-after-g$((START-1))" '([.[].artifacts[]|select(.name==$n and .expired==false)]|if length==1 then .[0] else error("unique predecessor bootstrap required") end)' artifacts.json > selected.json
+          aid=$(jq -er '.id|tostring|select(test("^[0-9]+$"))' selected.json)
+          digest=$(jq -er '.digest|select(test("^sha256:[0-9a-f]{64}$"))|sub("^sha256:";"")' selected.json)
+          for attempt in 1 2 3 4 5; do
+            rm -f bootstrap.zip
+            if gh api "repos/cueikusuta/p-RL1024/actions/artifacts/$aid/zip" > bootstrap.zip && echo "$digest  bootstrap.zip" | sha256sum -c -; then break; fi
+            test "$attempt" -lt 5 || exit 1
+            sleep "$((attempt*15))"
+          done
+          mkdir bootstrap
+          unzip -q bootstrap.zip -d bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import hashlib,json,os,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_contract import verify_manifest,canonical_hash
+          root=Path("bootstrap"); start=int(os.environ["START"])
+          obj=lambda n:json.loads((root/n).read_text())
+          m=obj("generation-manifest.json");idx=obj("checkpoint-index.json")
+          ctx=obj("continuation-context.json");h=obj("handoff-report.json")
+          pins=[l.split(maxsplit=1)[1].lstrip("*") for l in (root/"file-pins.sha256").read_text().splitlines() if l.strip()]
+          actual={str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and p!=root/"file-pins.sha256"}
+          assert len(pins)==len(set(pins)) and set(pins)==actual
+          sha=lambda n:hashlib.sha256((root/n).read_bytes()).hexdigest()
+          assert m["generation"]==start and m["seed_start"]==9900001+start*640
+          assert m["source_sha"]==h["source_sha"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
+          assert verify_manifest(m)==canonical_hash(m)==h["new_generation_manifest_sha256"]
+          assert m["actor_count"]==20 and m["optimizer_steps"]==40
+          assert m["league_opponent_profile"]=="rnad-i5-opponents-b-v1" and m["battle_feature_schema"]=="rnad-three-phase-features-v6"
+          assert {x["id"] for x in m["opponents"]["fixed"]}=={"fixed-aqbase001","fixed-coretrioaq001","fixed-base256","fixed-c005"}
+          assert idx["generation"]==start and idx["sha256"]==sha("checkpoint-g0.pt")==h["new_full_checkpoint_sha256"]
+          assert m["main_sha256"]==sha("actor/manifest.json")==h["main_sha256"]
+          assert m["magnet_sha256"]==sha("magnet/manifest.json")==h["magnet_sha256"]
+          assert h["previous_generation"]==start-1 and h["generation"]==start
+          assert h["exact_previous_complete_matches"]==1280 and h["prior_optimizer_updates"]==40
+          assert h["prior_checkpoint_sha256"]==idx["prior_generation_checkpoint_sha256"]
+          assert h["new_seed_start"]==m["seed_start"]
+          assert all(h[k] is True for k in ("optimizer_full_state_preserved","target_full_state_preserved","magnet_full_state_preserved","rng_full_state_preserved","research_only"))
+          assert h["champion_promoted"] is False
+          assert ctx["budget_seconds"]==360000 and ctx["deadline_epoch"]==1795640581 and h["next_wall_clock_deadline_epoch"]==ctx["deadline_epoch"]
+          cont=ctx["deadline_epoch"]-time.time()>1200
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write(f"should_continue={str(cont).lower()}\n")
+              f.write("generations="+json.dumps(list(range(start,start+20)),separators=(",",":"))+"\n")
+              f.write("bootstraps="+json.dumps(["rnad-i5-bc-auto-bootstrap"]+[f"rnad-i5-cont-next-bootstrap-after-g{g}" for g in range(start,start+19)],separators=(",",":"))+"\n")
+              f.write(f"next_start={start+20}\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: steps.boundary.outputs.should_continue == 'true'
+        with:
+          name: rnad-i5-bc-auto-bootstrap
+          path: bootstrap/
+          retention-days: 7
+          if-no-files-found: error
+  g0:
+    needs: [prepare]
+    if: needs.prepare.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[0] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[0] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g1:
+    needs: [prepare, g0]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g0.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[1] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[1] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g2:
+    needs: [prepare, g1]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g1.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[2] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[2] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g3:
+    needs: [prepare, g2]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g2.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[3] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[3] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g4:
+    needs: [prepare, g3]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g3.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[4] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[4] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g5:
+    needs: [prepare, g4]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g4.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[5] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[5] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g6:
+    needs: [prepare, g5]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g5.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[6] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[6] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g7:
+    needs: [prepare, g6]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g6.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[7] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[7] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g8:
+    needs: [prepare, g7]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g7.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[8] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[8] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g9:
+    needs: [prepare, g8]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g8.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[9] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[9] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g10:
+    needs: [prepare, g9]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g9.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[10] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[10] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g11:
+    needs: [prepare, g10]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g10.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[11] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[11] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g12:
+    needs: [prepare, g11]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g11.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[12] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[12] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g13:
+    needs: [prepare, g12]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g12.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[13] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[13] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g14:
+    needs: [prepare, g13]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g13.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[14] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[14] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g15:
+    needs: [prepare, g14]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g14.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[15] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[15] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g16:
+    needs: [prepare, g15]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g15.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[16] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[16] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g17:
+    needs: [prepare, g16]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g16.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[17] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[17] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g18:
+    needs: [prepare, g17]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g17.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[18] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[18] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  g19:
+    needs: [prepare, g18]
+    if: needs.prepare.outputs.should_continue == 'true' && needs.g18.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml
+    with:
+      generation: ${{ fromJSON(needs.prepare.outputs.generations)[19] }}
+      bootstrap_artifact: ${{ fromJSON(needs.prepare.outputs.bootstraps)[19] }}
+      last_generation: 598
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  dispatch:
+    needs: [prepare, g19]
+    if: needs.g19.outputs.should_continue == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {actions: write}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NEXT: ${{ needs.prepare.outputs.next_start }}
+    steps:
+      - name: Reserve exactly one successor; never retry an ambiguous POST
+        run: |
+          set -euo pipefail
+          [[ "$NEXT" =~ ^[0-9]{3}$ ]]
+          (( NEXT >= 319 && NEXT <= 579 && (NEXT-299)%20 == 0 ))
+          if [ "$((1795640581-$(date +%s)))" -le 1200 ]; then exit 0; fi
+          gh api --paginate "repos/cueikusuta/p-RL1024/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" > artifacts.json
+          jq -se --arg n "rnad-i5-cont-next-bootstrap-after-g$((NEXT-1))" '([.[].artifacts[]|select(.name==$n and .expired==false)]|length)==1' artifacts.json >/dev/null
+          gh api --paginate 'repos/cueikusuta/p-RL1024/actions/runs?branch=research%2F5-bc-100h-league&per_page=100&created=%3E%3D2026-11-22' > runs.json
+          jq -se --arg title "I5 B+C chain G$NEXT" '([.[].workflow_runs[]|select(.path==".github/workflows/rnad-i5-bc-100h-chain.yml" and .display_title==$title)]|length)==0' runs.json >/dev/null
+          gh api --method POST repos/cueikusuta/p-RL1024/actions/workflows/rnad-i5-bc-100h-chain.yml/dispatches \
+            -f ref=research/5-bc-100h-league -f "inputs[start_generation]=$NEXT" \
+            -f "inputs[prior_run]=$GITHUB_RUN_ID" -f "inputs[controller_sha]=$GITHUB_SHA"
+\t' read -r rid state conclusion; do
+            [ -n "$rid" ] || continue
+            test "$START" = 299
+            test "$state" = completed
+            test "$conclusion" = cancelled
+            test "$(gh api "repos/cueikusuta/p-RL1024/actions/runs/$rid/jobs?per_page=1" --jq .total_count)" = 0
+          done < earlier.tsv
           gh api --paginate "repos/cueikusuta/p-RL1024/actions/runs?head_sha=$GITHUB_SHA&per_page=100" > ci.json
           jq -se --arg sha "$GITHUB_SHA" 'any(.[].workflow_runs[]; .path==".github/workflows/rnad-i5-bc-100h-auto-chain-contract-ci.yml" and .head_sha==$sha and .status=="completed" and .conclusion=="success")' ci.json >/dev/null
           gh api --paginate 'repos/cueikusuta/p-RL1024/issues/14/comments?per_page=100' > review.json
