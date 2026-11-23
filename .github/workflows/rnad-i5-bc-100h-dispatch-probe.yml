@@ -1,0 +1,33 @@
+name: I5 B+C branch dispatch probe (no training)
+on:
+  push:
+    branches: [research/5-bc-100h-league]
+    paths: [.github/workflows/rnad-i5-bc-100h-dispatch-probe.yml]
+  workflow_dispatch:
+    inputs:
+      probe:
+        type: string
+        required: true
+permissions: {}
+jobs:
+  launch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {actions: write}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check whether registered branch workflow accepts GITHUB_TOKEN dispatch
+        run: |
+          set -euo pipefail
+          gh api --method POST repos/cueikusuta/p-RL1024/actions/workflows/rnad-i5-bc-100h-dispatch-probe.yml/dispatches -f ref=research/5-bc-100h-league -f 'inputs[probe]=branch-token-test'
+  received:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      PROBE: ${{ inputs.probe }}
+    steps:
+      - run: test "$PROBE" = branch-token-test
