@@ -13,8 +13,9 @@ import sys
 from collections import Counter
 
 ACTORS = 20
-# Source-pinned G137 continuation is bounded to G240; reject unapproved later generations.
-MAX_RECOVERY_GENERATION = 240
+# B+C 100h approved continuation has fixed waves through G598.
+# Keep the bound explicit: generation 599 and beyond fail closed.
+MAX_RECOVERY_GENERATION = 598
 PREFIX = "rnad-i5-cont-g"
 FULL_NAME = re.compile(
     r"rnad-i5-cont-g(\d+)-(recovered-)?actor-(\d+)\Z"

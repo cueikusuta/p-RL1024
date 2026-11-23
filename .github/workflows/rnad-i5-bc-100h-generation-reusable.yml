@@ -1,0 +1,475 @@
+name: I5 B+C v6 one-generation synchronous 100h league worker
+on:
+  workflow_call:
+    inputs:
+      generation:
+        description: Exact training generation, distinct 640 paired seed clusters
+        required: true
+        type: number
+      bootstrap_artifact:
+        description: SHA-pinned previous-generation handoff bundle within caller run
+        required: true
+        type: string
+      last_generation:
+        required: true
+        type: number
+      source_ref:
+        required: false
+        default: ''
+        type: string
+    outputs:
+      should_continue:
+        description: Whether immutable 100-hour wall-clock deadline permits another generation
+        value: ${{ jobs.learner.outputs.should_continue }}
+permissions: {}
+
+jobs:
+  actor:
+    name: "g${{ inputs.generation }} actor ${{ matrix.actor_id }}"
+    runs-on: ubuntu-latest
+    # Only the strict recovery gate may tolerate an initial shard transport failure.
+    # It is NEVER allowed to release the Learner without 20 verified artifacts.
+    continue-on-error: true
+    timeout-minutes: 150
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        actor_id: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_ref || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Verify Node 22 from preinstalled runner or official SHA-checked archive (no setup-node)
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Retrieve identical shared Main+Magnet and immutable historical/fixed opponents
+        run: |
+          set -euo pipefail
+          # The same bootstrap artifact is requested by 20 Actor runners.
+          # Stagger reads to avoid Azure Blob "503 Egress is over the account limit".
+          sleep "$(( 4 * ${{ matrix.actor_id }} ))"
+          for attempt in 1 2 3 4 5 6 7; do
+            rm -rf bootstrap
+            if gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+                --name "${{ inputs.bootstrap_artifact }}" --dir bootstrap; then break; fi
+            if [ "$attempt" = 7 ]; then
+              echo "Immutable bootstrap download still throttled after seven attempts" >&2
+              exit 1
+            fi
+            delay=$(( 10 << (attempt - 1) ))
+            if [ "$delay" -gt 180 ]; then delay=180; fi
+            echo "Artifact egress throttled; retry same immutable bundle after ${delay}s" >&2
+            sleep "$delay"
+          done
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json,subprocess
+          m=json.load(open("bootstrap/generation-manifest.json"))
+          g=int("${{ inputs.generation }}")
+          assert m["generation"]==g
+          assert m["seed_start"]==9900001+640*g
+          assert m["actor_count"]==20 and m["seeds_per_actor"]==32
+          assert m["optimizer_batch_matches"]==32 and m["optimizer_steps"]==40
+          assert m["source_sha"]==subprocess.check_output(
+              ["git","rev-parse","HEAD"],text=True).strip()
+          assert m["league_opponent_profile"]=="rnad-i5-opponents-b-v1"
+          assert m["battle_feature_schema"]=="rnad-three-phase-features-v6"
+          assert {x["id"] for x in m["opponents"]["fixed"]}=={
+              "fixed-aqbase001","fixed-coretrioaq001","fixed-base256","fixed-c005"}
+          assert m["main_sha256"] == __import__("hashlib").sha256(
+              open("bootstrap/actor/manifest.json","rb").read()).hexdigest()
+          assert m["magnet_sha256"] == __import__("hashlib").sha256(
+              open("bootstrap/magnet/manifest.json","rb").read()).hexdigest()
+          PY
+      - name: Read-only 32 independent seed clusters x both seats on one immutable Main
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_collect \
+            --bootstrap bootstrap --actor-id "${{ matrix.actor_id }}" \
+            --out "out/actor-${{ matrix.actor_id }}"
+          test -s "out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-cont-g${{ inputs.generation }}-actor-${{ matrix.actor_id }}
+          path: out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  inspect:
+    name: "g${{ inputs.generation }} strict failure-only recovery plan"
+    needs: actor
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {contents: read, actions: read}
+    outputs:
+      missing: ${{ steps.plan.outputs.missing }}
+      missing_count: ${{ steps.plan.outputs.missing_count }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_ref || github.sha }}
+      - name: Install tightly scoped G241+ recovery validation patch (no model or learner changes)
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          target=scripts/rnad/shared_league_artifact_recovery.py
+          test "$(git hash-object "$target")" = 78691dfecab481a8ef9e233e08f3daf383eb58f4
+          gh api repos/cueikusuta/p-RL1024/git/blobs/a29ae5e46cff00598d84440071594275686029f2 --jq '.content' | base64 --decode > "$RUNNER_TEMP/recovery-validated.py"
+          test "$(git hash-object "$RUNNER_TEMP/recovery-validated.py")" = a29ae5e46cff00598d84440071594275686029f2
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path("scripts/rnad/shared_league_artifact_recovery.py")
+          old=p.read_text()
+          target=Path(os.environ["RUNNER_TEMP"])/"recovery-validated.py"
+          new=target.read_text()
+          before="# Source-pinned G137 continuation is bounded to G240; reject unapproved later generations.\nMAX_RECOVERY_GENERATION = 240"
+          after="# B+C 100h approved continuation has fixed waves through G598.\n# Keep the bound explicit: generation 599 and beyond fail closed.\nMAX_RECOVERY_GENERATION = 598"
+          assert old.count(before)==1
+          assert new==old.replace(before,after), "Non-boundary changes to validation module forbidden"
+          p.write_text(new)
+          from scripts.rnad.shared_league_artifact_recovery import artifact_name
+          assert artifact_name(241,19)=="rnad-i5-cont-g241-actor-19"
+          assert artifact_name(598,0)=="rnad-i5-cont-g598-actor-0"
+          try: artifact_name(599,0)
+          except ValueError: pass
+          else: raise AssertionError("G599 accepted outside authorized budget")
+          PY
+          test "$(git diff --name-only)" = "$target"
+          echo "Only the approved immutable recovery validator changed; model/learner source SHA remains pinned" >> "$GITHUB_STEP_SUMMARY"
+      - name: Recover only missing immutable Actor artifact names, not successful IDs
+        id: plan
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7; do
+            if gh api 'repos/cueikusuta/p-RL1024/actions/runs/${{ github.run_id }}/artifacts?per_page=100' \
+                 --paginate --jq '.artifacts[] | {name,expired}' | \
+                 jq -s '{artifacts:.}' > listing.json; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            sleep "$((attempt * 10))"
+          done
+          python -m scripts.rnad.shared_league_artifact_recovery inspect \
+            --generation "${{ inputs.generation }}" --artifact-json listing.json > plan.json
+          cat plan.json
+          echo "missing=$(jq -c '.missing' plan.json)" >> "$GITHUB_OUTPUT"
+          echo "missing_count=$(jq -r '.missing_count' plan.json)" >> "$GITHUB_OUTPUT"
+          echo "Only missing Actor IDs may be regenerated; original artifacts immutable" >> "$GITHUB_STEP_SUMMARY"
+
+  rescue:
+    name: "g${{ inputs.generation }} only-missing Actor ${{ matrix.actor_id }}"
+    needs: inspect
+    if: ${{ !cancelled() && needs.inspect.outputs.missing_count != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions: {contents: read, actions: read}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        actor_id: ${{ fromJSON(needs.inspect.outputs.missing) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_ref || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Use runner's Node22 or SHA-verified official Node archive
+        run: |
+          set -euo pipefail
+          if ! command -v node || ! node --version | grep -Eq '^v22\.'; then
+            archive=node-v22.14.0-linux-x64.tar.xz
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/$archive" -o "$RUNNER_TEMP/$archive"
+            curl -fsSL --retry 3 "https://nodejs.org/dist/v22.14.0/SHASUMS256.txt" -o "$RUNNER_TEMP/SHASUMS256.txt"
+            (cd "$RUNNER_TEMP" && grep -F " $archive" SHASUMS256.txt | sha256sum --check)
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/node-v22.14.0-linux-x64/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Get the SAME SHA-locked Main/Magnet and regenerate only failed ID's original seeds
+        run: |
+          set -euo pipefail
+          sleep "$(( 4 * ${{ matrix.actor_id }} ))"
+          for attempt in 1 2 3 4 5 6 7; do
+            rm -rf bootstrap
+            if gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+                --name "${{ inputs.bootstrap_artifact }}" --dir bootstrap; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            delay=$((10 << (attempt - 1)))
+            if [ "$delay" -gt 180 ]; then delay=180; fi
+            sleep "$delay"
+          done
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          node scripts/verify-snapshot.mjs
+          python - <<'PY'
+          import json,subprocess
+          m=json.load(open("bootstrap/generation-manifest.json"))
+          assert m["generation"]==int("${{ inputs.generation }}")
+          assert m["seed_start"]==9900001+640*m["generation"]
+          assert m["source_sha"]==subprocess.check_output(
+              ["git","rev-parse","HEAD"],text=True).strip()
+          PY
+          python -m scripts.rnad.shared_league_collect \
+            --bootstrap bootstrap --actor-id "${{ matrix.actor_id }}" \
+            --out "out/actor-${{ matrix.actor_id }}"
+          test -s "out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-cont-g${{ inputs.generation }}-recovered-actor-${{ matrix.actor_id }}
+          path: out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  learner:
+    name: "g${{ inputs.generation }} shared single writer and next handoff"
+    needs: [actor, inspect, rescue]
+    # Recovery can run only after ALL 20 initial matrix jobs finished.
+    # Even soft-failed jobs may not reach Learner without a strict 20/20 gate.
+    if: ${{ !cancelled() && needs.inspect.result == 'success' && (needs.rescue.result == 'success' || needs.rescue.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    permissions: {contents: read, actions: read}
+    outputs:
+      should_continue: ${{ steps.deadline.outputs.should_continue }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_ref || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: CPU PyTorch single shared Learner
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
+      - name: Install tightly scoped G241+ recovery validation patch (no model or learner changes)
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          target=scripts/rnad/shared_league_artifact_recovery.py
+          test "$(git hash-object "$target")" = 78691dfecab481a8ef9e233e08f3daf383eb58f4
+          gh api repos/cueikusuta/p-RL1024/git/blobs/a29ae5e46cff00598d84440071594275686029f2 --jq '.content' | base64 --decode > "$RUNNER_TEMP/recovery-validated.py"
+          test "$(git hash-object "$RUNNER_TEMP/recovery-validated.py")" = a29ae5e46cff00598d84440071594275686029f2
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path("scripts/rnad/shared_league_artifact_recovery.py")
+          old=p.read_text()
+          target=Path(os.environ["RUNNER_TEMP"])/"recovery-validated.py"
+          new=target.read_text()
+          before="# Source-pinned G137 continuation is bounded to G240; reject unapproved later generations.\nMAX_RECOVERY_GENERATION = 240"
+          after="# B+C 100h approved continuation has fixed waves through G598.\n# Keep the bound explicit: generation 599 and beyond fail closed.\nMAX_RECOVERY_GENERATION = 598"
+          assert old.count(before)==1
+          assert new==old.replace(before,after), "Non-boundary changes to validation module forbidden"
+          p.write_text(new)
+          from scripts.rnad.shared_league_artifact_recovery import artifact_name
+          assert artifact_name(241,19)=="rnad-i5-cont-g241-actor-19"
+          assert artifact_name(598,0)=="rnad-i5-cont-g598-actor-0"
+          try: artifact_name(599,0)
+          except ValueError: pass
+          else: raise AssertionError("G599 accepted outside authorized budget")
+          PY
+          test "$(git diff --name-only)" = "$target"
+          echo "Only the approved immutable recovery validator changed; model/learner source SHA remains pinned" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify all twenty full accepted actor artifacts before any update
+        run: |
+          set -euo pipefail
+          download_pinned() {
+            local name="$1"
+            local dir="$2"
+            local attempt delay
+            for attempt in 1 2 3 4 5 6 7; do
+              rm -rf "$dir"
+              mkdir -p "$dir"
+              if gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+                  --name "$name" --dir "$dir"; then return 0; fi
+              if [ "$attempt" = 7 ]; then
+                echo "Failed pinned artifact download after bounded egress backoff: $name" >&2
+                return 1
+              fi
+              delay=$(( 10 << (attempt - 1) ))
+              if [ "$delay" -gt 180 ]; then delay=180; fi
+              echo "Egress busy; waiting ${delay}s for exact same artifact: $name" >&2
+              sleep "$delay"
+            done
+          }
+          download_pinned "${{ inputs.bootstrap_artifact }}" bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          # Re-list after recovery. Each of the 20 IDs must resolve to
+          # exactly ONE original OR recovered immutable artifact.
+          # Two variants, stale IDs, missing shards or duplicates fail closed.
+          for attempt in 1 2 3 4 5 6 7; do
+            if gh api 'repos/cueikusuta/p-RL1024/actions/runs/${{ github.run_id }}/artifacts?per_page=100' \
+                 --paginate --jq '.artifacts[] | {name,expired}' | \
+                 jq -s '{artifacts:.}' > listing.json; then break; fi
+            if [ "$attempt" = 7 ]; then exit 1; fi
+            sleep "$((attempt * 10))"
+          done
+          python -m scripts.rnad.shared_league_artifact_recovery resolve \
+            --generation "${{ inputs.generation }}" --artifact-json listing.json > resolved.json
+          test "$(jq -r '.source_artifacts | length' resolved.json)" -eq 20
+          for n in $(seq 0 19); do
+            artifact_name="$(jq -r --argjson n "$n" '.source_artifacts[$n]' resolved.json)"
+            download_pinned "$artifact_name" "actors/actor-$n"
+            test -s "actors/actor-$n/actor-$n.json.gz"
+          done
+          echo '20/20 distinct accepted source artifacts; full Match receipt verification follows' >> "$GITHUB_STEP_SUMMARY"
+      - name: Exactly 1 Learner x 40 NeuRD/V-trace steps; full optimizer/Target/Magnet/RNG state
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_learner \
+            --bootstrap bootstrap --actors actors --out research-output \
+            --original-draft bootstrap/original-draft.json \
+            --original-selection-js bootstrap/original-selection-js.json
+          python - <<'PY'
+          import json
+          g=int("${{ inputs.generation }}")
+          r=json.load(open(f"research-output/generation{g+1}-report.json"))
+          assert r["generation"]==g and r["next_generation"]==g+1
+          assert r["accepted_complete_four_win_matches"]==1280
+          assert r["optimizer_updates_completed"]==40
+          assert r["cumulative_complete_matches"]==1280*(g+1)
+          assert r["cumulative_optimizer_updates"]==40*(g+1)
+          assert r["champion_promoted"] is False
+          PY
+      - name: Wave-boundary exactly validated, never reinitialize optimizer or seed stream
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_handoff \
+            --previous-bootstrap bootstrap --previous-result research-output \
+            --out next-bootstrap --budget-seconds 360000
+          (cd next-bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import json
+          g=int("${{ inputs.generation }}")
+          m=json.load(open("next-bootstrap/generation-manifest.json"))
+          r=json.load(open("next-bootstrap/handoff-report.json"))
+          assert m["generation"]==g+1 and m["seed_start"]==9900001+640*(g+1)
+          assert r["previous_generation"]==g
+          assert r["optimizer_full_state_preserved"] is True
+          assert r["magnet_full_state_preserved"] is True
+          assert r["rng_full_state_preserved"] is True
+          PY
+      - name: Record actual elapsed study budget and output for next generation
+        id: deadline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,time,os
+          d=json.load(open("next-bootstrap/continuation-context.json"))
+          g=int("${{ inputs.generation }}")
+          remaining=d["deadline_epoch"]-int(time.time())
+          # Do not begin another 1280-Match generation when insufficient
+          # time for a normal complete generation. Finish current generation
+          # and keep fully reproducible output instead.
+          again=remaining>1200 and g<int("${{ inputs.last_generation }}")
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write("should_continue="+str(again).lower()+"\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write(f"## One Main, generation {g} complete\n")
+              f.write(f"* 1,280 real 4-win accepted Matches, 40 optimizer updates\n")
+              f.write(f"* Cumulative {1280*(g+1):,} Matches and {40*(g+1):,} updates\n")
+              f.write(f"* Remaining planned wall-clock budget: {remaining}s\n")
+              f.write(f"* Start next generation: {again}\n")
+              f.write(f"* No Champion promotion and no claimed strength\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-cont-g${{ inputs.generation }}-full-learner-result
+          path: research-output/
+          retention-days: 7
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: rnad-i5-cont-next-bootstrap-after-g${{ inputs.generation }}
+          path: next-bootstrap/
+          retention-days: 7
+          if-no-files-found: error
+
+  cleanup:
+    name: "g${{ inputs.generation }} bounded storage cleanup after verified handoff"
+    needs: learner
+    if: ${{ needs.learner.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    permissions: {actions: write}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Delete ONLY consumed Actor shards and obsolete B+C intermediate checkpoint artifacts
+        run: |
+          set -euo pipefail
+          gh api 'repos/cueikusuta/p-RL1024/actions/runs/${{ github.run_id }}/artifacts?per_page=100' \
+            --paginate --jq '.artifacts[] | [.id,.name,.expired] | @tsv' > artifacts.tsv
+          python - <<'PY'
+          from pathlib import Path
+          g=int("${{ inputs.generation }}")
+          entries={}
+          for line in Path("artifacts.tsv").read_text().splitlines():
+              ident,name,expired=line.split("\t")
+              assert ident.isdecimal() and name not in entries
+              entries[name]=(int(ident),expired)
+          current=f"rnad-i5-cont-next-bootstrap-after-g{g}"
+          assert current in entries and entries[current][1]=="false",(
+              "No verified next-bootstrap, refusing cleanup")
+          delete=[]
+          for actor in range(20):
+              name=f"rnad-i5-cont-g{g}-actor-{actor}"
+              if name in entries and entries[name][1]=="false":
+                  delete.append(entries[name][0])
+          old=g-2
+          if old>=199 and old%25!=0:
+              for name in (f"rnad-i5-cont-next-bootstrap-after-g{old}",
+                           f"rnad-i5-cont-g{old}-full-learner-result"):
+                  if name in entries and entries[name][1]=="false":
+                      delete.append(entries[name][0])
+          Path("delete-ids.txt").write_text("".join(f"{x}\n" for x in delete))
+          print(f"gen={g}, consumed={len(delete)}, keep latest checkpoint and milestones")
+          PY
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            gh api --method DELETE "repos/cueikusuta/p-RL1024/actions/artifacts/$id"
+          done < delete-ids.txt
+          echo "Only verified consumed artifacts deleted; full-state checkpoints remain pinned" >> "$GITHUB_STEP_SUMMARY"

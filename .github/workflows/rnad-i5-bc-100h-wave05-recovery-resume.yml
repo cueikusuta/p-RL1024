@@ -1,0 +1,105 @@
+name: I5 B+C 100h wave5 from verified wave4 G279
+on:
+  push:
+    branches: [research/5-bc-100h-league]
+    paths: [.github/workflows/rnad-i5-bc-100h-wave05-recovery-resume.yml]
+# Only this file triggers; prepare must independently verify the immutable G279 boundary before Actors.
+permissions: {}
+concurrency:
+  group: rnad-i5-bc-100h-single-writer
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions: {contents: read, actions: read}
+    outputs:
+      should_continue: ${{ steps.deadline.outputs.should_continue }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494, persist-credentials: false}
+      - name: Require only complete successful wave4 plus G278 boundary; refuse partial state
+        run: |
+          set -euo pipefail
+          gh api repos/cueikusuta/p-RL1024/actions/runs/45043988217 \
+            --jq '{id,status,conclusion,head_sha}' > previous-run.json
+          jq -e '.id==45043988217 and .status=="completed" and .conclusion=="success" and .head_sha=="d89925f47847bc0519bcefc88a15111e53b2b124"' previous-run.json >/dev/null
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          # A prior launch of this wave requires explicit recovery, never a duplicate Learner.
+          gh api --paginate 'repos/cueikusuta/p-RL1024/actions/runs?branch=research%2F5-bc-100h-league&per_page=100&created=%3E%3D2026-11-22' > prior-runs.json
+          jq -se --argjson current "$GITHUB_RUN_ID" '([.[].workflow_runs[] | select(.path==".github/workflows/rnad-i5-bc-100h-wave05-recovery-resume.yml" and .id < $current)] | length)==0' prior-runs.json >/dev/null
+          gh api repos/cueikusuta/p-RL1024/actions/artifacts/14776631271 > bootstrap-artifact.json
+          jq -e '.id==14776631271 and .name=="rnad-i5-cont-next-bootstrap-after-g278" and .expired==false and .workflow_run.id==45043988217 and .digest=="sha256:fa5081fb00cf44a08fd5d6fff6a90a0f55921c57f11a8f95717c0e11add8b718"' bootstrap-artifact.json >/dev/null
+          gh api repos/cueikusuta/p-RL1024/actions/artifacts/14776631271/zip > bootstrap.zip
+          echo 'fa5081fb00cf44a08fd5d6fff6a90a0f55921c57f11a8f95717c0e11add8b718  bootstrap.zip' | sha256sum -c -
+          mkdir bootstrap
+          unzip -q bootstrap.zip -d bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+      - name: Verify G279 from G278 committed full state, fixed 100h deadline and seed continuity
+        id: deadline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_contract import verify_manifest,canonical_hash
+          root=Path("bootstrap")
+          obj=lambda name:json.loads((root/name).read_text())
+          m=obj("generation-manifest.json");idx=obj("checkpoint-index.json")
+          ctx=obj("continuation-context.json");handoff=obj("handoff-report.json")
+          assert m["generation"]==279 and m["seed_start"]==9900001+279*640
+          assert m["source_sha"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
+          assert verify_manifest(m)==canonical_hash(m)
+          assert m["actor_count"]==20 and m["optimizer_steps"]==40
+          assert m["league_opponent_profile"]=="rnad-i5-opponents-b-v1"
+          assert m["battle_feature_schema"]=="rnad-three-phase-features-v6"
+          assert {x["id"] for x in m["opponents"]["fixed"]}=={
+              "fixed-aqbase001","fixed-coretrioaq001","fixed-base256","fixed-c005"}
+          assert idx["generation"]==279 and idx["sha256"]==hashlib.sha256(
+              (root/"checkpoint-g0.pt").read_bytes()).hexdigest()
+          assert m["main_sha256"]=="328aa9e402d7b8a1dd55128b91db8b5a7b013b486fe894c52245e8a7a5b78579"
+          assert m["magnet_sha256"]=="083a05a889e72384f8804df8358658444bcedaea3789e28ade2bf78e1e063c1c"
+          assert m["main_sha256"]==hashlib.sha256(
+              (root/"actor/manifest.json").read_bytes()).hexdigest()
+          assert m["magnet_sha256"]==hashlib.sha256(
+              (root/"magnet/manifest.json").read_bytes()).hexdigest()
+          pins=[line.split(maxsplit=1)[1].lstrip("*") for line in (root/"file-pins.sha256").read_text().splitlines() if line.strip()]
+          actual={str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and p!=root/"file-pins.sha256"}
+          assert len(pins)==len(set(pins)) and set(pins)==actual
+          assert handoff["previous_generation"]==278 and handoff["generation"]==279
+          assert handoff["exact_previous_complete_matches"]==1280 and handoff["prior_optimizer_updates"]==40
+          assert handoff["prior_checkpoint_sha256"]==idx["prior_generation_checkpoint_sha256"]=="7f2c25ba2a0ce46bd42a738667990010c55c1e5d627fd0ed4c328bc80a7851a1"
+          assert handoff["new_full_checkpoint_sha256"]==idx["sha256"]
+          assert handoff["new_seed_start"]==m["seed_start"]
+          assert handoff["target_full_state_preserved"] is True
+          assert handoff["research_only"] is True and handoff["champion_promoted"] is False
+          assert handoff["optimizer_full_state_preserved"] is True
+          assert handoff["magnet_full_state_preserved"] is True
+          assert handoff["rng_full_state_preserved"] is True
+          assert ctx["budget_seconds"]==360000
+          assert ctx["deadline_epoch"]==1795640581
+          remaining=ctx["deadline_epoch"]-time.time()
+          cont=remaining>1200
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write(f"should_continue={str(cont).lower()}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write(f"Verified G279 full state from G278. Remaining {remaining:.0f}s, continue={cont}\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ steps.deadline.outputs.should_continue == 'true' }}
+        with:
+          name: rnad-i5-bc-g279-recovery-bootstrap
+          path: bootstrap/
+          retention-days: 7
+          if-no-files-found: error
+  wave5:
+    needs: prepare
+    if: needs.prepare.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-05.yml
+    with:
+      initial_artifact: rnad-i5-bc-g279-recovery-bootstrap
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}

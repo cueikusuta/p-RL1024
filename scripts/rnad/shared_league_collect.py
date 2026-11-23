@@ -139,7 +139,8 @@ def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1):
         "role": role, "main_sha256": manifest["main_sha256"],
         "magnet_sha256": manifest["magnet_sha256"],
         "opponent_sha256": opponent["sha256"],
-        "legacy_sha256": opponent["sha256"] if role == "fixed" else None,
+        "legacy_sha256": opponent["sha256"] if role == "fixed" and
+        opponent["id"] not in ("fixed-aqbase001","fixed-coretrioaq001") else None,
     }
     meta_file = output / "actor-meta.json"
     payload_bytes = json.dumps(meta, sort_keys=True).encode()
@@ -149,12 +150,18 @@ def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1):
     else:
         meta_file.write_bytes(payload_bytes)
     opponent_path = None
+    fixed_config_path = None
     historical_path = None
     if role == "fixed":
         name = opponent["id"].removeprefix("fixed-")
-        opponent_path = root / "fixed" / (name + "-v3.json")
-        if (not opponent_path.is_file() or
-            hashlib.sha256(opponent_path.read_bytes()).hexdigest()
+        if name in ("aqbase001","coretrioaq001"):
+            fixed_config_path = root / "fixed" / (name + "-v1.json")
+            selected = fixed_config_path
+        else:
+            opponent_path = root / "fixed" / (name + "-v3.json")
+            selected = opponent_path
+        if (not selected.is_file() or
+            hashlib.sha256(selected.read_bytes()).hexdigest()
             != opponent["sha256"]):
             raise ValueError("Frozen fixed opponent content absent or modified")
     if role == "historical":
@@ -185,7 +192,9 @@ def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1):
         "--meta", str(meta_file), "--main", str(root / "actor"),
         "--magnet", str(magnet_path),
     ]
-    if opponent_path is not None:
+    if fixed_config_path is not None:
+        cmd.extend(["--fixed-config", str(fixed_config_path)])
+    elif opponent_path is not None:
         cmd.extend(["--legacy", str(opponent_path)])
     elif historical_path is not None:
         cmd.extend(["--opponent", str(historical_path)])

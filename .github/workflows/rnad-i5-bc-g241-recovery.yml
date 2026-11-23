@@ -1,0 +1,266 @@
+name: I5 B+C G241 recover immutable Actor evidence and resume 100h
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [research/5-bc-100h-league]
+    paths: [.github/workflows/rnad-i5-bc-g241-recovery.yml]
+# Trigger only on this file; subsequent source commits do not silently replay G241.
+permissions: {}
+concurrency:
+  group: rnad-i5-bc-100h-single-writer
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions: {contents: read, actions: read}
+    outputs:
+      should_continue: ${{ steps.deadline.outputs.should_continue }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          persist-credentials: false
+      - name: Pin failed G241 run and all 20 non-expired historical Actor artifacts
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          gh api repos/cueikusuta/p-RL1024/actions/runs/44995727006 \
+            --jq '{id,head_sha,status,conclusion}' > source-run.json
+          jq -e '.id==44995727006 and .head_sha=="e919e64730ce1608160cb17db16ff26d72cb0668" and .status=="completed" and .conclusion=="failure"' source-run.json >/dev/null
+          gh api 'repos/cueikusuta/p-RL1024/actions/runs/44995727006/artifacts?per_page=100' \
+            --paginate --jq '.artifacts[]' | jq -s '{artifacts:.}' > listing.json
+          python - <<'PY'
+          import json,datetime
+          src=json.load(open("listing.json"))["artifacts"]
+          assert len({row["id"] for row in src})==len(src)
+          actor={f"rnad-i5-cont-g241-actor-{i}" for i in range(20)}
+          existing=[row for row in src if row.get("name") in actor]
+          assert len(existing)==20
+          assert {row["name"] for row in existing}==actor
+          assert all(row.get("expired") is False and
+                     row.get("digest","").startswith("sha256:") and
+                     row.get("size_in_bytes",0)>0 for row in existing)
+          bootstrap=[row for row in src if
+              row.get("name")=="rnad-i5-cont-next-bootstrap-after-g240"]
+          assert len(bootstrap)==1 and bootstrap[0]["id"]==14744458798
+          assert not bootstrap[0]["expired"]
+          assert all(row["id"]!=bootstrap[0]["id"] for row in existing)
+          print("All 20 immutable G241 Actor artifacts and source G241 bootstrap are available")
+          PY
+      - name: Pin and validate complete original G241 bootstrap, without replaying G239/G240
+        id: deadline
+        run: |
+          set -euo pipefail
+          gh run download 44995727006 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-cont-next-bootstrap-after-g240 --dir bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import hashlib,json,os,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_contract import verify_manifest,canonical_hash
+          root=Path("bootstrap")
+          get=lambda path:json.loads((root/path).read_text())
+          manifest=get("generation-manifest.json")
+          idx=get("checkpoint-index.json")
+          ctx=get("continuation-context.json")
+          assert verify_manifest(manifest)==canonical_hash(manifest)
+          assert manifest["generation"]==241 and manifest["seed_start"]==9900001+241*640
+          assert manifest["source_sha"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
+          assert manifest["league_opponent_profile"]=="rnad-i5-opponents-b-v1"
+          assert manifest["battle_feature_schema"]=="rnad-three-phase-features-v6"
+          assert manifest["actor_count"]==20 and manifest["optimizer_steps"]==40
+          assert set(x["id"] for x in manifest["opponents"]["fixed"])=={
+              "fixed-aqbase001","fixed-coretrioaq001",
+              "fixed-base256","fixed-c005"}
+          assert idx["generation"]==241
+          assert idx["sha256"]==hashlib.sha256(
+              (root/"checkpoint-g0.pt").read_bytes()).hexdigest()
+          assert manifest["main_sha256"]==hashlib.sha256(
+              (root/"actor/manifest.json").read_bytes()).hexdigest()
+          assert manifest["magnet_sha256"]==hashlib.sha256(
+              (root/"magnet/manifest.json").read_bytes()).hexdigest()
+          assert ctx["budget_seconds"]==360000 and (
+              ctx["deadline_epoch"]-ctx["start_epoch"]==360000)
+          assert ctx["deadline_epoch"]==1795640581
+          remaining=ctx["deadline_epoch"]-time.time()
+          assert remaining>1200, "Do not begin a generation beyond the original deadline"
+          with open(os.environ["GITHUB_OUTPUT"],"a") as output:
+              output.write("should_continue=true\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as summary:
+              summary.write(f"Original G241 bootstrap SHA verified; 100h remaining {remaining:.0f}s\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rnad-i5-bc-g241-recovery-bootstrap
+          path: bootstrap/
+          retention-days: 7
+          if-no-files-found: error
+  g241:
+    needs: prepare
+    if: needs.prepare.outputs.should_continue == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    permissions: {contents: read, actions: read}
+    outputs:
+      should_continue: ${{ steps.deadline.outputs.should_continue }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: '3.11'}
+      - name: Install frozen original Learner requirements and verify engine provenance
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p rnad_shared_league_handoff_test.py -v
+      - name: Install exact-blobby approved G241+ artifact-identity validator ONLY
+        run: |
+          set -euo pipefail
+          target=scripts/rnad/shared_league_artifact_recovery.py
+          test "$(git hash-object "$target")" = 78691dfecab481a8ef9e233e08f3daf383eb58f4
+          gh api repos/cueikusuta/p-RL1024/git/blobs/a29ae5e46cff00598d84440071594275686029f2 --jq '.content' | base64 --decode > "$RUNNER_TEMP/recovery-validated.py"
+          test "$(git hash-object "$RUNNER_TEMP/recovery-validated.py")" = a29ae5e46cff00598d84440071594275686029f2
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          path=Path("scripts/rnad/shared_league_artifact_recovery.py")
+          a=path.read_text()
+          b=(Path(os.environ["RUNNER_TEMP"])/"recovery-validated.py").read_text()
+          old="# Source-pinned G137 continuation is bounded to G240; reject unapproved later generations.\nMAX_RECOVERY_GENERATION = 240"
+          new="# B+C 100h approved continuation has fixed waves through G598.\n# Keep the bound explicit: generation 599 and beyond fail closed.\nMAX_RECOVERY_GENERATION = 598"
+          assert a.count(old)==1 and b==a.replace(old,new)
+          path.write_text(b)
+          PY
+          test "$(git diff --name-only)" = "$target"
+      - name: Download original G241 accepted Actor receipts (NO recomputation)
+        run: |
+          set -euo pipefail
+          gh api 'repos/cueikusuta/p-RL1024/actions/runs/44995727006/artifacts?per_page=100' \
+            --paginate --jq '.artifacts[] | {id,name,expired,digest}' | jq -s '{artifacts:.}' > listing.json
+          python -m scripts.rnad.shared_league_artifact_recovery resolve \
+            --generation 241 --artifact-json listing.json > resolved.json
+          test "$(jq -r '.source_artifacts | length' resolved.json)" -eq 20
+          gh run download "${{ github.run_id }}" --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-bc-g241-recovery-bootstrap --dir bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          for i in $(seq 0 19); do
+            artifact_name="$(jq -r --argjson index "$i" '.source_artifacts[$index]' resolved.json)"
+            test "$artifact_name" = "rnad-i5-cont-g241-actor-$i"
+            success=false
+            for attempt in 1 2 3 4 5 6 7; do
+              rm -rf "actors/actor-$i"; mkdir -p "actors/actor-$i"
+              if gh run download 44995727006 --repo cueikusuta/p-RL1024 \
+                   --name "$artifact_name" --dir "actors/actor-$i"; then
+                success=true;break
+              fi
+              sleep "$(( attempt * 10 ))"
+            done
+            test "$success" = true
+            test -s "actors/actor-$i/actor-$i.json.gz"
+          done
+          echo 'Downloaded all 20 G241 original accepted Actors. Not one Match re-simulated.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Single verified G241 Learner 1280 Matches and exactly 40 updates
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_learner \
+            --bootstrap bootstrap --actors actors --out research-output \
+            --original-draft bootstrap/original-draft.json \
+            --original-selection-js bootstrap/original-selection-js.json
+          python - <<'PY'
+          import json
+          report=json.load(open("research-output/generation242-report.json"))
+          assert report["generation"]==241 and report["next_generation"]==242
+          assert report["accepted_complete_four_win_matches"]==1280
+          assert report["optimizer_updates_completed"]==40
+          assert report["cumulative_complete_matches"]==1280*242
+          assert report["cumulative_optimizer_updates"]==40*242
+          assert report["champion_promoted"] is False
+          print("G241 completed by the original frozen NeuRD/V-trace learner")
+          PY
+      - name: Full-state G242 handoff, all SHA and seed continuity
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.shared_league_handoff \
+            --previous-bootstrap bootstrap --previous-result research-output \
+            --out next-bootstrap --budget-seconds 360000
+          (cd next-bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          from scripts.rnad.shared_league_contract import verify_manifest
+          d=Path("next-bootstrap")
+          obj=lambda name:json.loads((d/name).read_text())
+          m=obj("generation-manifest.json")
+          r=obj("handoff-report.json")
+          idx=obj("checkpoint-index.json")
+          ctx=obj("continuation-context.json")
+          assert m["generation"]==242 and m["seed_start"]==9900001+242*640
+          assert verify_manifest(m)
+          assert m["source_sha"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
+          assert m["battle_feature_schema"]=="rnad-three-phase-features-v6"
+          assert m["league_opponent_profile"]=="rnad-i5-opponents-b-v1"
+          assert idx["generation"]==242 and idx["sha256"]==hashlib.sha256(
+              (d/"checkpoint-g0.pt").read_bytes()).hexdigest()
+          assert m["main_sha256"]==hashlib.sha256(
+              (d/"actor/manifest.json").read_bytes()).hexdigest()
+          assert m["magnet_sha256"]==hashlib.sha256(
+              (d/"magnet/manifest.json").read_bytes()).hexdigest()
+          assert r["previous_generation"]==241
+          assert r["optimizer_full_state_preserved"] is True
+          assert r["magnet_full_state_preserved"] is True
+          assert r["rng_full_state_preserved"] is True
+          assert ctx["deadline_epoch"]==1795640581
+          print("G242 checkpoint and Model/Magnet/Optimizer/RNG state are source-pinned")
+          PY
+      - name: Preserve original study deadline and gate next generation
+        id: deadline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,time,os
+          from pathlib import Path
+          ctx=json.loads(Path("next-bootstrap/continuation-context.json").read_text())
+          remaining=ctx["deadline_epoch"]-time.time()
+          allow=remaining>1200
+          with open(os.environ["GITHUB_OUTPUT"],"a") as o:
+              o.write("should_continue="+str(allow).lower()+"\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as o:
+              o.write(f"G241 recovered from original Actor 20/20. G242 sealed. Remaining {remaining:.0f}s. Continue: {allow}.\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rnad-i5-cont-g241-recovered-full-learner-result
+          path: research-output/
+          retention-days: 7
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: rnad-i5-cont-next-bootstrap-after-g241
+          path: next-bootstrap/
+          retention-days: 7
+          if-no-files-found: error
+  wave3_rest:
+    needs: g241
+    if: needs.g241.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-03-rest.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g241
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}

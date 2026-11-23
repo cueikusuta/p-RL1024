@@ -1,0 +1,86 @@
+name: I5 B+C source-pinned 100h continuation wave (armed only after previous complete)
+on:
+  workflow_dispatch: {}
+  push: {branches: [research/5-bc-100h-league], paths: [.github/workflows/rnad-i5-bc-100h-resume-wave.yml]}
+# To trigger the next safe wave, update this file to add:
+#   push: {branches: [research/5-bc-100h-league], paths: [.github/workflows/rnad-i5-bc-100h-resume-wave.yml]}
+# and increment the completed source Run + next wave / seed boundary; never
+# modify the frozen training source_ref or the 100h deadline.
+permissions: {}
+concurrency:
+  group: rnad-i5-bc-100h-single-writer
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions: {contents: read, actions: read}
+    outputs:
+      should_continue: ${{ steps.deadline.outputs.should_continue }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494, persist-credentials: false}
+      - name: Require a completed, successful exact source Run; never accept partial Learner output
+        run: |
+          set -euo pipefail
+          gh api repos/cueikusuta/p-RL1024/actions/runs/44964373762 \
+            --jq '{id,status,conclusion,head_sha}' > previous-run.json
+          jq -e '.id==44964373762 and .status=="completed" and .conclusion=="success" and .head_sha=="186c1045414fd8f12dbb2e85a299e17d46f6c3e2"' previous-run.json >/dev/null
+          gh run download 44964373762 --repo cueikusuta/p-RL1024 \
+            --name rnad-i5-cont-next-bootstrap-after-g238 --dir bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+      - name: Verify source-pinned B+C full-state checkpoint, 100h context and next-generation seed boundary
+        id: deadline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,hashlib,time,os
+          from pathlib import Path
+          from scripts.rnad.shared_league_contract import verify_manifest,canonical_hash
+          root=Path("bootstrap")
+          data=lambda p:json.loads((root/p).read_text())
+          d=data("generation-manifest.json")
+          context=data("continuation-context.json")
+          index=data("checkpoint-index.json")
+          assert d["generation"]==239 and d["seed_start"]==9900001+239*640
+          assert d["source_sha"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
+          assert d["league_opponent_profile"]=="rnad-i5-opponents-b-v1"
+          assert d["battle_feature_schema"]=="rnad-three-phase-features-v6"
+          assert set(x["id"] for x in d["opponents"]["fixed"])=={
+              "fixed-aqbase001","fixed-coretrioaq001","fixed-base256","fixed-c005"}
+          assert verify_manifest(d)==canonical_hash(d)
+          assert d["main_sha256"]==hashlib.sha256(
+              (root/"actor/manifest.json").read_bytes()).hexdigest()
+          assert d["magnet_sha256"]==hashlib.sha256(
+              (root/"magnet/manifest.json").read_bytes()).hexdigest()
+          assert index["generation"]==239 and index["sha256"]==hashlib.sha256(
+              (root/"checkpoint-g0.pt").read_bytes()).hexdigest()
+          assert context["source_run_id"]==44897382403
+          assert context["budget_seconds"]==360000
+          assert context["deadline_epoch"]-context["start_epoch"]==360000
+          assert context["new_continuation_source_sha"]==d["source_sha"]
+          remaining=context["deadline_epoch"]-time.time()
+          cont=remaining>1200
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write("should_continue="+str(cont).lower()+"\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write(f"## B+C 100h G239 resume: remaining={remaining:.0f}s, continue={cont}\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ steps.deadline.outputs.should_continue == 'true' }}
+        with:
+          name: rnad-i5-bc-g239-resume-bootstrap
+          path: bootstrap/
+          retention-days: 7
+          if-no-files-found: error
+  wave3:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.should_continue == 'true' }}
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-03.yml
+    with:
+      initial_artifact: rnad-i5-bc-g239-resume-bootstrap
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
