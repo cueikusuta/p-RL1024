@@ -3,8 +3,7 @@ on:
   push:
     branches: [research/5-bc-100h-league]
     paths:
-      - .github/workflows/rnad-i5-bc-100h-auto-continue.yml
-      - .github/workflows/rnad-i5-bc-100h-auto-chain-contract-ci.yml
+      - .github/workflows/rnad-i5-bc-100h-chain.yml
 permissions: {}
 jobs:
   validate:
@@ -14,46 +13,41 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {persist-credentials: false}
-      - name: Verify autonomous graph and boundary contracts
+      - name: Verify bounded automatic chain and boundary contracts
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check PyYAML==6.0.2
           python3 - <<'PY'
-          import pathlib,yaml
+          import pathlib,yaml,re
           root=pathlib.Path(".github/workflows")
-          load=lambda name:yaml.load((root/name).read_text(),Loader=yaml.BaseLoader)
-          auto="rnad-i5-bc-100h-auto-continue.yml"
-          a=load(auto)
-          assert a["on"]["push"]["paths"]==[".github/workflows/"+auto]
+          load=lambda n:yaml.load((root/n).read_text(),Loader=yaml.BaseLoader)
+          a=load("rnad-i5-bc-100h-chain.yml")
+          assert a["on"]["push"]["paths"]==[".github/workflows/rnad-i5-bc-100h-chain.yml"]
+          assert set(a["on"]["workflow_dispatch"]["inputs"])=={"start_generation","prior_run","controller_sha"}
           assert a["concurrency"]=={"group":"rnad-i5-bc-100h-single-writer","cancel-in-progress":"false"}
-          assert set(a["jobs"])=={"prepare",*(f"wave{i}" for i in range(6,21))}
+          assert set(a["jobs"])=={"prepare","dispatch",*(f"g{i}" for i in range(20))}
           assert a["jobs"]["prepare"]["permissions"]=={"contents":"read","actions":"read","pull-requests":"read"}
-          prev="prepare"
-          for i in range(6,21):
-              job=a["jobs"][f"wave{i}"]
-              first=199+20*(i-1)
-              last=first+19
-              name=f"rnad-i5-bc-100h-wave-{i:02}.yml"
-              assert job["needs"]==prev and job["if"]==f"needs.{prev}.outputs.should_continue == 'true'"
-              assert job["uses"]=="./.github/workflows/"+name
-              assert job["with"]["initial_artifact"]==("rnad-i5-bc-g299-auto-bootstrap" if i==6 else f"rnad-i5-cont-next-bootstrap-after-g{first-1}")
-              assert job["with"]["source_ref"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
-              w=load(name)
-              assert list(w["jobs"])==[f"g{g}" for g in range(first,last+1)]
-              for g in range(first,last+1):
-                  j=w["jobs"][f"g{g}"]
-                  assert j["with"]["generation"]==str(g) and j["with"]["last_generation"]=="598"
-                  assert j["uses"]=="./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml"
-                  if g>first:
-                      assert j["needs"]==f"g{g-1}"
-                      assert j["with"]["bootstrap_artifact"]==f"rnad-i5-cont-next-bootstrap-after-g{g-1}"
-              prev=f"wave{i}"
-          steps=a["jobs"]["prepare"]["steps"]
-          shell="\n".join(s.get("run","") for s in steps)
-          for token in ("45287065252","efd3415c4590939c7b2edf0d7170c57a6f6989bb","1795640581","GITHUB_RUN_ATTEMPT","RNAD_AUTO_CHAIN_REVIEW_GO","sha256sum -c","prior_optimizer_updates","target_full_state_preserved","rng_full_state_preserved","auto-chain-contract-ci.yml"):
-              assert token in shell,token
-          import re
-          for code in re.findall(r"python3? - <<'PY'\n(.*?)\nPY",shell,re.S):
-              compile(code,"prepare","exec")
-          print("15 serial waves, 300 generations, frozen source, deadline and review gates verified")
+          for i in range(20):
+              j=a["jobs"][f"g{i}"]
+              assert j["uses"]=="./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml"
+              assert j["with"]["generation"]=="${{ fromJSON(needs.prepare.outputs.generations)["+str(i)+"] }}"
+              assert j["with"]["bootstrap_artifact"]=="${{ fromJSON(needs.prepare.outputs.bootstraps)["+str(i)+"] }}"
+              assert j["with"]["last_generation"]=="598"
+              assert j["with"]["source_ref"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
+              assert j["needs"]==(["prepare"] if i==0 else ["prepare",f"g{i-1}"])
+              assert j["if"]==("needs.prepare.outputs.should_continue == 'true'" if i==0 else f"needs.prepare.outputs.should_continue == 'true' && needs.g{i-1}.outputs.should_continue == 'true'")
+          d=a["jobs"]["dispatch"]
+          assert d["needs"]==["prepare","g19"]
+          assert d["if"]=="needs.g19.outputs.should_continue == 'true'"
+          assert d["permissions"]=={"actions":"write"}
+          scripts="\n".join(s.get("run","") for job in (a["jobs"]["prepare"],d) for s in job["steps"])
+          for token in ("45287065252","efd3415c4590939c7b2edf0d7170c57a6f6989bb","1795640581","GITHUB_RUN_ATTEMPT","RNAD_AUTO_CHAIN_REVIEW_GO","sha256sum -c","prior_optimizer_updates","target_full_state_preserved","rng_full_state_preserved","auto-chain-contract-ci.yml","/dispatches","display_title","controller_sha","workflow_dispatch"):
+              assert token in scripts,token
+          for code in re.findall(r"python3? - <<'PY'\n(.*?)\nPY",scripts,re.S):
+              compile(code,"chain","exec")
+          for start in range(299,599,20):
+              generations=list(range(start,start+20))
+              assert generations[-1]<=598
+              assert (start-299)%20==0
+          print("20 serial generations per run; exact predecessor, bounded dispatch, deadline and review gates validated")
           PY
