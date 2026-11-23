@@ -30,8 +30,8 @@ jobs:
           for i in range(20):
               j=a["jobs"][f"g{i}"]
               assert j["uses"]=="./.github/workflows/rnad-i5-bc-100h-generation-reusable.yml"
-              assert j["with"]["generation"]=="${{ fromJSON(needs.prepare.outputs.generations)["+str(i)+"] }}"
-              assert j["with"]["bootstrap_artifact"]=="${{ fromJSON(needs.prepare.outputs.bootstraps)["+str(i)+"] }}"
+              assert j["with"]["generation"]==("$"+"{{ fromJSON(needs.prepare.outputs.generations)["+str(i)+"] }}")
+              assert j["with"]["bootstrap_artifact"]==("$"+"{{ fromJSON(needs.prepare.outputs.bootstraps)["+str(i)+"] }}")
               assert j["with"]["last_generation"]=="598"
               assert j["with"]["source_ref"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
               assert j["needs"]==(["prepare"] if i==0 else ["prepare",f"g{i-1}"])
