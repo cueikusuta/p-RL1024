@@ -1,0 +1,220 @@
+name: I5 B+C autonomous continuation G299 through deadline
+on:
+  push:
+    branches: [research/5-bc-100h-league]
+    paths: [.github/workflows/rnad-i5-bc-100h-auto-continue.yml]
+permissions: {}
+# Reserve the next run without cancelling the active G279-298 run.
+concurrency:
+  group: rnad-i5-bc-100h-single-writer
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {contents: read, actions: read, pull-requests: read}
+    outputs:
+      should_continue: ${{ steps.boundary.outputs.should_continue }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494, persist-credentials: false}
+      - name: Validate reviewed exact controller, completed predecessor and immutable G299 full state
+        id: boundary
+        run: |
+          set -euo pipefail
+          # If the prior run used the remaining budget, no new generation starts.
+          if [ "$((1795640581-$(date +%s)))" -le 1200 ]; then
+            echo should_continue=false >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          gh api --paginate "repos/cueikusuta/p-RL1024/actions/runs?branch=research%2F5-bc-100h-league&per_page=100&created=%3E%3D2026-11-22" > all-runs.json
+          jq -se --argjson current "$GITHUB_RUN_ID" '([.[].workflow_runs[] | select(.path==".github/workflows/rnad-i5-bc-100h-auto-continue.yml" and .id < $current)] | length)==0' all-runs.json >/dev/null
+          # Required exact-HEAD CI and independent review, never inherited from a prior SHA.
+          gh api --paginate "repos/cueikusuta/p-RL1024/actions/runs?head_sha=$GITHUB_SHA&per_page=100" > ci-runs.json
+          jq -se --arg sha "$GITHUB_SHA" 'any(.[].workflow_runs[]; .path==".github/workflows/rnad-i5-bc-100h-auto-chain-contract-ci.yml" and .head_sha==$sha and .status=="completed" and .conclusion=="success")' ci-runs.json >/dev/null
+          gh api --paginate 'repos/cueikusuta/p-RL1024/issues/14/comments?per_page=100' > review.json
+          jq -se --arg marker "RNAD_AUTO_CHAIN_REVIEW_GO $GITHUB_SHA" 'any(.[][]; .user.login=="cueikusuta" and (.body|split("\n")|index($marker))!=null)' review.json >/dev/null
+          gh api repos/cueikusuta/p-RL1024/actions/runs/45287065252 > previous-run.json
+          jq -e '.id==45287065252 and .status=="completed" and .conclusion=="success" and .head_sha=="efd3415c4590939c7b2edf0d7170c57a6f6989bb"' previous-run.json >/dev/null
+          gh api --paginate 'repos/cueikusuta/p-RL1024/actions/runs/45287065252/jobs?per_page=100' > previous-jobs.json
+          jq -se '([.[].jobs[] | select(.name=="wave5 / g298 / g298 shared single writer and next handoff" and .conclusion=="success")]|length)==1' previous-jobs.json >/dev/null
+          gh api --paginate 'repos/cueikusuta/p-RL1024/actions/runs/45287065252/artifacts?per_page=100' > previous-artifacts.json
+          jq -se '([.[].artifacts[] | select(.name=="rnad-i5-cont-next-bootstrap-after-g298" and .expired==false)] | if length==1 then .[0] else error("unique G299 bootstrap required") end)' previous-artifacts.json > selected.json
+          aid=$(jq -er '.id|tostring|select(test("^[0-9]+$"))' selected.json)
+          digest=$(jq -er '.digest|select(test("^sha256:[0-9a-f]{64}$"))|sub("^sha256:";"")' selected.json)
+          for attempt in 1 2 3 4 5; do
+            rm -f bootstrap.zip
+            if gh api "repos/cueikusuta/p-RL1024/actions/artifacts/$aid/zip" > bootstrap.zip && echo "$digest  bootstrap.zip" | sha256sum -c -; then break; fi
+            test "$attempt" -lt 5 || exit 1
+            sleep "$((attempt*15))"
+          done
+          mkdir bootstrap
+          unzip -q bootstrap.zip -d bootstrap
+          (cd bootstrap && sha256sum -c file-pins.sha256)
+          python - <<'PY'
+          import hashlib,json,os,time
+          from pathlib import Path
+          from scripts.rnad.shared_league_contract import verify_manifest,canonical_hash
+          root=Path("bootstrap")
+          obj=lambda name:json.loads((root/name).read_text())
+          m=obj("generation-manifest.json");idx=obj("checkpoint-index.json")
+          ctx=obj("continuation-context.json");h=obj("handoff-report.json")
+          pins=[line.split(maxsplit=1)[1].lstrip("*") for line in (root/"file-pins.sha256").read_text().splitlines() if line.strip()]
+          actual={str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and p!=root/"file-pins.sha256"}
+          assert len(pins)==len(set(pins)) and set(pins)==actual
+          sha=lambda name:hashlib.sha256((root/name).read_bytes()).hexdigest()
+          assert m["generation"]==299 and m["seed_start"]==9900001+299*640
+          assert m["source_sha"]==h["source_sha"]=="6a11eee1a011dcc65ac80e3b5f2c3c0b57341494"
+          assert verify_manifest(m)==canonical_hash(m)==h["new_generation_manifest_sha256"]
+          assert m["actor_count"]==20 and m["optimizer_steps"]==40
+          assert m["league_opponent_profile"]=="rnad-i5-opponents-b-v1"
+          assert m["battle_feature_schema"]=="rnad-three-phase-features-v6"
+          assert {x["id"] for x in m["opponents"]["fixed"]}=={"fixed-aqbase001","fixed-coretrioaq001","fixed-base256","fixed-c005"}
+          assert idx["generation"]==299 and idx["sha256"]==sha("checkpoint-g0.pt")==h["new_full_checkpoint_sha256"]
+          assert m["main_sha256"]==sha("actor/manifest.json")==h["main_sha256"]
+          assert m["magnet_sha256"]==sha("magnet/manifest.json")==h["magnet_sha256"]
+          assert h["previous_generation"]==298 and h["generation"]==299
+          assert h["exact_previous_complete_matches"]==1280 and h["prior_optimizer_updates"]==40
+          assert h["prior_checkpoint_sha256"]==idx["prior_generation_checkpoint_sha256"]
+          assert h["new_seed_start"]==m["seed_start"]
+          assert all(h[k] is True for k in ("optimizer_full_state_preserved","target_full_state_preserved","magnet_full_state_preserved","rng_full_state_preserved","research_only"))
+          assert h["champion_promoted"] is False
+          assert ctx["budget_seconds"]==360000 and ctx["deadline_epoch"]==1795640581
+          assert h["next_wall_clock_deadline_epoch"]==ctx["deadline_epoch"]
+          cont=ctx["deadline_epoch"]-time.time()>1200
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              f.write(f"should_continue={str(cont).lower()}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write(f"Verified G299 boundary, source and full-state checkpoint {idx['sha256']}; continue={cont}\n")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: steps.boundary.outputs.should_continue == 'true'
+        with:
+          name: rnad-i5-bc-g299-auto-bootstrap
+          path: bootstrap/
+          retention-days: 7
+          if-no-files-found: error
+  wave6:
+    needs: prepare
+    if: needs.prepare.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-06.yml
+    with:
+      initial_artifact: rnad-i5-bc-g299-auto-bootstrap
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave7:
+    needs: wave6
+    if: needs.wave6.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-07.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g318
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave8:
+    needs: wave7
+    if: needs.wave7.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-08.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g338
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave9:
+    needs: wave8
+    if: needs.wave8.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-09.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g358
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave10:
+    needs: wave9
+    if: needs.wave9.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-10.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g378
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave11:
+    needs: wave10
+    if: needs.wave10.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-11.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g398
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave12:
+    needs: wave11
+    if: needs.wave11.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-12.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g418
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave13:
+    needs: wave12
+    if: needs.wave12.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-13.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g438
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave14:
+    needs: wave13
+    if: needs.wave13.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-14.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g458
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave15:
+    needs: wave14
+    if: needs.wave14.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-15.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g478
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave16:
+    needs: wave15
+    if: needs.wave15.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-16.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g498
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave17:
+    needs: wave16
+    if: needs.wave16.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-17.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g518
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave18:
+    needs: wave17
+    if: needs.wave17.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-18.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g538
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave19:
+    needs: wave18
+    if: needs.wave18.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-19.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g558
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
+  wave20:
+    needs: wave19
+    if: needs.wave19.outputs.should_continue == 'true'
+    uses: ./.github/workflows/rnad-i5-bc-100h-wave-20.yml
+    with:
+      initial_artifact: rnad-i5-cont-next-bootstrap-after-g578
+      source_ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+    permissions: {contents: read, actions: write}
