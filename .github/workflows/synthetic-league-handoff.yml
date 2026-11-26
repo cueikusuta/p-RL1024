@@ -1,0 +1,23 @@
+name: Synthetic league private handoff verification
+on:
+  push:
+    branches: [perf/league-private-handoff-synthetic-20261127]
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-league-handoff-one-shot
+  cancel-in-progress: false
+jobs:
+  dummy:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.repository.private == false && github.event_name == 'push' && github.ref == 'refs/heads/perf/league-private-handoff-synthetic-20261127'
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify only the fixed dummy packet
+        env:
+          LEAGUE_SYNTHETIC_KEY: ${{ secrets.LEAGUE_SYNTHETIC_KEY }}
+        run: node proof.cjs
