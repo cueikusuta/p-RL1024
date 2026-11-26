@@ -1,0 +1,222 @@
+name: I5 G422 bounded opponent-mix pilot
+on:
+  push:
+    branches: [eval/5-opponent-mix-pilot]
+    paths: [docs/research/rnad/G422_OPPONENT_MIX_PILOT.json]
+permissions: {contents: read, actions: read}
+concurrency:
+  group: i5-g422-opponent-mix-pilot
+  cancel-in-progress: false
+env:
+  PLAN: docs/research/rnad/G422_OPPONENT_MIX_PILOT.json
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: cueikusuta/p-RL1024
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.11'}
+      - name: Verify frozen original and compatibility
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          python -m unittest discover -s test -p rnad_shared_league_contract_test.py
+          endpoint=repos/cueikusuta/p-RL1024/actions/artifacts/15062436036
+          gh api "$endpoint" --jq '.id==15062436036 and .workflow_run.id==45690560204 and .expired==false and .digest=="sha256:4bd6e43be5a7463e8a90559eadc31881963fed2a7d2189bb9e1fa97d8ecac7c7"' | grep -x true
+          gh api "$endpoint/zip" > pinned.zip
+          python -m scripts.rnad.mix_bootstrap seal "$PLAN" pinned.zip original common
+      - name: Measure difficulty of three frozen historical policies and seal arms
+        run: |
+          set -euo pipefail
+          node scripts/rnad/mix-pilot.mjs screen "$PLAN" common - - screen.json
+          python -m scripts.rnad.mix_bootstrap arms "$PLAN" original common screen.json sealed
+          for role in 0 8 16 17 18 19; do
+            python -m scripts.rnad.shared_league_collect --bootstrap sealed/rep0-weakness --actor-id "$role" --out "smoke/$role" --smoke
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: i5-mix-inputs, path: "sealed/", retention-days: 7, if-no-files-found: error}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: i5-mix-screen, path: screen.json, retention-days: 90, if-no-files-found: error}
+
+  actor:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        rep: [rep0, rep1]
+        arm: [control, weakness]
+        batch: [0, 1, 2, 3, 4]
+    env:
+      REP: ${{ matrix.rep }}
+      ARM: ${{ matrix.arm }}
+      BATCH: ${{ matrix.batch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - name: Load exact sealed inputs with bounded retry
+        run: |
+          set -euo pipefail
+          sleep "$(( BATCH * 5 ))"
+          for delay in 2 5 15 40 90 120; do
+            rm -rf sealed
+            if gh run download "$GITHUB_RUN_ID" --name i5-mix-inputs --dir sealed; then break; fi
+            sleep "$delay"
+          done
+          (cd "sealed/$REP-$ARM" && sha256sum -c file-pins.sha256)
+          node scripts/verify-snapshot.mjs
+      - name: Collect four independent fixed-budget actors
+        run: |
+          set -euo pipefail
+          base=$((4*BATCH))
+          for actor in $(seq "$base" "$((base+3))"); do
+            python -m scripts.rnad.shared_league_collect --bootstrap "sealed/$REP-$ARM" --actor-id "$actor" --out "output/actor-$actor"
+            test -s "output/actor-$actor/actor-$actor.json.gz"
+            find "output/actor-$actor" -type f ! -name "actor-$actor.json.gz" -delete
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: i5-mix-actors-${{ matrix.rep }}-${{ matrix.arm }}-${{ matrix.batch }}
+          path: output/
+          retention-days: 2
+          if-no-files-found: error
+
+  learner:
+    needs: actor
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [rep0, rep1]
+        arm: [control, weakness]
+    env:
+      REP: ${{ matrix.rep }}
+      ARM: ${{ matrix.arm }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: i5-mix-inputs, path: sealed}
+      - name: Recover exactly twenty immutable actor shards
+        run: |
+          set -euo pipefail
+          for batch in 0 1 2 3 4; do
+            for delay in 2 10 30 60 120; do
+              rm -rf "batch-$batch"
+              if gh run download "$GITHUB_RUN_ID" --name "i5-mix-actors-$REP-$ARM-$batch" --dir "batch-$batch"; then break; fi
+              sleep "$delay"
+            done
+            for n in $(seq "$((batch*4))" "$((batch*4+3))"); do
+              test -s "batch-$batch/actor-$n/actor-$n.json.gz"
+              mkdir -p "actors/actor-$n"
+              mv "batch-$batch/actor-$n/actor-$n.json.gz" "actors/actor-$n/"
+            done
+          done
+      - name: Single writer, exactly 1280 complete matches and 40 NeuRD updates
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip install --disable-pip-version-check numpy==1.26.4
+          node scripts/verify-snapshot.mjs
+          B="sealed/$REP-$ARM"
+          (cd "$B" && sha256sum -c file-pins.sha256)
+          python -m scripts.rnad.shared_league_learner --bootstrap "$B" --actors actors --out trained --original-draft "$B/original-draft.json" --original-selection-js "$B/original-selection-js.json"
+          python -m scripts.rnad.mix_bootstrap receipt "$PLAN" "$B" trained "$REP" "$ARM"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: i5-mix-trained-${{ matrix.rep }}-${{ matrix.arm }}
+          path: |
+            trained/generation423-actor/
+            trained/generation423-magnet/
+            trained/generation423-report.json
+            trained/generation423-index.json
+            trained/training-receipt.json
+            trained/checkpoint-g423.pt
+          retention-days: 14
+          if-no-files-found: error
+
+  eval-smoke:
+    needs: learner
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: 'i5-mix-trained-*', path: evidence}
+      - run: |
+          node scripts/verify-snapshot.mjs
+          node scripts/rnad/mix-pilot.mjs smoke "$PLAN" evidence
+
+  evaluate:
+    needs: eval-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        rep: [rep0, rep1]
+        part: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      REP: ${{ matrix.rep }}
+      PART: ${{ matrix.part }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: 'i5-mix-trained-${{ matrix.rep }}-*', path: evidence}
+      - run: |
+          node scripts/verify-snapshot.mjs
+          node scripts/rnad/mix-pilot.mjs run "$PLAN" evidence "$REP" "$PART" shard.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: i5-mix-eval-${{ matrix.rep }}-${{ matrix.part }}
+          path: shard.json
+          retention-days: 14
+          if-no-files-found: error
+
+  summary:
+    needs: evaluate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: 'i5-mix-eval-*', path: evidence}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: i5-mix-screen, path: results}
+      - run: |
+          mkdir -p results
+          cp "$PLAN" results/plan.json
+          node scripts/rnad/mix-pilot.mjs summary "$PLAN" evidence - - results/report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: i5-mix-pilot-report, path: results/, retention-days: 90, if-no-files-found: error}

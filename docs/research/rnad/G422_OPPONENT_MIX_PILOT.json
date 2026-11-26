@@ -1,0 +1,12 @@
+{
+  "schema": "rnad-i5-opponent-mix-pilot-v1",
+  "baseSource": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+  "engine": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "aq": "5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e",
+  "bootstrap": {"artifact":15062436036,"run":45690560204,"sha256":"4bd6e43be5a7463e8a90559eadc31881963fed2a7d2189bb9e1fa97d8ecac7c7","checkpoint":"312016240ade21f2755bc742a299de766cd787fbd2f2cc29d7028f8dc5f63443","main":"a99b6ea65c11b2a2b6d65828e58d694e8bbb170969f76bacba624def9eda0af9"},
+  "generation": 422,
+  "screen": {"start":420100001,"blocks":128,"history":["past-g419","past-g420","past-g421"],"rank":"Fewest G421 wins first, tie by increasing opponent ID. Frozen greedy screen only, not final evaluation."},
+  "training": {"rep0":420110001,"rep1":420120001,"actors":20,"seedsPerActor":32,"matchesPerArmPerRep":1280,"updatesPerArmPerRep":40,"treatmentHistoryCountsByRank":[5,2,1],"retainBaselineActors":"Keep existing assignments until per-rank quota; fill remaining slots in increasing actor ID with ranked deficits."},
+  "evaluation": {"rep0":420130001,"rep1":420140001,"blocksPerRep":512,"partsPerRep":8,"arms":["control","weakness"],"heldOutPolicy":"strategy","smokeStart":420150001,"primary":"weakness minus control vs Integrated Strategy; equal weight per replicate; inference on evaluation seeds conditional on four resulting checkpoints, not across arbitrary training runs.","secondary":"weakness minus control vs AQ; weakness vs control head-to-head; separate family, two simultaneous intervals.","criterion":"Only consider longer confirmation if primary lower bound > 0, both replicate primary estimates > 0, and secondary AQ lower bound > -0.02. Do not launch longer run or promote."},
+  "notes": "One generation per arm per replicate. Same source, full original model/Target/Magnet/optimizer/RNG, within-replicate train seeds and budgets. Only historical opponents differ. Neither AQ nor Integrated Strategy targets a per-action reward change. Strategy is outside the exact training opponent pool; shared code or earlier teacher exposure not excluded."
+}

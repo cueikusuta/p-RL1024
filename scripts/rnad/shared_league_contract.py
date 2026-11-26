@@ -80,6 +80,8 @@ def _opponent(manifest, actor_id):
                       "sha256": manifest["main_sha256"]}
     registry = pool[role]
     _need(bool(registry), "Missing immutable opponent pool: " + role)
+    if role == "historical" and "pilot_historical_actor_indices" in manifest:
+        return role, registry[manifest["pilot_historical_actor_indices"][actor_id - 8]]
     return role, registry[(actor_id + manifest["generation"]) % len(registry)]
 
 
@@ -129,6 +131,13 @@ def verify_manifest(manifest):
               "B profile requires four unique approved fixed policies")
         _need(manifest.get("battle_feature_schema") == BATTLE_V6,
               "Combined B+C requires v6 Battle input")
+    if "pilot_historical_actor_indices" in manifest:
+        slots = manifest["pilot_historical_actor_indices"]
+        _need(profile == PROFILE_B and gen == 422 and len(opp["historical"]) == 3
+              and isinstance(slots, list) and len(slots) == 8
+              and all(type(x) is int and 0 <= x < 3 for x in slots)
+              and sorted(slots.count(j) for j in range(3)) == [1, 2, 5],
+              "Invalid G422 research-only historical assignment")
     _need(manifest.get("optimizer_batch_matches") == OPTIMIZER_BATCH_MATCHES and
           manifest.get("optimizer_steps") == OPTIMIZER_STEPS and
           manifest.get("actor_count") == ACTORS and
