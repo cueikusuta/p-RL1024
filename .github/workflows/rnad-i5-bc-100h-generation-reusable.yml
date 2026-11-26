@@ -104,9 +104,16 @@ jobs:
       - name: Read-only 32 independent seed clusters x both seats on one immutable Main
         run: |
           set -euo pipefail
+          # Verify the immutable engine first, then apply only the reviewed
+          # observer overlay from the controller that invoked this workflow.
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          git show "$GITHUB_SHA:provenance/overlays/league-battle-audit-v1.patch" > "$RUNNER_TEMP/league-audit.patch"
+          export RNAD_AUDIT_SHA="$(sha256sum "$RUNNER_TEMP/league-audit.patch" | cut -d' ' -f1)"
+          git apply --check "$RUNNER_TEMP/league-audit.patch"
+          git apply "$RUNNER_TEMP/league-audit.patch"
           python -m scripts.rnad.shared_league_collect \
             --bootstrap bootstrap --actor-id "${{ matrix.actor_id }}" \
-            --out "out/actor-${{ matrix.actor_id }}"
+            --out "out/actor-${{ matrix.actor_id }}" --audit-dir audit-raw
           test -s "out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -114,6 +121,25 @@ jobs:
           path: out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz
           retention-days: 1
           if-no-files-found: error
+      - name: Verify league battle audit coverage against accepted matches
+        id: audit
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.pack_league_battle_audit \
+            "out/actor-${{ matrix.actor_id }}/accepted" audit-raw audit-artifact
+          if ! jq -e '.expectedMatches == 64 and .recordedMatches == 64 and .counts.dropped == 0' audit-artifact/coverage.json; then
+            echo "::warning::Battle audit incomplete; see the shard coverage manifest"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.audit.outcome == 'success'
+        continue-on-error: true
+        with:
+          name: rnad-i5-audit-g${{ inputs.generation }}-actor-${{ matrix.actor_id }}
+          path: audit-artifact/
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0
 
   inspect:
     name: "g${{ inputs.generation }} strict failure-only recovery plan"
@@ -239,9 +265,16 @@ jobs:
           assert m["source_sha"]==subprocess.check_output(
               ["git","rev-parse","HEAD"],text=True).strip()
           PY
+          # Verify the immutable engine first, then apply only the reviewed
+          # observer overlay from the controller that invoked this workflow.
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          git show "$GITHUB_SHA:provenance/overlays/league-battle-audit-v1.patch" > "$RUNNER_TEMP/league-audit.patch"
+          export RNAD_AUDIT_SHA="$(sha256sum "$RUNNER_TEMP/league-audit.patch" | cut -d' ' -f1)"
+          git apply --check "$RUNNER_TEMP/league-audit.patch"
+          git apply "$RUNNER_TEMP/league-audit.patch"
           python -m scripts.rnad.shared_league_collect \
             --bootstrap bootstrap --actor-id "${{ matrix.actor_id }}" \
-            --out "out/actor-${{ matrix.actor_id }}"
+            --out "out/actor-${{ matrix.actor_id }}" --audit-dir audit-raw
           test -s "out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -249,6 +282,25 @@ jobs:
           path: out/actor-${{ matrix.actor_id }}/actor-${{ matrix.actor_id }}.json.gz
           retention-days: 1
           if-no-files-found: error
+      - name: Verify league battle audit coverage against accepted matches
+        id: audit
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python -m scripts.rnad.pack_league_battle_audit \
+            "out/actor-${{ matrix.actor_id }}/accepted" audit-raw audit-artifact
+          if ! jq -e '.expectedMatches == 64 and .recordedMatches == 64 and .counts.dropped == 0' audit-artifact/coverage.json; then
+            echo "::warning::Battle audit incomplete; see the shard coverage manifest"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.audit.outcome == 'success'
+        continue-on-error: true
+        with:
+          name: rnad-i5-audit-g${{ inputs.generation }}-recovered-actor-${{ matrix.actor_id }}
+          path: audit-artifact/
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0
 
   learner:
     name: "g${{ inputs.generation }} shared single writer and next handoff"

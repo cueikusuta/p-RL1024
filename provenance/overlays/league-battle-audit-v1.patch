@@ -1,0 +1,513 @@
+diff --git a/scripts/dev/simulator/phase-match.js b/scripts/dev/simulator/phase-match.js
+index 0dce8d9c3ce381d76efaf7c463470b4396b63e88..ebadd4ce310e4efb36938e9b6d1ac0b7bd1d4e30 100644
+--- a/scripts/dev/simulator/phase-match.js
++++ b/scripts/dev/simulator/phase-match.js
+@@ -21,7 +21,7 @@ export function consumePhaseAuthorityReceipt(token,{kind,seat,round,action}){
+ }
+ 
+ export function runPhaseMatch({seed=737,agents,maxRounds=64,
+-  maxDecisionsPerRound=3000}={}){
++  maxDecisionsPerRound=3000,audit=null}={}){
+   if(!Number.isSafeInteger(seed)||seed<1||seed>0xffffffff||
+     !Number.isSafeInteger(maxRounds)||maxRounds<1||maxRounds>64||
+     !Number.isSafeInteger(maxDecisionsPerRound)||maxDecisionsPerRound<1||
+@@ -58,6 +58,8 @@ export function runPhaseMatch({seed=737,agents,maxRounds=64,
+     }
+     const battle=getBattle();
+     if(!battle)throw new Error('Battle not created');
++    if(audit)battle.setLeagueAudit((kind,turn,request,fields)=>
++      audit.fact(kind,round,turn,request,fields));
+     const streams=[0,1].map(seat=>
+       new SeededRandom(mixSeed(seed,0xb0,seat,round)));
+     let decisions=0;
+@@ -77,6 +79,10 @@ export function runPhaseMatch({seed=737,agents,maxRounds=64,
+         // Authoritative validation comes before either the cross-AI handoff
+         // or a learning session's accepted-action commit.
+         match.battleAction(seat,action,round,observation.request);
++        if(audit){
++          const after=battle.decisionViewForAI(seat);
++          audit.outcome(round,seat,observation,after);
++        }
+         pipelines[seat].accepted('battle',observation,action,
+           receipt('battle',seat,round,action));
+         actionCounts[seat]++;
+diff --git a/scripts/dev/simulator/rnad-match.js b/scripts/dev/simulator/rnad-match.js
+index f4f27e1381020cb4a9497a7bb354c9c4598d96b0..48b1c500cbb46c7bc15fa46c9591285f32d2752e 100644
+--- a/scripts/dev/simulator/rnad-match.js
++++ b/scripts/dev/simulator/rnad-match.js
+@@ -51,7 +51,7 @@ export function runRnadAcceptanceSmoke({
+   phasePolicy=null,phasePolicies=null,
+   policyVersion='rnad-stage0-fixed-untrained',opponentPolicyVersion=policyVersion,
+   policyVersions=[policyVersion,policyVersion],
+-  maxRounds=64,maxDecisionsPerRound=3000,includeAcceptedHistory=false
++  maxRounds=64,maxDecisionsPerRound=3000,includeAcceptedHistory=false,audit=null
+ }={}){
+   if(!positiveSeed(seed)||!hexSha(sourceSha)||!hexSha(engineSnapshotSha)||
+     typeof matchId!=='string'||!matchId||typeof experimentId!=='string'||
+@@ -82,7 +82,7 @@ export function runRnadAcceptanceSmoke({
+     // A single per-seat collector follows accepted draft -> selection ->
+     // Battle in order.  The other seat's pending action is never visible.
+     function actor(stage){
+-      let pendingOwn=null;
++      let pendingOwn=null,pendingAudit=null;
+       return {
+         id:seatPhasePolicy?'rnad-three-phase-'+stage:'rnad-stage0-actor',
+         select({view,context,round,rng}){
+@@ -104,6 +104,10 @@ export function runRnadAcceptanceSmoke({
+           if(!proposed||typeof proposed!=='object'||
+             !Object.hasOwn(proposed,'action'))
+             throw new TypeError('Policy must return an action and logged probabilities');
++          if(audit)pendingAudit={observation,request:view.request,
++            ...(stage==='battle'?{publicFoe:view.opponent}:
++              {roster:[...(observation.self.team??[]),...(observation.self.fresh??[]),
++                  ...(observation.self.carry??[])].map(({instanceId,speciesId})=>({instanceId,speciesId}))})};
+           collector.propose({
+             phase:stage,round,observation,legalActions,
+             policyEligibleActions:proposed.policyEligibleActions,
+@@ -117,6 +121,10 @@ export function runRnadAcceptanceSmoke({
+         accepted({action,authorityReceipt,round}){
+           const index=collector.commit(action,authorityReceipt)-1;
+           timeline.push({seat,index});
++          if(audit){
++            audit.accepted({index,seat,round,stage,action,...pendingAudit});
++            pendingAudit=null;
++          }
+           if(includeAcceptedHistory){
+             if(stage==='battle'&&pendingOwn?.requestType==='turn'){
+               acceptedHistory.lastActive=Number.isSafeInteger(pendingOwn.active)?
+@@ -159,7 +167,7 @@ export function runRnadAcceptanceSmoke({
+       battle:actor('battle')
+     });
+   });
+-  const result=runPhaseMatch({seed,agents,maxRounds,maxDecisionsPerRound});
++  const result=runPhaseMatch({seed,agents,maxRounds,maxDecisionsPerRound,audit});
+   // Only completed runs produce complete trajectories. Aborted / rejected
+   // proposals cannot yield a publishable learned dataset.
+   const trajectories=result.completed?
+diff --git a/scripts/rnad/league-battle-audit.mjs b/scripts/rnad/league-battle-audit.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..ba1440bceba7216f13a41b8c733ed085995ef61c
+--- /dev/null
++++ b/scripts/rnad/league-battle-audit.mjs
+@@ -0,0 +1,79 @@
++// The audit never feeds policy selection, the learner, or handoff.
++function compactState(view) {
++  return {
++    active:view.self.active,
++    team:view.self.team.map(({speciesId,hp,maxHP,status,boosts})=>
++      ({speciesId,hp,maxHP,status,boosts})),
++    opponent:view.opponent,field:view.field
++  };
++}
++
++export function newLeagueAudit({maxRows=16000,maxBytes=8*1024*1024}={}) {
++  const rows=[];
++  const decisions=new Map();
++  let bytes=0, seen=0, dropped=0, accepted=0, omittedDraftCandidates=0;
++  function add(kind, fields) {
++    const sequence=++seen;
++    if(rows.length>=maxRows){dropped++;return;}
++    const row={sequence,kind,...fields};
++    const size=Buffer.byteLength(JSON.stringify(row))+1;
++    if(bytes+size>maxBytes){dropped++;return;}
++    bytes+=size;
++    rows.push(row);
++  }
++  return {
++    fact:(kind,round,turn,request,fields)=>add(kind,{round,turn,request,...fields}),
++    outcome(round,seat,before,after){
++      add('post-submit',{round,seat,turn:before.turn,request:before.request,
++        nextRequest:after.request,state:compactState(after)});
++    },
++    accepted({index,seat,round,stage,action,observation,request,publicFoe,roster}){
++      const actionOrdinal=accepted++;
++      add('accepted',{index,seat,round,stage,action,actionOrdinal,
++        ...(stage==='battle'?{turn:observation.turn,requestType:observation.requestType,
++          request,state:{own:observation.self,opponent:publicFoe,field:observation.field}}
++          :{roster})});
++      if(rows.at(-1)?.sequence===seen)decisions.set(actionOrdinal,rows.at(-1));
++    },
++    policy(ordinal,candidates,p){
++      if(typeof candidates==='number')omittedDraftCandidates+=candidates;
++      const row=decisions.get(ordinal);
++      if(!row)return;
++      if(typeof candidates==='number'){
++        row.candidateCount=candidates;return;
++      }
++      if(!Array.isArray(candidates)||p.policy_pi.length!==candidates.length||
++        JSON.stringify(candidates[p.index])!==JSON.stringify(row.action))
++        throw Error('Audit candidate order differs from recorded policy');
++      row.candidates=candidates;
++      row.policy=p.policy_pi;
++      row.behaviorProbability=p.behavior_prob;
++      row.predictedValue=p.predicted_value;
++    },
++    finish(match,meta){
++      if(accepted!==match.events.length)throw Error('Audit and accepted trajectory diverged');
++      // The completed rows (including policy scores) must also respect byte limit.
++      let total=0,keep=0;
++      for(const row of rows){
++        total+=Buffer.byteLength(JSON.stringify(row))+1;
++        if(total>maxBytes)break;
++        keep++;
++      }
++      dropped+=rows.length-keep;
++      rows.length=keep;
++      return {
++        schema:'rnad-league-battle-audit-v1',
++        sourceSha:match.source_sha,engineSha:match.engine_sha,
++        auditSha:process.env.RNAD_AUDIT_SHA??null,
++        runId:process.env.GITHUB_RUN_ID??null,runAttempt:process.env.GITHUB_RUN_ATTEMPT??null,
++        generation:meta.generation,actorId:meta.actor_id,role:meta.role,
++        matchId:match.match_id,seed:match.seed,learnerSeat:match.learner_seat,
++        modelSha:match.main_sha256,magnetSha:match.magnet_sha256,
++        opponentSha:match.opponent_sha256,
++        winner:match.winner,score:match.score,rounds:match.rounds,
++        coverage:{seen,recorded:rows.length,dropped,accepted,omittedDraftCandidates},
++        rows
++      };
++    }
++  };
++}
+diff --git a/scripts/rnad/pack_league_battle_audit.py b/scripts/rnad/pack_league_battle_audit.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..528f8118ef5cd5272a7c281c092b998be20bd4d3
+--- /dev/null
++++ b/scripts/rnad/pack_league_battle_audit.py
+@@ -0,0 +1,87 @@
++"""Verify diagnostic files against completed, accepted Actor matches."""
++import argparse
++from collections import Counter
++import gzip
++import hashlib
++import json
++from pathlib import Path
++
++
++def pack(accepted_dir, audit_dir, output):
++    accepted_dir, audit_dir, output = map(Path, (accepted_dir, audit_dir, output))
++    accepted = sorted(accepted_dir.glob("*.json.gz"))
++    if len(accepted) not in (2, 64):
++        raise ValueError("Expected a completed paired smoke or a full Actor shard")
++    manifest = {"schema": "rnad-league-battle-audit-shard-v1",
++                "expectedMatches": len(accepted), "files": [], "missing": [],
++                "invalid": [], "counts": {}}
++    counts = Counter()
++    unexpected = {p.name for p in audit_dir.glob("*.json.gz")} - {p.name for p in accepted}
++    if unexpected:
++        raise ValueError(f"Unexpected audit files: {sorted(unexpected)}")
++    for source in accepted:
++        dest = audit_dir / source.name
++        if not dest.is_file():
++            manifest["missing"].append(source.name)
++            continue
++        with gzip.open(source, "rt") as stream:
++            match = json.load(stream)
++        try:
++            payload = dest.read_bytes()
++            row = json.loads(gzip.decompress(payload))
++            pairs = (("matchId", "match_id"), ("sourceSha", "source_sha"),
++                     ("engineSha", "engine_sha"), ("modelSha", "main_sha256"),
++                     ("magnetSha", "magnet_sha256"), ("opponentSha", "opponent_sha256"),
++                     ("learnerSeat", "learner_seat"), ("seed", "seed"),
++                     ("winner", "winner"), ("score", "score"), ("rounds", "rounds"))
++            if (row["schema"] != "rnad-league-battle-audit-v1" or
++                any(row[left] != match[right] for left, right in pairs)):
++                raise ValueError("Audit provenance differs from accepted match")
++            cover = row["coverage"]
++            records = row["rows"]
++            if (cover["seen"] != cover["recorded"] + cover["dropped"] or
++                cover["recorded"] != len(records) or
++                cover["accepted"] != len(match["events"]) or
++                any(type(cover[k]) is not int or cover[k] < 0 for k in
++                    ("seen", "recorded", "dropped", "accepted", "omittedDraftCandidates"))):
++                raise ValueError("Inconsistent audit coverage")
++            seq = [r["sequence"] for r in records]
++            if seq != sorted(set(seq)) or any(not 0 < x <= cover["seen"] for x in seq):
++                raise ValueError("Invalid audit sequence")
++            recorded_actions = [r for r in records if r["kind"] == "accepted"]
++            if not cover["dropped"] and len(recorded_actions) != cover["accepted"]:
++                raise ValueError("Missing accepted actions in complete log")
++            for r in recorded_actions:
++                event = match["events"][r["actionOrdinal"]]
++                if (event["actor"] != r["seat"] or event["phase"] != r["stage"] or
++                    ("candidates" in r and (r["policy"] != event["policy_pi"] or
++                     r["candidates"][event["action_index"]] != r["action"]))):
++                    raise ValueError("Different accepted action or policy support")
++        except (OSError, EOFError, ValueError, TypeError, KeyError, IndexError) as exc:
++            manifest["invalid"].append({"file": source.name, "reason": type(exc).__name__})
++            # Keep invalid bytes out of the artifact.
++            continue
++        output.mkdir(parents=True, exist_ok=True)
++        (output / dest.name).write_bytes(payload)
++        manifest["files"].append({"file": dest.name,
++                                  "sha256": hashlib.sha256(payload).hexdigest()})
++        counts.update({k: cover[k] for k in ("seen", "recorded", "dropped", "accepted")})
++        counts.update(r["kind"] for r in records if r["kind"] != "accepted")
++    manifest["counts"] = dict(counts)
++    manifest["recordedMatches"] = len(manifest["files"])
++    output.mkdir(parents=True, exist_ok=True)
++    (output / "coverage.json").write_text(json.dumps(manifest, indent=2) + "\n")
++    print(json.dumps({k: v for k, v in manifest.items() if k != "files"}))
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument("accepted_dir")
++    parser.add_argument("audit_dir")
++    parser.add_argument("output")
++    args = parser.parse_args()
++    pack(args.accepted_dir, args.audit_dir, args.output)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/scripts/rnad/shared_league_actor.mjs b/scripts/rnad/shared_league_actor.mjs
+index 9d13f89bd24702fdfcf4185b67fe93d68f2833f6..58bccd897dfd267358f06b406f610c303a8822eb 100644
+--- a/scripts/rnad/shared_league_actor.mjs
++++ b/scripts/rnad/shared_league_actor.mjs
+@@ -1,7 +1,8 @@
+ // RNAD-I5 exact accepted four-win Match trajectory from one integrated Main.
+ // A frozen same-version Main/Magnet drives each actor; NO updates in Node.
+ // The authoritative phase Match owns the one-use acceptance receipts.
+-import {readFileSync,writeFileSync} from 'node:fs';
++import {readFileSync,writeFileSync,renameSync} from 'node:fs';
++import {newLeagueAudit} from './league-battle-audit.mjs';
+ import {createHash} from 'node:crypto';
+ import {resolve,join} from 'node:path';
+ import {gzipSync} from 'node:zlib';
+@@ -194,7 +195,7 @@ function appendPublicFoe(history,foe){
+ // samples (1-epsilon) of that exact policy plus epsilon uniformly over all
+ // engine-legal actions; its recorded pi/magnet/mu are the real sampling law.
+ const AQ_V2_WEIGHTS=Object.freeze({blend:.28,exposure:.75,continuation:.4});
+-export function approvedFixedSession(config,epsilon=.02,trajectoryBattleSchema='rnad-three-phase-features-v5'){
++export function approvedFixedSession(config,epsilon=.02,trajectoryBattleSchema='rnad-three-phase-features-v5',recordCandidates=false){
+   assert(['rnad-three-phase-features-v5','rnad-three-phase-features-v6'].includes(trajectoryBattleSchema),
+     'Unapproved fixed accepted trajectory Battle schema');
+   assert(config?.schema==='rnad-i5-authorized-fixed-opponent-v1'&&
+@@ -319,6 +320,7 @@ export function approvedFixedSession(config,epsilon=.02,trajectoryBattleSchema='
+     const phaseInput=encodeForLearner(observation,legalActions,undefined,trajectoryBattleSchema);
+     pending={seat,round:observation.round??round,phase:observation.phase,
+       action:acceptedAction,index:chosen,phase_input:phaseInput,
++      ...(recordCandidates?{candidates:observation.phase==='draft'?legalActions.length:legalActions}:{}),
+       behavior_prob:probabilities[chosen],policy_pi:policy,
+       magnet_pi:[...policy],predicted_value:0,postAccept,acceptedPublic};
+     return {action:acceptedAction,
+@@ -343,7 +345,7 @@ export function approvedFixedSession(config,epsilon=.02,trajectoryBattleSchema='
+   return {func,saved,get pending(){return pending;}};
+ }
+ 
+-export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false,trajectoryBattleSchema=null}){
++export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false,trajectoryBattleSchema=null,recordCandidates=false}){
+   assert(finite(epsilon)&&epsilon>0&&epsilon<=.1,'Invalid behavior epsilon');
+   const legacy=legacyPath!==null;
+   const main=legacy?readLegacy(legacyPath,legacySha):readBundle(modelDir);
+@@ -410,6 +412,7 @@ export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsil
+       const ix=greedy?logits.reduce((best,x,i)=>x>logits[best]?i:best,0):sample(probs,rng);
+       pending={seat,round,phase:observation.phase,
+         action:legalActions[ix],index:ix,phase_input:phaseInput,
++        ...(recordCandidates?{candidates:observation.phase==='draft'?legalActions.length:legalActions}:{}),
+         policy_pi:pi,magnet_pi:mp,
+         predicted_value:value,behavior_prob:probs[ix],acceptedPublic};
+       return {action:legalActions[ix],behaviorLogProbability:Math.log(probs[ix]),
+@@ -462,7 +465,7 @@ export function createIntegratedAcceptedMatch({
+   mainDir,magnetDir,opponentDir=null,
+   legacyOpponent=null,legacyOpponentSha=null,fixedConfig=null,
+   role='self',mainSha,magnetSha,opponentSha,
+-  epsilon=.02
++  epsilon=.02,audit=null
+ }){
+   assert(Number.isSafeInteger(seed)&&seed>0&&seed<=0xffffffff&&
+     [0,1].includes(learnerSeat)&&Number.isSafeInteger(generation)&&
+@@ -477,7 +480,7 @@ export function createIntegratedAcceptedMatch({
+   assert(['rnad-three-phase-features-v5','rnad-three-phase-features-v6']
+     .includes(battleSchema),'Invalid Main Battle schema');
+   const own=session({modelDir:mainDir,magnetDir,epsilon,
+-    trajectoryBattleSchema:battleSchema});
++    trajectoryBattleSchema:battleSchema,recordCandidates:Boolean(audit)});
+   assert(fileSha(join(mainDir,'manifest.json'))===mainSha&&
+     fileSha(join(magnetDir,'manifest.json'))===magnetSha,
+     'Actor main/magnet SHA not bound to generation');
+@@ -488,14 +491,14 @@ export function createIntegratedAcceptedMatch({
+     'Frozen opponent does not match generation registry');
+   const other=role==='self'?
+     session({modelDir:mainDir,magnetDir,epsilon,
+-      trajectoryBattleSchema:battleSchema}):
++      trajectoryBattleSchema:battleSchema,recordCandidates:Boolean(audit)}):
+     fixedConfig?
+-    approvedFixedSession(JSON.parse(readFileSync(fixedConfig)),epsilon,battleSchema):
++    approvedFixedSession(JSON.parse(readFileSync(fixedConfig)),epsilon,battleSchema,Boolean(audit)):
+     legacyOpponent?
+     session({legacyPath:legacyOpponent,legacySha:legacyOpponentSha,epsilon,
+-      trajectoryBattleSchema:battleSchema}):
++      trajectoryBattleSchema:battleSchema,recordCandidates:Boolean(audit)}):
+     session({modelDir:opponentDir,magnetDir:opponentDir,epsilon,
+-      trajectoryBattleSchema:battleSchema});
++      trajectoryBattleSchema:battleSchema,recordCandidates:Boolean(audit)});
+   const sessions=[null,null];sessions[learnerSeat]=own;
+   sessions[1-learnerSeat]=other;
+   const id=`g${generation}-a${actorId}-s${seed}-seat${learnerSeat}`;
+@@ -506,7 +509,7 @@ export function createIntegratedAcceptedMatch({
+     phasePolicies:sessions.map(x=>x.func),
+     policyVersions:sessions.map((x,i)=>i===learnerSeat?
+       policyId:role+'-frozen-'+opponentSha.slice(0,12)),
+-    includeAcceptedHistory:true,
++    includeAcceptedHistory:true,audit,
+   });
+   assert(result.completed===true&&result.score[result.winner]===4&&
+     result.jointTimeline?.length>0&&result.trajectories?.length===2&&
+@@ -522,6 +525,7 @@ export function createIntegratedAcceptedMatch({
+       same(p.action,accepted.accepted_action)&&
+       Math.abs(Math.log(p.behavior_prob)-accepted.behavior_log_probability)<1e-8,
+       'Untrusted model proposal/authority acceptance mismatch');
++    audit?.policy(i,p.candidates,p);
+     events.push({actor:seat,phase:accepted.phase,
+       phase_input:p.phase_input,action_index:p.index,
+       behavior_prob:p.behavior_prob,magnet_log_prob:
+@@ -553,6 +557,7 @@ if(process.argv[1]?.endsWith('/shared_league_actor.mjs')){
+     assert(Number.isSafeInteger(seed)&&[0,1].includes(seat)&&
+       typeof out==='string'&&out.endsWith('.json.gz'),
+       'Invalid independent seed/seat/output in actor batch');
++    const audit=a['audit-dir']?newLeagueAudit():null;
+     const match=createIntegratedAcceptedMatch({
+       seed,learnerSeat:seat,
+       generation:meta.generation,actorId:meta.actor_id,
+@@ -561,7 +566,13 @@ if(process.argv[1]?.endsWith('/shared_league_actor.mjs')){
+       fixedConfig:a['fixed-config']??null,
+       legacyOpponentSha:meta.legacy_sha256??null,role:meta.role,
+       mainSha:meta.main_sha256,magnetSha:meta.magnet_sha256,
+-      opponentSha:meta.opponent_sha256});
++      opponentSha:meta.opponent_sha256,audit});
++    if(audit){
++      const path=join(a['audit-dir'],match.match_id+'.json.gz');
++      const tmp=path+'.'+process.pid+'.tmp';
++      writeFileSync(tmp,gzipSync(JSON.stringify(audit.finish(match,meta)),{level:3}),{flag:'wx'});
++      renameSync(tmp,path);
++    }
+     writeFileSync(out,gzipSync(JSON.stringify(match)),{flag:'wx'});
+     process.stderr.write(JSON.stringify({
+       seed:match.seed,seat:match.learner_seat,rounds:match.rounds,
+diff --git a/scripts/rnad/shared_league_collect.py b/scripts/rnad/shared_league_collect.py
+index 0a92d82f866d1cbeaf5f74a16c6260959abe9378..62a2971015592bd1cdacbe823ed39cd4db83645d 100644
+--- a/scripts/rnad/shared_league_collect.py
++++ b/scripts/rnad/shared_league_collect.py
+@@ -120,7 +120,7 @@ def _run_actor_jobs(cmd, output, jobs, workers):
+             raise first_error
+ 
+ 
+-def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1):
++def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1, audit_dir=None):
+     _batch_chunks([], match_workers)
+     root = Path(bootstrap)
+     manifest = json.loads((root / "generation-manifest.json").read_text())
+@@ -192,6 +192,9 @@ def collect(*, bootstrap, actor_id, out, smoke=False, match_workers=1):
+         "--meta", str(meta_file), "--main", str(root / "actor"),
+         "--magnet", str(magnet_path),
+     ]
++    if audit_dir is not None:
++        Path(audit_dir).mkdir(parents=True, exist_ok=True)
++        cmd.extend(["--audit-dir", str(audit_dir)])
+     if fixed_config_path is not None:
+         cmd.extend(["--fixed-config", str(fixed_config_path)])
+     elif opponent_path is not None:
+@@ -270,11 +273,12 @@ def main():
+     parser.add_argument("--smoke", action="store_true")
+     parser.add_argument("--match-workers", type=int, choices=(1, 2, 4),
+                         default=1, help="Opt-in bounded Node processes per Actor")
++    parser.add_argument("--audit-dir")
+     args = parser.parse_args()
+     print(json.dumps(collect(
+         bootstrap=args.bootstrap, actor_id=args.actor_id,
+         out=args.out, smoke=args.smoke,
+-        match_workers=args.match_workers)), flush=True)
++        match_workers=args.match_workers, audit_dir=args.audit_dir)), flush=True)
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/src/battle.js b/src/battle.js
+index af1d962f7b148dd7763ef26f331e02f4edd84dc0..e59ba7c2b38e5a76b06d02293d7b004754b02f2a 100644
+--- a/src/battle.js
++++ b/src/battle.js
+@@ -694,6 +694,12 @@ export class Battle {
+     delete entered.pendingEmergencyCandidate;
+     this.#presentState();
+   }
++  #leagueAudit;
++  // Trainer-only callback. Neither checkpoints nor seat views carry it.
++  setLeagueAudit(sink) { this.#leagueAudit=sink; }
++  #audit(kind, fields) {
++    this.#leagueAudit?.(kind,this.#turn,this.#request,fields);
++  }
+   #damageEvent(event) {
+     if (!event.damage)return;
+     const beforeHP=Number.isFinite(event.beforeHP)?event.beforeHP:Math.min(event.target.maxHP,event.target.hp+event.damage);
+@@ -810,7 +816,11 @@ export class Battle {
+     };
+     updateWeatherSuppression(this.#field,[this.#current(0),this.#current(1)]);
+     entryHazards(this.#field,seat,current,this.#current(1-seat),this.#data.typeChart,this.#rng,
+-      e=>this.#damageEvent({...e,kind:'hazard'}),e=>{hazardStatusCause=e;});
++      e=>{
++        if(this.#leagueAudit && e.damage>0)
++          this.#audit('entry-damage',{seat,hazardId:e.id,damage:e.damage,hpAfter:e.target.hp});
++        this.#damageEvent({...e,kind:'hazard'});
++      },e=>{hazardStatusCause=e;});
+     if(current.hp) {
+       // A held Air Balloon is publicly revealed on each active entry, after
+       // hazards have been resolved. The public name may be an Illusion mask.
+@@ -999,7 +1009,12 @@ export class Battle {
+   }
+   #resolveTurnAction(order,position) {
+     const seat=order[position],action=this.#pending[seat];
+-    if(!action || action.resolved || action.actor.hp===0 || action.actor!==this.#current(seat))return 'continue';
++    if(!action || action.resolved)return 'continue';
++    if(action.actor.hp===0 || action.actor!==this.#current(seat)){
++      if(this.#leagueAudit)this.#audit('prevented-action',{seat,actionKind:action.kind,
++        reason:action.actor.hp===0?'actor-fainted':'actor-no-longer-active'});
++      return 'continue';
++    }
+     let moveResult=null;
+     if(action.kind==='switch')this.#switch(seat,action.index);
+     else moveResult=this.#move(seat,action);
+@@ -1480,6 +1495,8 @@ export class Battle {
+       permission.canMove=false;permission.reason='choicelock';
+     }
+     if (!permission.canMove) {
++      if(this.#leagueAudit)this.#audit('prevented-action',{seat,actionKind:'move',
++        reason:permission.reason??null});
+       if(chargeExpires && actor.volatiles)delete actor.volatiles.charge;
+       actor.moveLastTurnResult=permission.reason==='recharge'?null:false;
+       if(actor.volatiles)delete actor.volatiles.destinybond;
+@@ -1744,6 +1761,12 @@ export class Battle {
+         targetAction,
+         onPowerBoost:moveId=>{if(moveId==='ficklebeam')this.#message(`${actor.speciesName} の きまぐレーザーの威力が上がった！`);},
+         ...attackEvents.callbacks,
++        ...(this.#leagueAudit?{onHitComplete:event=>{
++          this.#audit('hit',{seat,moveId:id,delayed:Boolean(delayed),hit:event.hit,
++            damage:event.damage,targetSeat:1-seat,substitute:Boolean(event.substitute),
++            disguise:Boolean(event.disguise)});
++          attackEvents.callbacks.onHitComplete(event);
++        }}:{}),
+         onScreensBroken:({ids})=>{
+           // Public defender-side state changed before Brick Break's damage.
+           // Emit only the names of screens that were actually removed.
+@@ -1770,7 +1793,11 @@ export class Battle {
+           if(target && status && causeAbilityId && source)
+             contactStatusCauses.set(target,{status,causeAbilityId,source});
+         },
+-        onCrit:()=>this.#message('急所に 当たった！')};
++        onCrit:event=>{
++          if(this.#leagueAudit)this.#audit('crit',{seat,moveId:id,delayed:Boolean(delayed),
++            hit:event.hit,damage:event.damage,targetSeat:1-seat});
++          this.#message('急所に 当たった！');
++        }};
+       if(move.selfdestruct==='always') {
+         result=resolveSelfdestruct({actor,target:foe.hp>0?foe:null,moveId:id,onDamage:e=>this.#damageEvent(e),executeAttack:options=>resolveAttack({...attackOptions,...options})});
+         if(result.selfdestruct && id==='explosion')this.#explosionSeat=seat;
+@@ -1817,6 +1844,7 @@ export class Battle {
+         this.#message(`${moveLabels[id]??move.name}：相手には効果がないようだ。`);
+     }
+     else if(result.missed) {
++      if(this.#leagueAudit)this.#audit('miss',{seat,moveId:id,delayed:Boolean(delayed)});
+       if(!this.#publishNeutralMoveOutcome(id,moveLabels[id]??move.name,'missed'))
+         this.#message(`${moveLabels[id]??move.name}：技は外れた。`);
+     }
