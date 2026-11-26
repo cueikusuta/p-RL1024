@@ -81,7 +81,9 @@ def run(plan_path, rep, arm, bootstrap, actors, out, experiment):
     receipt = json.loads(receipt_path.read_text())
     require(receipt["originalCheckpoint"] == plan["baseCheckpoint"], "Wrong G421 start")
     final = torch.load(Path(out)/"checkpoint-g423.pt", map_location="cpu", weights_only=True)
-    ids = final["training_match_ids"]
+    # The next-generation checkpoint resets the active prefix; use the completed order.
+    ids = final["completed_generation_match_ids"]
+    require(final["training_match_ids"] == [] and final["step"] == 0 and final["generation"] == 423, "Wrong sealed generation boundary")
     require(len(ids) == len(set(ids)) == 1280, "Wrong unique training Match IDs")
     receipt.update({"arm":arm, "width":width, "experimentHead":experiment,
         "planSha":PLAN_SHA, "startCheckpoint":initial,

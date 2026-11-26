@@ -2,7 +2,7 @@ name: I5 G422 four-decision recurrent memory
 on:
   push:
     branches: [eval/5-short-bptt]
-    paths: [docs/research/rnad/G422_SHORT_BPTT.json]
+    paths: [docs/research/rnad/G422_SHORT_BPTT.json, .github/workflows/rnad-i5-short-bptt.yml]
 permissions: {contents: read, actions: read}
 concurrency:
   group: i5-g422-short-bptt
