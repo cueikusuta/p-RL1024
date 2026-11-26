@@ -2,7 +2,7 @@ name: I5 G422 bounded opponent-mix pilot
 on:
   push:
     branches: [eval/5-opponent-mix-pilot]
-    paths: [docs/research/rnad/G422_OPPONENT_MIX_PILOT.json]
+    paths: [docs/research/rnad/G422_OPPONENT_MIX_PILOT.json, .github/workflows/rnad-i5-opponent-mix-pilot.yml]
 permissions: {contents: read, actions: read}
 concurrency:
   group: i5-g422-opponent-mix-pilot

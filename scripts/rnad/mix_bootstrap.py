@@ -78,15 +78,32 @@ def seal(plan, archive, original, common):
     need([x["id"] for x in history] == plan["screen"]["history"],
          "Missing historical models")
     shutil.copytree(original / "fixed", common / "fixed")
+    fixed = []
     for item in old["opponents"]["fixed"]:
         name = item["id"].removeprefix("fixed-")
-        suffix = "-v1.json" if name in ("aqbase001","coretrioaq001") else "-v3.json"
-        need(digest(common / "fixed" / (name + suffix)) == item["sha256"], "Fixed-opponent drift")
+        config = name in ("aqbase001", "coretrioaq001")
+        suffix = "-v1.json" if config else "-v3.json"
+        path = common / "fixed" / (name + suffix)
+        need(digest(path) == item["sha256"], "Fixed-opponent drift")
+        if config:
+            frozen = read(path)
+            need(frozen == {
+                "schema":"rnad-i5-authorized-fixed-opponent-v1", "kind":name,
+                "aq_model_sha256":plan["aq"], "epsilon":.02, "research_only":True,
+                "source_git_sha":source,
+                "core_trio_source_sha256":digest(Path("src/ai/draft-core-trio.js")),
+            }, "Non-provenance change in fixed policy configuration")
+            updated = {**frozen, "source_git_sha":head}
+            path.unlink()
+            write_json(path, updated)
+            need({**read(path), "source_git_sha":source}==frozen,
+                 "Fixed policy settings changed in reseal")
+        fixed.append({"id":item["id"],"sha256":digest(path)})
     for name in ("original-draft.json", "original-selection-js.json"):
         shutil.copyfile(original / name, common / name)
     manifest = {**old, "source_sha":head, "main_sha256":main,
                 "policy_manifest_sha256":main, "magnet_sha256":magnet,
-                "opponents":{**old["opponents"], "historical":history}}
+                "opponents":{**old["opponents"], "historical":history,"fixed":fixed}}
     verify_manifest(manifest)
     write_json(common / "generation-manifest.json", manifest)
 
