@@ -1,12 +1,12 @@
-name: G422 full historical match training handoff
+name: G422 portable historical Actor benchmark
 on:
   push:
-    branches: [perf/g422-bounded-full-replay-20261127]
+    branches: [perf/g422-portable-exact-20261127]
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: single-g422-frozen-encrypted
+  group: single-g422-portable-encrypted
   cancel-in-progress: false
 jobs:
   frozen-actor:
@@ -15,9 +15,17 @@ jobs:
     timeout-minutes: 6
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 8
       matrix:
-        actor: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        include:
+          - {actor: 1, variant: portable}
+          - {actor: 7, variant: portable}
+          - {actor: 10, variant: portable}
+          - {actor: 16, variant: portable}
+          - {actor: 17, variant: portable}
+          - {actor: 18, variant: portable}
+          - {actor: 16, variant: stock}
+          - {actor: 17, variant: stock}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -42,18 +50,28 @@ jobs:
         working-directory: engine
         env:
           ACTOR_ID: ${{ matrix.actor }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           set -euo pipefail
           umask 077
           mkdir ../sealed
           (cd ../bootstrap && sha256sum -c --status file-pins.sha256)
           node scripts/verify-snapshot.mjs
+          if [[ "$VARIANT" == "portable" ]]; then
+            git apply --check ../pilot/portable/public-g422.patch
+            git apply ../pilot/portable/public-g422.patch
+            mod="$(realpath ../pilot/portable/portable-affine.cjs)"
+            export RNAD_BATTLE_AFFINE_MODE=native RNAD_DRAFT_BATCH_NATIVE=1 RNAD_COMPACT_ACCEPTED_RECEIPTS=1
+            export RNAD_BATTLE_AFFINE_NATIVE="$mod" RNAD_SELECTION_NATIVE="$mod" RNAD_DRAFT_RHO_NATIVE="$mod"
+          elif [[ "$VARIANT" != "stock" ]]; then
+            exit 1
+          fi
           python3 ../pilot/historical_full_actor.py ../bootstrap ../local-raw ../sealed/timing.json "$ACTOR_ID" 4
           node ../pilot/transport.mjs seal "../local-raw/actor-$ACTOR_ID.json.gz" ../sealed/actor.bin ../pilot/receiver-public.pem "$ACTOR_ID" "$GITHUB_RUN_ID" > ../sealed/envelope.json
       - name: Hand off only encrypted receipts and counts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sealed-g422-actor-${{ matrix.actor }}
+          name: sealed-g422-${{ matrix.variant }}-${{ matrix.actor }}
           path: sealed/
           if-no-files-found: error
           retention-days: 1
