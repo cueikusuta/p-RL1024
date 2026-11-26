@@ -1,0 +1,52 @@
+name: I5 league battle audit parity (no training)
+on:
+  push:
+    branches: [feat/5-league-battle-audit]
+    paths:
+      - 'provenance/overlays/league-battle-audit-v1.patch'
+      - '.github/workflows/rnad-i5-league-battle-audit-ci.yml'
+      - '.github/workflows/rnad-i5-bc-100h-generation-reusable.yml'
+permissions: {}
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22'}
+      - name: Verify pinned authority and archived G422 smoke input
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_SHA:provenance/overlays/league-battle-audit-v1.patch" > "$RUNNER_TEMP/league-audit.patch"
+          git switch --detach 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          node scripts/verify-snapshot.mjs
+          gh api repos/cueikusuta/p-RL1024/actions/artifacts/15062436036/zip > "$RUNNER_TEMP/bootstrap.zip"
+          echo "4bd6e43be5a7463e8a90559eadc31881963fed2a7d2189bb9e1fa97d8ecac7c7  $RUNNER_TEMP/bootstrap.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/bootstrap.zip" -d "$RUNNER_TEMP/bootstrap"
+          (cd "$RUNNER_TEMP/bootstrap" && sha256sum -c file-pins.sha256)
+      - name: Compare accepted four-win trajectories before and after, all opponent routes
+        run: |
+          set -euo pipefail
+          for actor in 0 8 16 17 18 19; do
+            python -m scripts.rnad.shared_league_collect --bootstrap "$RUNNER_TEMP/bootstrap" \
+              --actor-id "$actor" --out "$RUNNER_TEMP/off-$actor" --smoke
+          done
+          export RNAD_AUDIT_SHA="$(sha256sum "$RUNNER_TEMP/league-audit.patch" | cut -d' ' -f1)"
+          git apply --check "$RUNNER_TEMP/league-audit.patch"
+          git apply "$RUNNER_TEMP/league-audit.patch"
+          for actor in 0 8 16 17 18 19; do
+            python -m scripts.rnad.shared_league_collect --bootstrap "$RUNNER_TEMP/bootstrap" \
+              --actor-id "$actor" --out "$RUNNER_TEMP/on-$actor" \
+              --audit-dir "$RUNNER_TEMP/on-$actor/audit" --smoke
+            diff -qr "$RUNNER_TEMP/off-$actor/accepted" "$RUNNER_TEMP/on-$actor/accepted"
+            python -m scripts.rnad.pack_league_battle_audit \
+              "$RUNNER_TEMP/on-$actor/accepted" "$RUNNER_TEMP/on-$actor/audit" "$RUNNER_TEMP/packed-$actor"
+            jq -e '.expectedMatches == 2 and .recordedMatches == 2 and .counts.dropped == 0' \
+              "$RUNNER_TEMP/packed-$actor/coverage.json"
+          done
