@@ -1,0 +1,32 @@
+name: Synthetic runner latency probe
+on:
+  push:
+    branches: [perf/synthetic-runner-probe-20261127]
+permissions:
+  contents: read
+jobs:
+  synthetic-probe:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    strategy:
+      fail-fast: true
+      max-parallel: 8
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compute and check synthetic bytes
+        env:
+          PROBE_SHARD: ${{ matrix.shard }}
+        run: node probe.mjs
+      - name: Time upload of checked synthetic bytes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-probe-${{ matrix.shard }}
+          path: probe-output/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
