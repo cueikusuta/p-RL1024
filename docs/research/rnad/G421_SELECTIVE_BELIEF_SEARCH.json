@@ -1,0 +1,68 @@
+{
+  "source": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+  "engine": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "aq": "5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e",
+  "aqName": "AQ-Base-001",
+  "schema": "rnad-i5-selective-search-v1",
+  "models": {
+    "G421": {
+      "run": 45690560204,
+      "artifact": 15062436036,
+      "generation": 422,
+      "source": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+      "zip": "4bd6e43be5a7463e8a90559eadc31881963fed2a7d2189bb9e1fa97d8ecac7c7",
+      "actor": "a99b6ea65c11b2a2b6d65828e58d694e8bbb170969f76bacba624def9eda0af9"
+    }
+  },
+  "swaps": {},
+  "seedStart": 430330001,
+  "smokeSeed": 430339001,
+  "blocks": 1024,
+  "parts": 16,
+  "alpha": 0.05,
+  "matchups": [
+    [
+      "G421",
+      "AQ"
+    ],
+    [
+      "Prior",
+      "AQ"
+    ],
+    [
+      "History",
+      "AQ"
+    ],
+    [
+      "G421",
+      "Strategy"
+    ],
+    [
+      "History",
+      "Strategy"
+    ],
+    [
+      "History",
+      "G421"
+    ]
+  ],
+  "model": {
+    "phase": "battle only",
+    "worlds": 4,
+    "minimumRealWorlds": 2,
+    "candidateActions": 2,
+    "maxLogitGap": 0.75,
+    "minimumMeanUtilityGain": 0.08,
+    "maxWorstWorldLoss": 0.05,
+    "riskAggregate": "mean + 0.25 * (minimum - mean)",
+    "prior": "uniform over public catalog compatible with current species and revealed form, max four deterministic hypotheses; uncalibrated",
+    "history": "filter through hard announced move list where safe; mutable item/ability disclosures are not treated as original facts",
+    "fallback": "only a near-tied plain move/switch decision, without complex field/volatile/move effects; no coverage => preserve exact G421 action",
+    "surrogate": "one-turn simultaneous bounded attack/switch damage/order model; no actual hidden state, no full Battle simulation or full equilibrium claim"
+  },
+  "primary": "History minus G421 against AQ paired seed-block Student t 95% CI; analysis margin 0pt",
+  "secondary": "History minus Prior against AQ, History minus G421 against Integrated Strategy, head-to-head History against G421; simultaneous Bonferroni family 95%",
+  "budget": "Fixed 1024 new seed blocks x both seats x six matchups = 12288 completed four-win matches; excluded smoke seeds 430339001,430339002; no outcome-dependent seed omissions/extension; telemetry latency and completed games; no training or promotion",
+  "decision": "Consider a separate confirmation only when the primary lower bound exceeds zero, the simultaneous Strategy lower bound exceeds -2 pp, direct win-rate lower bound exceeds 48%, and treatment made nonzero overrides. Otherwise HOLD.",
+  "latency": "Record search wall-clock buckets for each gated turn on Ubuntu CI; hardware-dependent; no production timeout claim."
+}

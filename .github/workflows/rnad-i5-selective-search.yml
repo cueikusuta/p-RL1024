@@ -1,0 +1,110 @@
+name: "I5 G421 selective public-belief search"
+on:
+  push:
+    branches: [eval/5-selective-belief-search]
+    paths: [docs/research/rnad/G421_SELECTIVE_BELIEF_SEARCH.json]
+permissions: {contents: read, actions: read}
+concurrency:
+  group: rnad-i5-selective-search-holdout
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+    working-directory: engine
+env:
+  PLAN: ../study/docs/research/rnad/G421_SELECTIVE_BELIEF_SEARCH.json
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: cueikusuta/p-RL1024
+jobs:
+  smoke:
+    if: github.repository == 'cueikusuta/p-RL1024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: study, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: engine, ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - name: Verify pinned runtime and copy only the evaluation harness
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          node scripts/verify-snapshot.mjs
+          python3 ../study/scripts/rnad/install-selective-harness.py ../study/scripts/rnad
+      - name: Verify the original G421 ZIP and copy only inference heads
+        run: |
+          mkdir -p "$RUNNER_TEMP/g421"
+          python3 ../study/scripts/rnad/prepare-selective-search.py "$PLAN" "$RUNNER_TEMP/g421"
+      - name: Check both seats and every matchup on two excluded smoke seeds
+        run: |
+          node scripts/rnad/check-selective-belief.mjs
+          node scripts/rnad/selective-search-match.mjs smoke "$PLAN" "$RUNNER_TEMP/g421"
+  matches:
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        part: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: study, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: engine, ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - name: Verify pinned runtime and copy only the evaluation harness
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          node scripts/verify-snapshot.mjs
+          python3 ../study/scripts/rnad/install-selective-harness.py ../study/scripts/rnad
+      - name: Verify the original G421 ZIP and copy only inference heads
+        run: |
+          mkdir -p "$RUNNER_TEMP/g421"
+          python3 ../study/scripts/rnad/prepare-selective-search.py "$PLAN" "$RUNNER_TEMP/g421"
+      - name: Evaluate fixed seed block; do not inspect intermediate estimates
+        env:
+          PART: ${{ matrix.part }}
+        run: node scripts/rnad/selective-search-match.mjs run "$PLAN" "$RUNNER_TEMP/g421" "$PART" ../shard.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: i5-selective-part-${{ matrix.part }}
+          path: shard.json
+          if-no-files-found: error
+          retention-days: 30
+  summary:
+    needs: matches
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: study, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: engine, ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.14.0'}
+      - name: Verify pinned runtime and copy only the evaluation harness
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          node scripts/verify-snapshot.mjs
+          python3 ../study/scripts/rnad/install-selective-harness.py ../study/scripts/rnad
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: 'i5-selective-part-*', path: evidence}
+      - name: Validate all paired matches and compute prespecified contrasts
+        run: |
+          node scripts/rnad/selective-search-match.mjs summary "$PLAN" ../evidence - ../report.json
+          cp "$PLAN" ../plan.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rnad-i5-selective-search-report
+          path: |
+            report.json
+            plan.json
+          if-no-files-found: error
+          retention-days: 90
