@@ -138,6 +138,7 @@ function summarize(){
     const raw=pool(extract);
     // Conservative relative to Welch-Satterthwaite's >= n-1 df.
     const t=studentTQuantile(1-.05/(2*comparisons),n-1);
+    const variance=(m[0].variance+m[1].variance)/(4*n);
     const estimate=(m[0].estimate+m[1].estimate)/2;
     const w=t*Math.sqrt(variance);
     return {estimate,nullValue,se:Math.sqrt(variance),comparisons,seedBlocks:raw.length,degreesOfFreedom:n-1,
