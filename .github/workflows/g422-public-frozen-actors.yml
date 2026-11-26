@@ -1,0 +1,54 @@
+name: Historical G422 hosted match throughput
+on:
+  push:
+    branches: [perf/g422-public-frozen-actors-20261127]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  historical-g422:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        actor: [0, 3, 8, 12, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: pilot
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          path: engine
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+      - name: Download previously published immutable G422 bundle
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: rnad-i5-cont-next-bootstrap-after-g421
+          run-id: '45690560204'
+          github-token: ${{ github.token }}
+          path: bootstrap
+      - name: Verify 32 real historical match receipts with the original rules
+        working-directory: engine
+        env:
+          RNAD_PILOT_ACTOR: ${{ matrix.actor }}
+        run: |
+          set -euo pipefail
+          (cd ../bootstrap && sha256sum -c --status file-pins.sha256)
+          node scripts/verify-snapshot.mjs
+          python3 ../pilot/bounded_g422.py ../bootstrap ../bench "$RNAD_PILOT_ACTOR"
+      - name: Upload synthetic bytes of exactly the measured receipt size
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: g422-synthetic-egress-${{ matrix.actor }}
+          path: bench/publish/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
