@@ -1,0 +1,37 @@
+name: I5 frozen priority evaluation (no training)
+on:
+  push:
+    branches: [feat/5-frozen-priority-evaluation]
+    paths:
+      - 'scripts/rnad/frozen-priority/**'
+      - 'test/rnad-frozen-priority.test.mjs'
+      - 'test/fixtures/frozen-priority-smoke.json'
+      - 'provenance/overlays/frozen-priority-evaluation.json'
+      - '.github/workflows/rnad-i5-frozen-priority-ci.yml'
+permissions: {}
+jobs:
+  frozen-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions: {contents: read, actions: read}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22'}
+      - run: node --test test/rnad-frozen-priority.test.mjs
+      - name: Verify archived checkpoint and pristine engine, then test frozen modes
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/engine" 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          gh api repos/cueikusuta/p-RL1024/actions/artifacts/15062436036/zip > "$RUNNER_TEMP/bootstrap.zip"
+          echo "4bd6e43be5a7463e8a90559eadc31881963fed2a7d2189bb9e1fa97d8ecac7c7  $RUNNER_TEMP/bootstrap.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/bootstrap.zip" -d "$RUNNER_TEMP/bootstrap"
+          (cd "$RUNNER_TEMP/bootstrap" && sha256sum -c file-pins.sha256)
+          cd "$RUNNER_TEMP/engine"
+          node scripts/verify-snapshot.mjs
+          cp -R "$GITHUB_WORKSPACE/scripts/rnad/frozen-priority" scripts/rnad/
+          python scripts/rnad/frozen-priority/install.py "$GITHUB_WORKSPACE/provenance/overlays/frozen-priority-evaluation.json"
+          python scripts/rnad/frozen-priority/verify-smoke.py "$RUNNER_TEMP/bootstrap/actor" "$GITHUB_WORKSPACE/test/fixtures/frozen-priority-smoke.json"

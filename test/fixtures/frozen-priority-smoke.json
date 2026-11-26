@@ -1,0 +1,30 @@
+[
+  {
+    "seed": 460263165,
+    "seat": 0,
+    "opponent": "aq-base",
+    "old": "37ec4f7b6e39cee9f774854338cb9b594b42f02a03ace39b6c32e05d604f443a",
+    "new": "e66fdbd43876addffcf5b8a0b0b5b05634b15e999347439582200da33e81f9b5"
+  },
+  {
+    "seed": 460263301,
+    "seat": 0,
+    "opponent": "aq-base",
+    "old": "66e25a5c52ec44c0c826de6ab2b9d822aa8ec4f9d13bd3dc50d60bd35170f1fb",
+    "new": "0d33ba467da2d44a4ca952ecde3199e9f558c899b4b1a4c5b991ee30e3fca762"
+  },
+  {
+    "seed": 460264149,
+    "seat": 0,
+    "opponent": "strategy-tactical",
+    "old": "24c36eaeccd962b9f6b85e38016466ab85ad5035ab5aa46436a9db06e749fe75",
+    "new": "3f5b64a06f6ee2ab290efffc4724ea996755c42e070f598ce136a00e502dcfb9"
+  },
+  {
+    "seed": 460264197,
+    "seat": 0,
+    "opponent": "strategy-tactical",
+    "old": "651cf69531737efe4a0ba252b6c7f32e512ea77a27c3c24c6a51cea8acbd8a1b",
+    "new": "6ff45f19fbc4c7605117b7631b27ea675e9e44248657e133c79df288dacda071"
+  }
+]

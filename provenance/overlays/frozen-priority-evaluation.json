@@ -1,0 +1,118 @@
+[
+  {
+    "source": "scripts/rnad/shared_league_actor.mjs",
+    "destination": "scripts/rnad/shared-league-selective-actor.mjs",
+    "source_sha256": "773217da2f74e9c2c301a7f97e0c23f350436d3d1cbf4e153e4bbd96b1c6ffa4",
+    "result_sha256": "f319709bc6bfaf029edccd5210e5ece0a9f0be90a46c04a1459cb849ff094c31",
+    "edits": [
+      [
+        15,
+        16,
+        "import {RnadSwitchLoopGuard} from './switch-loop-guard.mjs';\n",
+        "import {RnadSwitchLoopGuard} from './selective-switch-loop-guard.mjs';\n"
+      ],
+      [
+        345,
+        346,
+        "export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false,trajectoryBattleSchema=null}){\n",
+        "export function session({modelDir,magnetDir,legacyPath=null,legacySha=null,epsilon=.02,greedy=false,trajectoryBattleSchema=null,researchRerank=null}){\n"
+      ],
+      [
+        360,
+        361,
+        "    choose({observation,legalActions,seat,round,rng}){\n",
+        "    choose({observation,legalActions,seat,round,rng,publicContext}){\n"
+      ],
+      [
+        409,
+        410,
+        "      const ix=greedy?logits.reduce((best,x,i)=>x>logits[best]?i:best,0):sample(probs,rng);\n",
+        "      let ix=greedy?logits.reduce((best,x,i)=>x>logits[best]?i:best,0):sample(probs,rng);\n      if(researchRerank!==null){\n        assert(greedy&&!legacy,'Selective rerank is research-only frozen inference');\n        ix=researchRerank({observation,legalActions,logits,index:ix,publicContext});\n        assert(Number.isInteger(ix)&&ix>=0&&ix<legalActions.length,'Bad selective rerank index');\n      }\n"
+      ]
+    ]
+  },
+  {
+    "source": "scripts/rnad/switch-loop-guard.mjs",
+    "destination": "scripts/rnad/selective-switch-loop-guard.mjs",
+    "source_sha256": "30499812124e55cacf8ac138d4786af8fa87a0918d36fb4b268a7fec92d0e0b1",
+    "result_sha256": "76a9af6622703c9e18c78d69d75625b13589e368e54f8e656fcb245996aef0ea",
+    "edits": [
+      [
+        21,
+        22,
+        "  choose({observation,legalActions,seat,round,rng}){\n",
+        "  choose({observation,legalActions,seat,round,rng,publicContext}){\n"
+      ],
+      [
+        49,
+        50,
+        "      observation,legalActions:allowed,seat,round,rng\n",
+        "      observation,legalActions:allowed,seat,round,rng,publicContext\n"
+      ]
+    ]
+  },
+  {
+    "source": "scripts/rnad/evaluate-shared-g012-vs-aq.mjs",
+    "destination": "scripts/rnad/integrated-selective-session.mjs",
+    "source_sha256": "5ff0409d7a9d519a4cdad1e8fdbbcb568a30394c6b69e1197a13bb20806d559e",
+    "result_sha256": "428b5145bef1832cc130a8fd6e1deb5099f23e4b5bfe255dff8a20eefa6e2ce4",
+    "edits": [
+      [
+        6,
+        7,
+        "import {runStrategyMatch} from '../../aq-runtime/scripts/dev/simulator/strategy-match.js';\n",
+        "import {runStrategyMatch} from '../../aq-runtime/scripts/dev/simulator/strategy-frozen-priority.js';\n"
+      ],
+      [
+        9,
+        10,
+        "import {session} from './shared_league_actor.mjs';\n",
+        "import {session} from './shared-league-selective-actor.mjs';\n"
+      ],
+      [
+        21,
+        22,
+        "export function createIntegratedAQSession({modelDir,seat}){\n",
+        "export function createIntegratedAQSession({modelDir,seat,researchRerank=null}){\n"
+      ],
+      [
+        23,
+        24,
+        "  const frozen=session({modelDir,magnetDir:modelDir,epsilon:.02,greedy:true});\n",
+        "  const frozen=session({modelDir,magnetDir:modelDir,epsilon:.02,greedy:true,researchRerank});\n"
+      ],
+      [
+        28,
+        29,
+        "  function select(view){\n",
+        "  function select(view,publicFrame=null){\n"
+      ],
+      [
+        39,
+        40,
+        "    const choice=frozen.func({observation:obs,legalActions,seat,round});\n",
+        "    const choice=frozen.func({observation:obs,legalActions,seat,round,\n      publicContext:publicFrame?{compact:view,publicFrame}:null});\n"
+      ],
+      [
+        84,
+        85,
+        "  return {select,commit,stats,finish};\n",
+        "  return {select,commit,stats,finish,needsPublicFrame:researchRerank!==null};\n"
+      ]
+    ]
+  },
+  {
+    "source": "aq-runtime/scripts/dev/simulator/strategy-match.js",
+    "destination": "aq-runtime/scripts/dev/simulator/strategy-frozen-priority.js",
+    "source_sha256": "cf9ad568e9784b53d4a23395b5116811535884fa4767ce2b40f26dc8f2bf900a",
+    "result_sha256": "b636c161a57be329c88e87d7224726270fd6b8541b47e8c2248a16bd986e5e32",
+    "edits": [
+      [
+        258,
+        259,
+        "          action=measure('pureRlDecision',()=>pureRlSessions[seat].select(view));\n",
+        "          // Seat-scoped reveal only. The unmodified compact view still feeds policy.\n          const observation=pureRlSessions[seat].needsPublicFrame\n            ?battle.view(seat).revealed?.find(x=>x.active===true):null;\n          const publicFrame=observation?{publicObservation:{\n            usedMoves:[...(observation.usedMoves??[])],\n            observedItemIds:[...(observation.observedItemIds??[])],\n            observedAbilityIds:[...(observation.observedAbilityIds??[])]\n          }}:null;\n          action=measure('pureRlDecision',()=>pureRlSessions[seat].select(view,publicFrame));\n"
+      ]
+    ]
+  }
+]
