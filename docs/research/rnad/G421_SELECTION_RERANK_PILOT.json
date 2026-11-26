@@ -1,0 +1,66 @@
+{
+  "schema": "rnad-i5-selection-rerank-v1",
+  "source": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+  "engine": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "aq": "5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e",
+  "aqName": "AQ-Base-001",
+  "models": {
+    "G421": {
+      "run": 45690560204,
+      "artifact": 15062436036,
+      "generation": 422,
+      "source": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+      "zip": "4bd6e43be5a7463e8a90559eadc31881963fed2a7d2189bb9e1fa97d8ecac7c7",
+      "actor": "a99b6ea65c11b2a2b6d65828e58d694e8bbb170969f76bacba624def9eda0af9"
+    }
+  },
+  "seedStart": 430120001,
+  "seedPolicy": "Fresh 430120001\u2013430120256, smoke 430129001\u2013430129002 excluded.",
+  "smokeSeed": 430129001,
+  "blocks": 256,
+  "parts": 8,
+  "alpha": 0.05,
+  "matchups": [
+    [
+      "G421",
+      "AQ"
+    ],
+    [
+      "Rerank",
+      "AQ"
+    ],
+    [
+      "G421",
+      "Strategy"
+    ],
+    [
+      "Rerank",
+      "Strategy"
+    ],
+    [
+      "Rerank",
+      "G421"
+    ]
+  ],
+  "comparisonFamily": "Primary paired difference one two-sided 95% interval. Two secondary contrasts (difference vs Integrated Strategy and direct win rate vs G421) at simultaneous 95%. Base rates descriptive.",
+  "stoppingRule": "256 fresh seeds by two seats per matchup, 2560 complete matches. No interim analysis or extension.",
+  "interpretation": "G421 frozen all phases. Selection reranker only: top 3, 3 public catalog worlds, completed single Battles via fixed Basic policy, <=140 accepted decisions per simulation. Any unresolved rollout yields baseline. No scores, public shares, or policy updates during live four-win Match.",
+  "trainingDuringEvaluation": false,
+  "automaticChampionPromotion": false,
+  "swaps": {},
+  "holdout": {
+    "id": "Strategy",
+    "runtimePolicy": "strategy",
+    "strategyMode": "integrated",
+    "meaning": "Rule-based integrated Strategy, outside the exact B+C opponent registry; shared simulator/components and earlier teacher exposure not excluded."
+  },
+  "primary": "Rerank minus G421 against common AQ-Base-001.",
+  "modelBase": "G421",
+  "modelDonor": "G421",
+  "mechanism": {
+    "candidates": 3,
+    "worlds": 3,
+    "actionCap": 140,
+    "mode": "all-worlds-or-baseline"
+  }
+}
