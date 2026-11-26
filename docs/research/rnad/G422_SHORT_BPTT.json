@@ -1,0 +1,82 @@
+{
+  "schema": "rnad-i5-short-bptt-v1",
+  "baselineSource": "31118974e579e3a18aa5082f94bca4fa73f7ddb3",
+  "sourceRun": 45783489939,
+  "sourcePlanSha": "0d172ae58019b11b828dea63e61e3e039c81b86738d9330efa52a2b469cdd8e6",
+  "engine": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "aq": "5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e",
+  "baseCheckpoint": "312016240ade21f2755bc742a299de766cd787fbd2f2cc29d7028f8dc5f63443",
+  "artifacts": {
+    "i5-mix-actors-rep0-control-0": {
+      "id": 15100202877,
+      "sha256": "f25bb5f2196d7cc7ea6a45e441b723dd11675878afb169b63af1ad7163fb32ce"
+    },
+    "i5-mix-actors-rep0-control-1": {
+      "id": 15100372430,
+      "sha256": "787fe31c6e2b5ee9db3853ef08090c1c0318e118e3d5f643585b5093b97725ec"
+    },
+    "i5-mix-actors-rep0-control-2": {
+      "id": 15099339880,
+      "sha256": "a0399b8aafca6fb7a6043f7ad9dd79daeedadd42aab84c42db176a6ead188d1a"
+    },
+    "i5-mix-actors-rep0-control-3": {
+      "id": 15100860166,
+      "sha256": "cd6013968cf2dfc1215e2cae43b4675394bea73f13893f1a75ecd88756d19160"
+    },
+    "i5-mix-actors-rep0-control-4": {
+      "id": 15099364649,
+      "sha256": "0fc3e402e1323a341880ee0c9e438df8749dfd330b309fc191aa856301ded116"
+    },
+    "i5-mix-actors-rep1-control-0": {
+      "id": 15100107933,
+      "sha256": "09f0569149e5c1c8b599e31600271356973db6ec0a65bbb3130c1235527d9919"
+    },
+    "i5-mix-actors-rep1-control-1": {
+      "id": 15100212620,
+      "sha256": "b089346cf140ff395fead1d7126d7bce769b4b7c6e061f4b3dc658e028b45694"
+    },
+    "i5-mix-actors-rep1-control-2": {
+      "id": 15099394098,
+      "sha256": "f82ee892a799d481745186ee70fdae4e2a28c702092860045808588c1c2091ed"
+    },
+    "i5-mix-actors-rep1-control-3": {
+      "id": 15100865483,
+      "sha256": "cb50b9e9e8d1a69e128a45e4f7d6cd36e5b175fe1a7517337b5e6785fc7b1a85"
+    },
+    "i5-mix-actors-rep1-control-4": {
+      "id": 15099209746,
+      "sha256": "aa99ed3e8b225cdd77fa7ed8a5b6b4760cc2647248ebc26afc129a0ad207efda"
+    },
+    "i5-mix-inputs": {
+      "id": 15100041401,
+      "sha256": "f93b868821cf53a56ad526710c76807f67965628406715f0dbfa4328e4770ee4"
+    }
+  },
+  "generation": 422,
+  "training": {
+    "rep0": 420110001,
+    "rep1": 420120001,
+    "actors": 20,
+    "matches": 1280,
+    "updates": 40,
+    "widths": {
+      "control": 1,
+      "bptt4": 4
+    }
+  },
+  "evaluation": {
+    "rep0": 430210001,
+    "rep1": 430220001,
+    "blocksPerRep": 512,
+    "partsPerRep": 8,
+    "arms": [
+      "control",
+      "bptt4"
+    ],
+    "heldOutPolicy": "strategy",
+    "smokeStart": 430290001,
+    "primary": "bptt4 minus control against Integrated Strategy; seat-paired, equal training-stratum weights, 95% conditional CI on evaluation seeds only",
+    "secondary": "AQ contrast and head-to-head, Bonferroni two-interval family",
+    "gate": "Consider longer confirmation only if primary CI lower > 0, both replicates positive, AQ lower > -0.02. Do not run anything after bounded pilot or promote."
+  }
+}
