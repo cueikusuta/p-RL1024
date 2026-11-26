@@ -1,0 +1,70 @@
+{
+  "schema": "rnad-i5-selection-crossover-v1",
+  "source": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+  "engine": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "aq": "5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e",
+  "aqName": "AQ-Base-001",
+  "models": {
+    "G398": {
+      "run": 45566373586,
+      "artifact": 15028198265,
+      "generation": 399,
+      "source": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+      "zip": "07fcd88925d627becc8725cfd7cce55b1a8f9f16423ca1422392ffa122bac29e",
+      "actor": "4c1db12cf4f45c3b65ef0784b3fe2f757861f7e4221a461527bc2339f3e6d51a"
+    },
+    "G421": {
+      "run": 45690560204,
+      "artifact": 15062436036,
+      "generation": 422,
+      "source": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+      "zip": "4bd6e43be5a7463e8a90559eadc31881963fed2a7d2189bb9e1fa97d8ecac7c7",
+      "actor": "a99b6ea65c11b2a2b6d65828e58d694e8bbb170969f76bacba624def9eda0af9"
+    }
+  },
+  "seedStart": 430110001,
+  "seedPolicy": "Evaluation 430110001\u2013430111024; smoke 430119001, 430119002 excluded.",
+  "smokeSeed": 430119001,
+  "blocks": 1024,
+  "parts": 16,
+  "alpha": 0.05,
+  "matchups": [
+    [
+      "G421",
+      "AQ"
+    ],
+    [
+      "SwapSelection",
+      "AQ"
+    ],
+    [
+      "G421",
+      "Strategy"
+    ],
+    [
+      "SwapSelection",
+      "Strategy"
+    ],
+    [
+      "SwapSelection",
+      "G421"
+    ]
+  ],
+  "comparisonFamily": "Primary paired difference one two-sided 95% interval. Two secondary contrasts (difference vs Integrated Strategy and direct win rate vs G421) at simultaneous 95%. Base rates descriptive.",
+  "stoppingRule": "1024 fresh seeds by two seats per matchup, 10240 complete four-win matches. No interim selection/reruns.",
+  "interpretation": "Freeze G421 draft/battle, swap G398 selection and associated value tensors only. No learning or policy adoption; a follow-up reranker, if tested, uses disjoint seeds.",
+  "trainingDuringEvaluation": false,
+  "automaticChampionPromotion": false,
+  "swaps": {
+    "SwapSelection": "selection"
+  },
+  "holdout": {
+    "id": "Strategy",
+    "runtimePolicy": "strategy",
+    "strategyMode": "integrated",
+    "meaning": "Rule-based integrated Strategy, outside the exact B+C opponent registry; shared simulator/components and earlier teacher exposure not excluded."
+  },
+  "primary": "SwapSelection minus G421 against common AQ-Base-001.",
+  "modelBase": "G421",
+  "modelDonor": "G398"
+}
