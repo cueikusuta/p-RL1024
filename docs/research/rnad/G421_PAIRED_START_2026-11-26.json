@@ -1,0 +1,24 @@
+{
+  "schema": "rnad-i5-g421-paired-2026-11-v1",
+  "source": "6a11eee1a011dcc65ac80e3b5f2c3c0b57341494",
+  "engine": "ea81165993110ee9fb3a09dcb97c6708c0d7397b",
+  "aq": "5ccc11a3362c7f5a8874847e3afc1f19c539d4ef258bd82704f53d8a1db1946e",
+  "aqName": "AQ-Base-001",
+  "models": {
+    "G198": {"run":44897382403,"artifact":14706377232,"generation":199,"source":"a98bd7cf73b7d3fc2e7d4a9b81764833843653a7","zip":"c2cf7e9a996a6723ccf53d43837a5082cd27638d50d8a987b235b98ca39e812a","actor":"67b019669c8c902e672ef372c6d2c1e9d52141594672297b3574dcbe160343fb"},
+    "G398": {"run":45566373586,"artifact":15028198265,"generation":399,"source":"6a11eee1a011dcc65ac80e3b5f2c3c0b57341494","zip":"07fcd88925d627becc8725cfd7cce55b1a8f9f16423ca1422392ffa122bac29e","actor":"4c1db12cf4f45c3b65ef0784b3fe2f757861f7e4221a461527bc2339f3e6d51a"},
+    "G421": {"run":45690560204,"artifact":15062436036,"generation":422,"source":"6a11eee1a011dcc65ac80e3b5f2c3c0b57341494","zip":"4bd6e43be5a7463e8a90559eadc31881963fed2a7d2189bb9e1fa97d8ecac7c7","actor":"a99b6ea65c11b2a2b6d65828e58d694e8bbb170969f76bacba624def9eda0af9"}
+  },
+  "seedStart": 400100001,
+  "seedPolicy": "One new reserved 32-bit seed interval, separate from observed experiment ranges and final B+C next seed 10170081. Smoke seeds are excluded.",
+  "smokeSeed": 400101001,
+  "blocks": 512,
+  "parts": 16,
+  "alpha": 0.05,
+  "matchups": [["G421","AQ"],["G198","AQ"],["G398","AQ"],["G421","G198"],["G421","G398"]],
+  "comparisonFamily": "Three AQ win rates, two G421 direct head-to-head win rates, and two paired differences versus common AQ; seven simultaneous two-sided intervals, Bonferroni seed-block Student t.",
+  "stoppingRule": "Fixed 512 independent seed blocks with both seats per matchup. 5120 complete four-win matches total. No interim estimates, model selection, or early stopping based on results. Abort on missing or invalid evidence.",
+  "interpretation": "Research only, no promotion. The direct H2H and improvement versus a common opponent are different estimands. Small differences may remain inconclusive.",
+  "trainingDuringEvaluation": false,
+  "automaticChampionPromotion": false
+}
