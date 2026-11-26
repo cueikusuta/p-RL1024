@@ -56,7 +56,7 @@ function evalPart(start,count){
     const sessions=ids.map((id,s)=>id==='AQ'?null:createIntegratedAQSession({modelDir:join(models,id),seat:s}));
     const result=runStrategyMatch({seed,policies:ids.map(id=>id==='AQ'?'aq-base':'pure-rl-linear'),
       pureRlSessions:sessions,pureRlAllPhases:true,strategyMode:'integrated',
-      v2Weights:{blend:.28,exposure:.75,continuation:.4},aqBase:aq});
+      ...(right==='AQ'?{v2Weights:{blend:.28,exposure:.75,continuation:.4},aqBase:aq}:{})});
     const {winner,score,rounds}=result;
     assert(result.completed===true && [0,1].includes(winner) && Array.isArray(score) && score.length===2 &&
       score[winner]===4 && Number.isSafeInteger(score[1-winner]) && score[1-winner]>=0 && score[1-winner]<4 &&

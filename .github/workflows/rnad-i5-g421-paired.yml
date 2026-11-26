@@ -1,7 +1,7 @@
 name: "I5 G421 terminal paired holdout"
 on:
   push:
-    branches: [research/5-g421-paired-holdout]
+    branches: [eval/5-g421-paired-holdout]
     paths: [docs/research/rnad/G421_PAIRED_START_2026-11-26.json]
 permissions: {contents: read, actions: read}
 concurrency:
