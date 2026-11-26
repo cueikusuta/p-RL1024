@@ -1,0 +1,27 @@
+name: Bounded league parity verification
+on:
+  push:
+    branches: [perf/league-private-handoff-synthetic-20261127]
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-league-handoff-one-shot
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.repository.private == false && github.event_name == 'push' && github.ref == 'refs/heads/perf/league-private-handoff-synthetic-20261127'
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.3'
+      - name: Verify one bounded batch and emit digests and timing only
+        env:
+          LEAGUE_REPLAY_READ_SSH_KEY: ${{ secrets.LEAGUE_REPLAY_READ_SSH_KEY }}
+          LEAGUE_REPLAY_UNWRAP_KEY: ${{ secrets.LEAGUE_REPLAY_UNWRAP_KEY }}
+        run: bash parity.sh "d0560ca2a35492be4b3a86fa3bbb06b3d5f656e4" "378f195678275e28c0ed4e71001e3cb6986df6b330cd223ca2ec5a786be634e7" "10"
