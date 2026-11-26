@@ -1,0 +1,60 @@
+name: G422 full historical match training handoff
+on:
+  push:
+    branches: [perf/g422-bounded-full-replay-20261127]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: single-g422-frozen-encrypted
+  cancel-in-progress: false
+jobs:
+  frozen-actor:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        actor: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: pilot
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 6a11eee1a011dcc65ac80e3b5f2c3c0b57341494
+          path: engine
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
+      - name: Retrieve existing G422 public snapshot
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: rnad-i5-cont-next-bootstrap-after-g421
+          run-id: '45690560204'
+          github-token: ${{ github.token }}
+          path: bootstrap
+      - name: Play and verify all 64 games assigned to the role
+        working-directory: engine
+        env:
+          ACTOR_ID: ${{ matrix.actor }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir ../sealed
+          (cd ../bootstrap && sha256sum -c --status file-pins.sha256)
+          node scripts/verify-snapshot.mjs
+          python3 ../pilot/historical_full_actor.py ../bootstrap ../local-raw ../sealed/timing.json "$ACTOR_ID" 4
+          node ../pilot/transport.mjs seal "../local-raw/actor-$ACTOR_ID.json.gz" ../sealed/actor.bin ../pilot/receiver-public.pem "$ACTOR_ID" "$GITHUB_RUN_ID" > ../sealed/envelope.json
+      - name: Hand off only encrypted receipts and counts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sealed-g422-actor-${{ matrix.actor }}
+          path: sealed/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
