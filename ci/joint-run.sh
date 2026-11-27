@@ -8,15 +8,18 @@ unset JOINT_PRIVATE_KEY
 cat > "$safe/known_hosts" <<'HOST'
 github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 HOST
-read -r parent branch payload_sha start deadline < <(python - "$1" <<'PY'
+read -r parent branch payload_sha start deadline generation resume_sha < <(python - "$1" <<'PY'
 import json,re,sys,time
 a=json.load(open(sys.argv[1]))
-assert set(a)=={'stage_commit','stage_branch','payload_sha256','start_epoch','deadline_epoch'}
+assert set(a)=={'stage_commit','stage_branch','payload_sha256','start_epoch','deadline_epoch','generation','prior_resume_sha256'}
 assert re.fullmatch('[0-9a-f]{40}',a['stage_commit']) and re.fullmatch('[0-9a-f]{64}',a['payload_sha256'])
 assert re.fullmatch('joint-1h/[0-9]{10}/g[0-9]{3}',a['stage_branch'])
 start=a['start_epoch'];deadline=a['deadline_epoch']
 assert isinstance(start,int) and isinstance(deadline,int) and deadline-start==3600 and start<=time.time()<deadline
-print(a['stage_commit'],a['stage_branch'],a['payload_sha256'],start,deadline)
+g=a['generation']; rs=a['prior_resume_sha256']
+assert isinstance(g,int) and 425<=g<1000 and a['stage_branch'].endswith(f'/g{g}')
+assert re.fullmatch('[0-9a-f]{64}',rs)
+print(a['stage_commit'],a['stage_branch'],a['payload_sha256'],start,deadline,g,rs)
 PY
 )
 export GIT_SSH_COMMAND="ssh -F /dev/null -i $safe/key -o IdentityAgent=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$safe/known_hosts -o HostKeyAlgorithms=ssh-ed25519"
@@ -31,8 +34,23 @@ store='git@github.com:cueikusuta/p-rl1024-handoff-private.git'
   (cd "$safe/stage" && cat input/payload.part-* > "$safe/input.tar.gz")
   printf '%s  %s\n' "$payload_sha" "$safe/input.tar.gz" | sha256sum --quiet -c -
   tar -xzf "$safe/input.tar.gz" -C "$safe/work" --no-same-owner --no-same-permissions
+  mkdir "$safe/prior"
+  (cd "$safe/stage" && cat prior/part-* > "$safe/prior.tar.gz")
+  printf '%s  %s\n' "$resume_sha" "$safe/prior.tar.gz" | sha256sum --quiet -c -
+  tar -xzf "$safe/prior.tar.gz" -C "$safe/prior" --no-same-owner --no-same-permissions
+  test -d "$safe/prior/next-bootstrap"
+  rm -r -- "$safe/work/run/bootstrap"
+  mv "$safe/prior/next-bootstrap" "$safe/work/run/bootstrap"
+  cp "$safe/stage/next-plan.json" "$safe/work/run/plan.json"
   # Dedicated private staging keeps the PC's independently sealed wave separate.
-  wave="$safe/work/run/G424-g424-joint-1h-windows-w000.zip"
+  wave_name="$(python - "$safe/work/run/plan.json" <<'PY2'
+import json,re,sys
+a=json.load(open(sys.argv[1]));g=a['generation'];r=a['runId']
+assert isinstance(g,int) and 424<=g<1000 and r==f"g{g}-joint-1h"
+print(f"G{g}-{r}-windows-w000.zip")
+PY2
+  )"
+  wave="$safe/work/run/$wave_name"
   test ! -e "$wave"
   (cd "$safe/stage" && cat pc/wave.part-* > "$wave")
   cp "$safe/stage/pc/sha256" "$safe/work/run/pc-receipt.sha256"
