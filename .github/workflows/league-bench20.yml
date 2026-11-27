@@ -1,0 +1,31 @@
+name: Private bounded 20-Actor benchmark
+on:
+  push:
+    branches: [perf/league-private-handoff-synthetic-20261127]
+    paths: [ci/bench20-dispatch.json]
+permissions:
+  contents: read
+concurrency:
+  group: league-bench20-single-test
+  cancel-in-progress: false
+jobs:
+  actor:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        actor: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '24.22.3'}
+      - name: Compute one fixed Actor and return privately
+        env:
+          BENCH20_PRIVATE_KEY: ${{ secrets.LEAGUE_BENCH20_DEPLOY_KEY }}
+          BENCH20_ACTOR: ${{ matrix.actor }}
+        run: bash ci/bench20-actor.sh ci/bench20-dispatch.json
