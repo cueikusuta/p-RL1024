@@ -65,6 +65,7 @@ mkdir -p "$safe/run/inbox" "$safe/run/cloud/packets"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1
 export RNAD_LEARNER_BACKEND=parallel RNAD_PARALLEL_VECTOR=0 RNAD_PREP_CODEC=orjson RNAD_PREP_FAST_JSON=1 RNAD_LEARNER_JSON_CODEC=orjson
 export PYTHONPATH="$safe/work/engine:$here"
+cd "$safe/work/engine"
 git init -q "$safe/waves"
 GIT_ASKPASS="$safe/askpass" GIT_TERMINAL_PROMPT=0 HANDOFF_HTTP_TOKEN="$token" \
 python "$here/bench21-poll.py" "$safe/waves" "$safe/run" "$session" "$run_id" &
