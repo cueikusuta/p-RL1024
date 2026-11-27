@@ -1,0 +1,84 @@
+name: League handoff App smoke
+on:
+  push:
+    branches: [perf/league-private-handoff-synthetic-20261127]
+    paths: [.github/workflows/league-handoff-app-smoke.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Mint scoped short-lived token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
+        id: scoped
+        with:
+          client-id: ${{ vars.LEAGUE_HANDOFF_APP_CLIENT_ID }}
+          private-key: ${{ secrets.LEAGUE_HANDOFF_APP_PRIVATE_KEY }}
+          owner: cueikusuta
+          repositories: p-rl1024-handoff-private
+          permission-contents: write
+      - name: Verify scoped access and benchmark a single private Git fetch
+        env:
+          HANDOFF_TOKEN: ${{ steps.scoped.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess as sp, tempfile, time, urllib.request
+          try:
+              auth = os.environ["HANDOFF_TOKEN"]
+              req = urllib.request.Request("https://api.github.com/installation/repositories",
+                  headers={"Authorization": "Bearer "+auth, "Accept": "application/vnd.github+json"})
+              with urllib.request.urlopen(req, timeout=15) as res:
+                  listing = json.load(res)
+              assert listing["total_count"] == 1
+              assert [r["full_name"] for r in listing["repositories"]] == ["cueikusuta/p-rl1024-handoff-private"]
+              assert listing["repositories"][0]["private"]
+              pin = json.loads(pathlib.Path("ci/bench20-dispatch.json").read_text())
+              session = pin["session"]
+              assert re.fullmatch(r"[0-9]{10}", session)
+              tags = [f"a{i:02}" for i in range(20)]
+              refs = [f"refs/heads/bench20/{session}/{t}" for t in tags]
+              with tempfile.TemporaryDirectory() as tmp:
+                  temp = pathlib.Path(tmp)
+                  ask = temp / "askpass"
+                  ask.write_text('#!/bin/sh\ncase "$1" in\n*Username*) echo x-access-token;;\n*Password*) printf "%s\\n" "$HANDOFF_TOKEN";;\n*) exit 1;;\nesac\n')
+                  ask.chmod(0o700)
+                  env = dict(os.environ, GIT_ASKPASS=str(ask), GIT_TERMINAL_PROMPT="0")
+                  cmd = ["git", "-C", str(temp), "-c", "credential.helper=", "-c", "http.followRedirects=false"]
+                  def git(*args):
+                      return sp.run(cmd+list(args), env=env, stdout=sp.PIPE, stderr=sp.PIPE,
+                                    check=True, timeout=85).stdout
+                  git("init", "--bare", "-q")
+                  start = time.monotonic()
+                  git("fetch", "--quiet", "--no-auto-gc", "--no-tags", "--depth=1",
+                      "https://github.com/cueikusuta/p-rl1024-handoff-private.git",
+                      *[f"{src}:refs/intake/{tag}" for src,tag in zip(refs,tags)])
+                  fetch = time.monotonic() - start
+                  total = 0
+                  for i,tag in enumerate(tags):
+                      ref = f"refs/intake/{tag}:return/"
+                      c = json.loads(git("show", ref+"ready.json"))
+                      assert c["actor"] == i and c["run"] == pin["run"] and c["generation"] == 424
+                      assert c["num_parts"] == (c["size"]+655359)//655360 and 0 < c["size"] <= 100*1024**2
+                      h = hashlib.sha256()
+                      size = 0
+                      for k in range(c["num_parts"]):
+                          b = git("show", ref+f"part-{k:03}")
+                          assert len(b) == min(655360, c["size"]-655360*k)
+                          h.update(b)
+                          size += len(b)
+                      assert size == c["size"] and h.hexdigest() == c["sha256"]
+                      total += size
+                  print(f"Verified 20 private waves; {total} bytes; fetch_seconds={fetch:.3f}; verified_seconds={time.monotonic()-start:.3f}")
+          except Exception as e:
+              raise SystemExit("Private handoff check failed: "+type(e).__name__) from None
+          PY
