@@ -16,6 +16,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Normalize the signing PEM to PKCS8 without logging it
+        id: pem
         env:
           RAW_HANDOFF_PEM: ${{ secrets.LEAGUE_HANDOFF_APP_PRIVATE_KEY }}
         shell: bash
@@ -37,7 +38,7 @@ jobs:
           print("::add-mask::"+mask(key), flush=True)
           for line in key.splitlines()[1:-1]:
               print("::add-mask::"+mask(line), flush=True)
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               f.write("HANDOFF_NORMALIZED_PEM<<HANDOFF_APP_PEM_END\n"+key+"\nHANDOFF_APP_PEM_END\n")
           PY
       - name: Mint scoped short-lived token
@@ -45,7 +46,7 @@ jobs:
         id: scoped
         with:
           client-id: ${{ vars.LEAGUE_HANDOFF_APP_CLIENT_ID }}
-          private-key: ${{ env.HANDOFF_NORMALIZED_PEM }}
+          private-key: ${{ steps.pem.outputs.HANDOFF_NORMALIZED_PEM }}
           owner: cueikusuta
           repositories: p-rl1024-handoff-private
           permission-contents: write
