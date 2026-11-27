@@ -130,4 +130,14 @@ def main():
         if cloud and cloud.poll() is None:
             cloud.terminate()
             cloud.wait(timeout=3)
-if __name__=='__main__':main()
+def run_with_safe_error(entry):
+    import traceback
+    try:
+        entry()
+    except Exception as e:
+        who = type(e).__name__
+        what = " ".join(f"{Path(f.filename).name}:{f.lineno}" for f in traceback.extract_tb(e.__traceback__)[-6:])
+        print(f"PRIVATE_DIAG {who} {what}", file=sys.stderr, flush=True)
+        raise
+
+if __name__=='__main__':run_with_safe_error(main)

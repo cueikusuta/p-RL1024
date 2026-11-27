@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
 safe="$(mktemp -d "${RUNNER_TEMP:?}/bench21.XXXXXXXX")"
 phase=setup
-trap 'code=$?; if (( code != 0 )); then printf "Hosted benchmark failed during %s. No private data emitted.\n" "$phase" >&2; fi; rm -rf -- "$safe"' EXIT
+trap 'code=$?; if (( code != 0 )); then printf "Hosted benchmark failed during %s. No private data emitted.\n" "$phase" >&4; fi; rm -rf -- "$safe"' EXIT
 token="${HANDOFF_TOKEN:?}"; unset HANDOFF_TOKEN
-exec 3>&1
+exec 3>&1 4>&2
+trap 'printf "Hosted stage %s failed at script line %s.\n" "$phase" "$LINENO" >&4' ERR
 exec >"$safe/private.log" 2>&1
 here="$PWD/ci"
 cat > "$safe/askpass" <<'EOF'
@@ -70,8 +71,16 @@ python "$here/bench21-poll.py" "$safe/waves" "$safe/run" "$session" "$run_id" &
 poll=$!
 python -u "$here/bench20_vm_learner.py" "$safe/run" "$safe/work/run/bootstrap" "$epoch" &
 learner=$!
-if ! wait "$poll"; then touch "$safe/run/inbox/abort"; wait "$learner" || true; exit 1; fi
-wait "$learner"
+poll_ok=0
+learn_ok=0
+wait "$poll" || poll_ok=$?
+if (( poll_ok != 0 )); then touch "$safe/run/inbox/abort"; fi
+wait "$learner" || learn_ok=$?
+if (( poll_ok != 0 || learn_ok != 0 )); then
+  printf 'Hosted child exit codes: receive=%s learner=%s.\n' "$poll_ok" "$learn_ok" >&4
+  grep '^PRIVATE_DIAG ' "$safe/private.log" >&4 || true
+  exit 1
+fi
 phase=save
 python - "$safe/run/result.json" <<'PY'
 import json,sys
@@ -87,7 +96,7 @@ cp "$safe/run/result.json" "$dest/"
 cp "$safe/run/output/"{checkpoint-g425.pt,generation425-index.json,generation425-report.json} "$dest/"
 git -C "$safe/outgit" add -- return
 git -C "$safe/outgit" -c user.name=league-benchmark -c user.email=league-benchmark@users.noreply.github.com commit -qm 'Save independent hosted benchmark checkpoint'
-ref="refs/heads/bench21/$session/learner"
+ref="refs/heads/bench21/$session/learner${BENCH21_RESULT_SUFFIX:-}"
 gs -C "$safe/outgit" push -q "$remote" "HEAD:$ref"
 test "$(gs -C "$safe/outgit" ls-remote --heads "$remote" "$ref" | cut -f1)" = "$(git -C "$safe/outgit" rev-parse HEAD)"
 printf 'Verified one generation, 1280 matches, 1280 audits, 40 updates; private save confirmed.\n' >&3
