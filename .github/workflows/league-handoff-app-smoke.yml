@@ -15,12 +15,37 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Normalize the signing PEM to PKCS8 without logging it
+        env:
+          RAW_HANDOFF_PEM: ${{ secrets.LEAGUE_HANDOFF_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, subprocess
+          pem = os.environ.pop("RAW_HANDOFF_PEM").strip().lstrip("\ufeff").strip()
+          pem = pem.replace("\\r\\n", "\n").replace("\\n", "\n")
+          m = re.search(r"-----BEGIN (RSA PRIVATE KEY|PRIVATE KEY)-----[\s\S]+?-----END \1-----", pem)
+          if not m:
+              raise SystemExit("Signing secret does not contain a complete private-key PEM.")
+          p = subprocess.run(["openssl", "pkcs8", "-topk8", "-nocrypt", "-outform", "PEM"],
+              input=m.group(0).encode()+b"\n", stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+          if p.returncode:
+              raise SystemExit("Signing secret does not decode as an unencrypted private key.")
+          key = p.stdout.decode("ascii").rstrip("\n")
+          mask = lambda s: s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::add-mask::"+mask(key), flush=True)
+          for line in key.splitlines()[1:-1]:
+              print("::add-mask::"+mask(line), flush=True)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+              f.write("HANDOFF_NORMALIZED_PEM<<HANDOFF_APP_PEM_END\n"+key+"\nHANDOFF_APP_PEM_END\n")
+          PY
       - name: Mint scoped short-lived token
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
         id: scoped
         with:
           client-id: ${{ vars.LEAGUE_HANDOFF_APP_CLIENT_ID }}
-          private-key: ${{ secrets.LEAGUE_HANDOFF_APP_PRIVATE_KEY }}
+          private-key: ${{ env.HANDOFF_NORMALIZED_PEM }}
           owner: cueikusuta
           repositories: p-rl1024-handoff-private
           permission-contents: write
