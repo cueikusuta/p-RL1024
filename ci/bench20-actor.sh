@@ -3,10 +3,22 @@ set -euo pipefail
 umask 077
 tmp="$(mktemp -d "${RUNNER_TEMP:?}/leaguebench.XXXXXXXX")"
 trap 'rm -rf -- "$tmp"' EXIT
-printf '%s\n' "${BENCH20_PRIVATE_KEY:?}" > "$tmp/key"; unset BENCH20_PRIVATE_KEY
-printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$tmp/known_hosts"
-export GIT_SSH_COMMAND="ssh -F /dev/null -i $tmp/key -o IdentityAgent=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$tmp/known_hosts -o HostKeyAlgorithms=ssh-ed25519"
-remote='git@github.com:cueikusuta/p-rl1024-handoff-private.git'
+handoff_token="${BENCH20_INSTALLATION_TOKEN:?}"; unset BENCH20_INSTALLATION_TOKEN
+cat > "$tmp/askpass" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+case "$1" in
+  *Username*) printf '%s\n' x-access-token;;
+  *Password*) printf '%s\n' "${BENCH20_GIT_HTTP_TOKEN:?}";;
+  *) exit 1;;
+esac
+EOF
+chmod 700 "$tmp/askpass"
+remote='https://github.com/cueikusuta/p-rl1024-handoff-private.git'
+handoff_git() {
+  GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$tmp/askpass" BENCH20_GIT_HTTP_TOKEN="$handoff_token" \
+    git -c credential.helper= -c credential.useHttpPath=true -c http.followRedirects=false "$@"
+}
 actor="${BENCH20_ACTOR:?}"; [[ "$actor" =~ ^([0-9]|1[0-9])$ ]]
 read -r pin sha epoch session workid < <(python3 - "$1" <<'PY'
 import json,re,sys,time
@@ -22,7 +34,7 @@ suffix="$(printf 'a%02d' "$actor")"
 (
   echo 'private input' > "$tmp/phase"
   git init -q "$tmp/stage"
-  git -C "$tmp/stage" fetch -q --depth=1 "$remote" "refs/heads/$branch/input"
+  handoff_git -C "$tmp/stage" fetch -q --depth=1 "$remote" "refs/heads/$branch/input"
   test "$(git -C "$tmp/stage" rev-parse FETCH_HEAD)" = "$pin"
   git -C "$tmp/stage" checkout -q --detach FETCH_HEAD
   mkdir "$tmp/work"
@@ -36,7 +48,7 @@ suffix="$(printf 'a%02d' "$actor")"
   git -C ../vm-portable-engine apply ../actor-native-overlay.patch
   echo 'exact Actor calculation' > "$tmp/phase"
   export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD"
-  env -u GIT_SSH_COMMAND timeout --kill-after=2s 350s python3 ../bench20_actor_worker.py ../plan.json ../actor-out 0 "$actor"
+  timeout --kill-after=2s 350s python3 ../bench20_actor_worker.py ../plan.json ../actor-out 0 "$actor"
   echo 'private upload' > "$tmp/phase"
   cd "$tmp/stage"
   mkdir return
@@ -52,6 +64,6 @@ PY
   git add return/
   git -c user.name=league-benchmark -c user.email=league-benchmark@users.noreply.github.com commit -qm 'Return one verified-scope Actor bundle'
   test "$(date -u +%s)" -lt "$((epoch+800))"
-  git push -q "$remote" "HEAD:refs/heads/$branch/$suffix"
+  handoff_git push -q "$remote" "HEAD:refs/heads/$branch/$suffix"
 ) > "$tmp/private.log" 2>&1 || { echo "Actor failed during $(cat "$tmp/phase" || echo setup); private log not printed." >&2; exit 1; }
 echo 'Actor completed; result returned to private GitHub storage.'
