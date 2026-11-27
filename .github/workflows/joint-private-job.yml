@@ -1,0 +1,34 @@
+name: Joint bounded league job
+on:
+  push:
+    branches: [perf/league-private-handoff-synthetic-20261127]
+    paths: [ci/joint-dispatch.json]
+permissions:
+  contents: read
+concurrency:
+  group: joint-private-one-hour-single-writer
+  cancel-in-progress: false
+jobs:
+  hosted:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.3'
+      - name: Set up pinned CPU dependencies
+        run: |
+          python -m pip -q install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip -q install numpy==1.26.4 orjson==3.13.0 zstandard==0.25.0
+      - name: Execute bounded workload and return only to existing private store
+        env:
+          JOINT_PRIVATE_KEY: ${{ secrets.LEAGUE_JOINT_1H_DEPLOY_KEY }}
+        run: bash ci/joint-run.sh ci/joint-dispatch.json
