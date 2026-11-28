@@ -6,31 +6,41 @@ import torch
 import torch.multiprocessing as mp
 from scripts.rnad import shared_league_learner as l, shared_league_staging as st, shared_league_parallel as par
 _W=None
+_PHI_HITS=0
 
-def _checked_direct_calls(networks):
-    # These isolated workers use eager CPU modules with no hooks or compilation.
-    # Bypass only repeated Python dispatch checks, never the forward kernels.
-    from torch.nn.modules import module as implementation
-    registries=('_global_forward_pre_hooks','_global_forward_hooks',
-                '_global_backward_pre_hooks','_global_backward_hooks')
-    assert all(not getattr(implementation,name) for name in registries)
-    seen=set()
-    for net in networks:
-        for child in net.modules():
-            if id(child) in seen:continue
-            seen.add(id(child))
-            assert not (child._forward_pre_hooks or child._forward_hooks or
-                        child._backward_pre_hooks or child._backward_hooks)
-            assert child._compiled_call_impl is None
-            assert type(child)._call_impl is torch.nn.Module._call_impl
-            child._call_impl=child.forward
+def _dedup_frozen_phi(net):
+    assert not net.training and all(not p.requires_grad for p in net.parameters())
+    assert not any(n._forward_pre_hooks or n._forward_hooks for n in net.modules())
+    original=net.forward
+    original_phi=net.draft.phi.forward
+    def call(phase,observation,legal,memory):
+        global _PHI_HITS
+        if phase!='draft':return original(phase,observation,legal,memory)
+        assert not torch.is_grad_enabled()
+        last=None
+        def memo(arg):
+            global _PHI_HITS
+            nonlocal last
+            if last is not None and arg is last[0] and arg._version==last[1]:
+                _PHI_HITS+=1
+                return last[2]
+            result=original_phi(arg)
+            last=(arg,arg._version,result)
+            return result
+        net.draft.phi.forward=memo
+        try:return original(phase,observation,legal,memory)
+        finally:net.draft.phi.forward=original_phi
+    net.forward=call
 def init(model,target,magnet,flat,active,spans):
     global _W
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
-    _checked_direct_calls((model,target,magnet))
+    if os.environ['LEAGUE_LEARNER_ARM']=='x86-phi':
+        for net in (target,magnet):_dedup_frozen_phi(net)
     _W=model,target,magnet,flat,active,spans
 def gradient(job):
+    global _PHI_HITS
+    _PHI_HITS=0
     i,path,role,sha=job
     model,target,magnet,flat,active,spans=_W
     tick=time.monotonic_ns()
@@ -46,7 +56,7 @@ def gradient(job):
     for j,(p,(x,y)) in enumerate(zip(model.parameters(),spans,strict=True)):
         active[i,j]=p.grad is not None
         if p.grad is not None:flat[i,x:y].copy_(p.grad.reshape(-1))
-    return i,float(loss.detach()),ratio,((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward)
+    return i,float(loss.detach()),ratio,((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward,_PHI_HITS)
 def train(root,where,broker,manifest,rows):
     src=Path(l.__file__).read_text()
     profile=[]
@@ -100,7 +110,7 @@ def train(root,where,broker,manifest,rows):
                     if p.grad is None:p.grad=g.clone()
                     else:a.append(p.grad);b.append(g)
                 if a:torch._foreach_add_(a,b)
-            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[3][i] for row in r) for i in range(4)]))
+            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[3][i] for row in r) for i in range(5)]))
             return [x[1] for x in r],[x[2] for x in r]
         def __enter__(self):return self
         def __exit__(self,k,v,t):

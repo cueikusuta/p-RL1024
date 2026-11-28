@@ -119,7 +119,17 @@ jobs:
   learner:
     if: github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
     environment: league-synthetic-handoff
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arm: x86-control
+            runner: ubuntu-24.04
+          - arm: x86-phi
+            runner: ubuntu-24.04
+          - arm: arm64
+            runner: ubuntu-24.04-arm
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -173,6 +183,7 @@ jobs:
         env:
           HANDOFF_TOKEN: ${{ steps.scoped.outputs.token }}
           LEAGUE_SPEED_ROLE: learner
+          LEAGUE_LEARNER_ARM: ${{ matrix.arm }}
         run: bash ci/speed-sharded-run.sh ci/longprod-dispatch.json
   cleanup:
     needs: [prepare, actor, learner]
