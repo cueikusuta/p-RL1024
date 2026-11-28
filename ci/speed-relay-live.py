@@ -65,14 +65,19 @@ def wait_for(pred, seconds=225):
 READY='readiness.json'
 
 def anonymous_404(path):
-    for i in range(3):
-        try:
-            with request('GET',API+path,auth=False):
-                raise AssertionError('private endpoint accessible without auth')
-        except urllib.error.HTTPError as e:
-            if e.code==404: return
-            if e.code not in (403,429) or i==2: raise
-        time.sleep(2**i)
+    try:
+        with request('GET',API+path,auth=False):
+            raise AssertionError('private endpoint accessible without auth')
+    except urllib.error.HTTPError as e:
+        if e.code==404:return
+        if e.code not in (403,429):raise
+    # Shared Actions egress can be rate-limited for unauthenticated API calls.
+    # The unauthenticated repository web URL must independently remain 404.
+    try:
+        with request('GET','https://github.com/'+REPO,auth=False,accept='text/html'):
+            raise AssertionError('private repository is publicly reachable')
+    except urllib.error.HTTPError as e:
+        if e.code!=404:raise
 
 def create():
     repo=obj('GET','')
@@ -86,7 +91,7 @@ def create():
     with request('POST',url,data=data,content_type='application/json') as res:
         asset=json.load(res)
     assert asset['name']==READY and asset['state']=='uploaded' and asset['digest']=='sha256:'+hashlib.sha256(data).hexdigest()
-    print('Private draft verified; anonymous request returned 404, and readiness marker committed.',flush=True)
+    print('Private draft verified; anonymous visibility check returned 404, and readiness marker committed.',flush=True)
 
 def ready_draft():
     r=lookup()

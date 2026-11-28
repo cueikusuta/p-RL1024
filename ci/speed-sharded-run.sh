@@ -159,3 +159,5 @@ ref="refs/heads/ghspeed-distributed/$run_id/checkpoint"
 gs -C "$safe/result" push -q "$remote" "HEAD:$ref"
 test "$(gs -C "$safe/result" ls-remote --heads "$remote" "$ref" | cut -f1)" = "$(git -C "$safe/result" rev-parse HEAD)"
 printf 'Exact 1280 matches, audits and 40 updates. Private durable checkpoint verified at epoch-ms %s.\n' "$(date +%s%3N)" >&3
+
+# Retry the isolated proof with an independent no-auth visibility check.
