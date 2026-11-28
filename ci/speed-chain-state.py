@@ -24,8 +24,8 @@ def verify(root,g,run):
     m=j(root/'metrics.json'); boot=root/'boot'; inv=inventory(boot)
     i=j(boot/'checkpoint-index.json'); o=j(root/'checkpoint-index.json')
     plan=j(boot/'generation-manifest.json'); ctx=j(boot/'continuation-context.json'); report=j(boot/'handoff-report.json')
-    assert 512<=g<=514 and m['workflow_run']==run and m['generation_in']==g-1 and m['generation_out']==plan['generation']==g
-    assert m['round']==g-511 and m['accepted']==m['audits']==1280 and m['updates']==40
+    assert 513<=g<=515 and m['workflow_run']==run and m['generation_in']==g-1 and m['generation_out']==plan['generation']==g
+    assert m['round']==g-512 and m['accepted']==m['audits']==1280 and m['updates']==40
     assert i['generation']==g and i['applied_matches']==i['completed_steps']==0 and i['is_champion'] is False
     assert i['sha256']==m['bootstrap_checkpoint_sha256']==inv['checkpoint-g0.pt']
     assert i['prior_generation_checkpoint_sha256']==o['full_checkpoint_sha256']==m['checkpoint_sha256']
@@ -37,22 +37,22 @@ def next_state(boot,result,out,g,run,safe):
     import torch
     from collections.abc import Mapping
     manifest=j(boot/'generation-manifest.json')
-    assert manifest['generation']==g and 511<=g<=513
+    assert manifest['generation']==g and 512<=g<=514
     old_interval=j(boot/'continuation-context.json')
     index=j(boot/'checkpoint-index.json')
-    if g==511:
+    if g==512:
         assert old_interval.get('source_run_id')!=run
         started=int(time.time())
         approved=dict(schema=handoff.ARTIFACT_SCHEMA,new_budget_phase='Isolated chained benchmark',
             source_run_id=run,start_epoch=started,deadline_epoch=started+900,budget_seconds=900,
-            original_generation=511,new_continuation_source_sha=handoff._git_sha(),
+            original_generation=512,new_continuation_source_sha=handoff._git_sha(),
             original_checkpoint_sha256=index['prior_generation_checkpoint_sha256'])
         (boot/'continuation-context.json').write_text(json.dumps(approved))
         files=[x for x in boot.rglob('*') if x.is_file() and x.name!='file-pins.sha256']
         (boot/'file-pins.sha256').write_text(''.join(f'{sha(x)}  {x.relative_to(boot)}\n' for x in sorted(files)))
     else: approved=old_interval
     assert approved['source_run_id']==run and approved['new_budget_phase']=='Isolated chained benchmark'
-    assert approved['original_generation']==511 and approved['deadline_epoch']-approved['start_epoch']==900 and time.time()<approved['deadline_epoch']
+    assert approved['original_generation']==512 and approved['deadline_epoch']-approved['start_epoch']==900 and time.time()<approved['deadline_epoch']
     inventory(boot)
     src=Path(handoff.__file__).read_text()
     needle='expected_run = 44897382403 if combined else 44318145987'

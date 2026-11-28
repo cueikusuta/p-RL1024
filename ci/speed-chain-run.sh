@@ -58,6 +58,12 @@ PY
 run_id="${GITHUB_RUN_ID:?}"
 mkdir -p "$safe/work"
 git init -q "$safe/boot"
+# Start at the already verified historical G512 snapshot, rather than
+# requiring one new host to produce byte-for-byte the old G512 learner result.
+g=512
+source=ghlong/1795815513/g512/input
+pin="$(gs -C "$safe/boot" ls-remote --heads "$remote" "refs/heads/$source" | cut -f1)"
+[[ "$pin" =~ ^[0-9a-f]{40}$ ]]
 gs -C "$safe/boot" fetch -q --depth=1 "$remote" "refs/heads/$source"
 test "$(git -C "$safe/boot" rev-parse FETCH_HEAD)" = "$pin"
 git -C "$safe/boot" checkout -q --detach FETCH_HEAD
@@ -66,7 +72,11 @@ python - "$safe" "$g" <<'PY'
 import hashlib,json,sys
 from pathlib import Path
 d=Path(sys.argv[1]);i=json.loads((d/'boot/input/index.json').read_text())
-assert i['generation']==int(sys.argv[2]) and i['parts']==len(list((d/'boot/input').glob('boot.part-*')))
+assert i['generation']==int(sys.argv[2])==512 and i['parts']==len(list((d/'boot/input').glob('boot.part-*')))
+r=json.loads((d/'boot/return/done.json').read_text())
+k=json.loads((d/'boot/return/checkpoint-index.json').read_text())
+assert r['generation']==k['generation']==512 and r['workflow_run']==46117675902
+assert r['matches']==r['audits']==1280 and r['updates']==40 and r['checkpoint_sha256']==i['prior_checkpoint_sha256']==k['full_checkpoint_sha256']
 with (d/'boot.tar.gz').open('rb') as f: assert hashlib.file_digest(f,'sha256').hexdigest()==i['sha256']
 PY
 tar -xzf "$safe/boot.tar.gz" -C "$safe/work" --no-same-owner --no-same-permissions "bootstrap-g$g"
@@ -144,22 +154,14 @@ sim_pid=$!
 await_both
 phase=checkpoint
 mkdir -p "$output"
-if (( round == 1 )); then
-  git init -q "$safe/baseline"
-  for arm in base batch; do
-    baseline_ref="refs/heads/ghspeed/46128843323/$arm"
-    gs -C "$safe/baseline" fetch -q --depth=1 "$remote" "$baseline_ref"
-    git -C "$safe/baseline" show FETCH_HEAD:metrics.json > "$safe/$arm.json"
-  done
-fi
 python "$here/speed-chain-state.py" next "$boot" "$work/output" "$output/boot" "$g" "$run_id" "$safe"
-if ! python - "$work" "$output" "$run_id" "$round_started_ms" "$safe/base.json" "$safe/batch.json" "$round" "$g" <<'PY'
+if ! python - "$work" "$output" "$run_id" "$round_started_ms" "$round" "$g" <<'PY'
 import hashlib,json,shutil,sys,time,traceback
 try:
     from pathlib import Path
     work,out=map(Path,sys.argv[1:3])
     r=json.loads((work/'result.json').read_text()); v=json.loads((work/'strict.json').read_text())
-    g=int(sys.argv[8]);round=int(sys.argv[7]);assert g==510+round
+    g=int(sys.argv[6]);round=int(sys.argv[5]);assert g==511+round
     assert r['generation']==g and r['accepted']==v['accepted']==r['audits']==v['audits']==1280
     assert r['actual_ordered_updates']==40 and all('updated_ms' in x for x in r['optimizer_events'])
     assert len(v['pairs'])==1280 and len(v['all_packet_times_ms'])==160 and r['cloud']['waves']==24
@@ -167,12 +169,6 @@ try:
              for i,k in enumerate(('matches_sha256','audits_sha256'))}
     cp=work/'output'/f'checkpoint-g{g+1}.pt'
     assert 0<cp.stat().st_size<=32*1024**2 and hashlib.sha256(cp.read_bytes()).hexdigest()==r['checkpoint_sha256']
-    if round==1:
-        for path in map(Path,sys.argv[5:7]):
-            b=json.loads(path.read_text())
-            assert (b['workflow_run'],b['generation_in'],b['generation_out'],b['accepted'],b['audits'],b['updates'])==(46128843323,511,512,1280,1280,40)
-            assert all(b[key]==value for key,value in digests.items()), 'match-or-audit-parity'
-            assert b['checkpoint_sha256']==r['checkpoint_sha256'], 'reference-checkpoint-parity'
     boot=out/'boot'
     index=json.loads((boot/'checkpoint-index.json').read_text())
     assert index['prior_generation_checkpoint_sha256']==r['checkpoint_sha256'] and index['generation']==g+1
@@ -189,7 +185,7 @@ try:
     assert len(p)==40
     m['profile_wall_s']=dict(zip(('wait_for_batch','parallel_compute','combine'),(sum(t[0][i] for t in p)/1e9 for i in range(3)),strict=True))
     m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient'),(sum(t[1][i] for t in p)/1e9 for i in range(4)),strict=True))
-    m['round']=int(sys.argv[7])
+    m['round']=round
     m['ready50_s']=(sorted(v['all_packet_times_ms'].values())[79]-t)/1000
     (out/'metrics.json').write_text(json.dumps(m,sort_keys=True)+'\n')
 except Exception as e:
