@@ -1,11 +1,13 @@
 """Run-scoped private relay for the isolated distributed benchmark."""
 import concurrent.futures
+import base64
 import hashlib
 import json
 import os
 import re
 import sys
 import time
+import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -58,7 +60,18 @@ def lookup():
 def wait_for(pred, seconds=225):
     expiry = time.monotonic()+seconds
     while time.monotonic() < expiry:
-        result=pred()
+        try:
+            result=pred()
+        except urllib.error.HTTPError as e:
+            if e.code not in (403,429) or not (e.headers.get('Retry-After') or e.headers.get('X-RateLimit-Remaining')=='0'):
+                raise
+            retry=e.headers.get('Retry-After')
+            reset=e.headers.get('X-RateLimit-Reset')
+            delay=(int(retry) if retry and retry.isdecimal() else
+                   max(0,int(reset)-int(time.time())) if reset and reset.isdecimal() else 10)
+            if time.monotonic()+max(delay,5)>=expiry:raise
+            time.sleep(max(delay,5))
+            continue
         if result is not None: return result
         time.sleep(2)
     raise TimeoutError('relay deadline')
@@ -94,20 +107,36 @@ def create():
     assert asset['name']==READY and asset['state']=='uploaded' and asset['digest']=='sha256:'+hashlib.sha256(data).hexdigest()
     print('Private draft verified; anonymous request returned 404, and readiness marker committed.',flush=True)
 
+def wait_verified(round_no):
+    assert 1<=round_no<3
+    ref=f'refs/heads/ghspeed-chain/{RUN}/verified-{round_no}'
+    # Use Git to read exact Git refs; rate-limited REST is reserved for the
+    # actual release transport. Never put a token in arguments or logs.
+    assert TOKEN
+    env=dict(os.environ,GIT_TERMINAL_PROMPT='0',GIT_CONFIG_COUNT='3',
+             GIT_CONFIG_KEY_0='http.extraHeader',GIT_CONFIG_VALUE_0='Authorization: Basic '+base64.b64encode(('x-access-token:'+TOKEN).encode()).decode('ascii'),
+             GIT_CONFIG_KEY_1='credential.helper',GIT_CONFIG_VALUE_1='',
+             GIT_CONFIG_KEY_2='http.followRedirects',GIT_CONFIG_VALUE_2='false')
+    deadline=time.monotonic()+330
+    delay=4.0
+    while time.monotonic()<deadline:
+        p=subprocess.run(['git','ls-remote','--exit-code','--heads','https://github.com/'+REPO+'.git',ref],
+                         env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15,check=False)
+        if p.returncode==0:
+            assert re.fullmatch(rb'[0-9a-f]{40}\t'+re.escape(ref.encode())+rb'\n?',p.stdout)
+            return
+        if p.returncode not in (2,128):raise RuntimeError('Git reference lookup failed')
+        time.sleep(delay)
+        if p.returncode==128:delay=min(delay*2,20)
+    raise TimeoutError('previous verified chain checkpoint absent')
+
 def gate():
-    wait_for(ready_draft,seconds=355)
+    assert ROUND in ('2','3')
+    wait_verified(int(ROUND)-1)
+    wait_for(ready_draft,seconds=45)
 
 def await_previous():
-    path=f'/git/ref/heads/ghspeed-chain/{RUN}/verified-{ROUND}'
-    deadline=time.monotonic()+330
-    while time.monotonic()<deadline:
-        try:
-            obj('GET',path)
-            return
-        except urllib.error.HTTPError as e:
-            if e.code!=404:raise
-        time.sleep(2)
-    raise TimeoutError('previous verified chain checkpoint absent')
+    wait_verified(int(ROUND))
 
 def ready_draft():
     r=lookup()

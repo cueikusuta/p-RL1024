@@ -220,3 +220,5 @@ test "$(gs -C "$output" ls-remote --heads "$remote" "$verified_ref" | cut -f1)" 
 printf 'Chain round %s advanced G%s: private durable resume verified at epoch-ms %s.\n' "$round" "$((g+1))" "$(date +%s%3N)" >&3
 rm -rf -- "$work" "$verify"
 done
+
+# Wait for verified Git references without polling the REST release list.
