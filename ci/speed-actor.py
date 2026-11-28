@@ -55,9 +55,37 @@ def run(plan_path,where,epoch):
                 print(f'Benchmark Actor diagnostic: {stage} {code}',file=sys.stderr,flush=True)
                 raise
         execute(cmd,frozen,125 if len(keys)==2 else 200,'simulate')
-        for k in range(0,len(specs),2):
-            spec=job/f'pack-{k}.json';spec.write_text(json.dumps(specs[k:k+2]))
-            execute(['node',str(here/'priority/pack_raw_lease_window.mjs'),str(job),str(where/'packets'),str(spec)],None,15,'pack')
+        # Keep the native simulator batched, but give the original packer
+        # exactly the same staging layout as a two-packet lease.
+        if len(specs)==2:
+            stages=[(job,specs)]
+        else:
+            stems={r['name'].removesuffix('.json.gz') for s in specs for r in s['rows']}
+            paths={}
+            for kind in ('accepted','audit'):
+                files=list((job/kind).iterdir())
+                for path in files:
+                    matches=[m for m in stems if path.name==m or path.name.startswith(m+'.') or path.name.startswith(m+'-')]
+                    if len(matches)!=1 or not path.is_file() or path.is_symlink() or (kind,matches[0]) in paths:
+                        print('Benchmark Actor diagnostic: staging 1',file=sys.stderr,flush=True)
+                        raise ValueError('unexpected generated file layout')
+                    paths[kind,matches[0]]=path
+                if len(files)!=len(stems):
+                    print('Benchmark Actor diagnostic: staging 2',file=sys.stderr,flush=True)
+                    raise ValueError('incomplete generated file layout')
+            stages=[]
+            for k in range(0,len(specs),2):
+                pair=job/f'pair-{k}';pair.mkdir()
+                for kind in ('accepted','audit'):
+                    (pair/kind).mkdir()
+                    for s in specs[k:k+2]:
+                        for r in s['rows']:
+                            path=paths[kind,r['name'].removesuffix('.json.gz')]
+                            path.rename(pair/kind/path.name)
+                stages.append((pair,specs[k:k+2]))
+        for stage,items in stages:
+            spec=stage/'pack.json';spec.write_text(json.dumps(items))
+            execute(['node',str(here/'priority/pack_raw_lease_window.mjs'),str(stage),str(where/'packets'),str(spec)],None,15,'pack')
         return {'lease':keys[0],'packets':keys,'started_epoch_ms':begun,'sealed_epoch_ms':now()}
     time.sleep(max(0,(epoch-now())/1000))
     begin=now()
