@@ -150,8 +150,7 @@ m=dict(workflow_run=int(sys.argv[3]),generation_in=511,generation_out=512,accept
 p=json.loads((work/'learner-profile.json').read_text())
 assert len(p)==40
 m['profile_wall_s']=dict(zip(('wait_for_batch','parallel_compute','combine'),(sum(t[0][i] for t in p)/1e9 for i in range(3)),strict=True))
-m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient','unique_validation'),(sum(t[1][i] for t in p)/1e9 for i in range(5)),strict=True))
-m['unique_draft_input_checks']=sum(t[1][5] for t in p)
+m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient'),(sum(t[1][i] for t in p)/1e9 for i in range(4)),strict=True))
 m['ready50_s']=(sorted(v['all_packet_times_ms'].values())[79]-t)/1000
 (out/'metrics.json').write_text(json.dumps(m,sort_keys=True)+'\n')
 PY
@@ -162,3 +161,5 @@ ref="refs/heads/ghspeed-distributed/$run_id/checkpoint"
 gs -C "$safe/result" push -q "$remote" "HEAD:$ref"
 test "$(gs -C "$safe/result" ls-remote --heads "$remote" "$ref" | cut -f1)" = "$(git -C "$safe/result" rev-parse HEAD)"
 printf 'Exact 1280 matches, audits and 40 updates. Private durable checkpoint verified at epoch-ms %s.\n' "$(date +%s%3N)" >&3
+
+# Replay the exact optimized eager dispatch arm.
