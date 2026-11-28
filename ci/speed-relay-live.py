@@ -16,7 +16,7 @@ UPLOAD = f'https://uploads.github.com/repos/{REPO}'
 SIZE = 96 * 1024 * 1024
 SHARDS = 8
 WAVES = 3
-TOKEN = os.environ.pop('HANDOFF_TOKEN')
+TOKEN = os.environ.pop('HANDOFF_TOKEN',None)
 RUN = os.environ['GITHUB_RUN_ID']
 assert re.fullmatch(r'[1-9][0-9]{5,14}', RUN) and os.environ['GITHUB_RUN_ATTEMPT'] == '1'
 TAG = f'ghspeed-distributed-{RUN}'
@@ -32,6 +32,7 @@ def request(method, url, *, auth=True, accept='application/vnd.github+json', dat
     headers = {'Accept': accept, 'User-Agent':'league-speed-relay', 'X-GitHub-Api-Version':'2022-11-28'}
     if auth:
         assert url==API or url.startswith((API+'/', UPLOAD+'/'))
+        assert TOKEN
         headers['Authorization'] = 'Bearer ' + TOKEN
     if content_type:
         headers['Content-Type'] = content_type
@@ -132,6 +133,7 @@ def cleanup():
 from pathlib import Path
 import io
 import tarfile
+from multiprocessing import get_context
 
 def groups(plan):
     p=json.loads(plan.read_bytes())
@@ -153,29 +155,39 @@ def upload(directory,plan,shard):
     r=wait_for(ready_draft)
     assert r['upload_url']==f"{UPLOAD}/releases/{r['id']}/assets"+"{?name,label}"
     start=time.monotonic()
-    for name,keys in groups(plan).items():
-        if not name.startswith(f's{shard}-'): continue
-        files=[directory/'packets'/(k+ext) for k in keys for ext in ('.zst','.json')]
-        wait_for(lambda: True if all(p.is_file() and not p.is_symlink() for p in files) else None)
-        buf=io.BytesIO()
-        with tarfile.open(fileobj=buf,mode='w') as tar:
-            for p in files:
-                b=p.read_bytes()
-                assert 0<len(b)<=32*1024**2
-                info=tarfile.TarInfo(p.name);info.size=len(b);info.mode=0o600
-                tar.addfile(info,io.BytesIO(b))
-        data=buf.getvalue()
-        assert 0<len(data)<=SIZE
-        url=f"{UPLOAD}/releases/{r['id']}/assets?"+urllib.parse.urlencode({'name':name})
-        with request('POST',url,data=data,content_type='application/octet-stream') as res:
-            asset=json.load(res)
-        assert asset['name']==name and asset['state']=='uploaded' and asset['size']==len(data)
-        assert asset['digest']=='sha256:'+hashlib.sha256(data).hexdigest()
+    from speed_magnet_tape import init,make_packet
+    p=json.loads(plan.read_bytes())
+    metadata={q['task']:(p['opponents'][str(q['actor'])]['role'],[x['name'] for x in q['rows']]) for q in p['packets']}
+    packets=directory/'packets'
+    with concurrent.futures.ProcessPoolExecutor(max_workers=2,mp_context=get_context('spawn'),initializer=init,initargs=(p['bootstrap'],)) as pool:
+        for name,keys in groups(plan).items():
+            if not name.startswith(f's{shard}-'): continue
+            files=[packets/(k+ext) for k in keys for ext in ('.zst','.json')]
+            wait_for(lambda: True if all(z.is_file() and not z.is_symlink() for z in files) else None)
+            args=[(packets/(k+'.json'),packets/(k+'.zst'),*metadata[k]) for k in keys]
+            tapes=dict(zip(keys,pool.map(make_packet,args),strict=True))
+            buf=io.BytesIO()
+            with tarfile.open(fileobj=buf,mode='w') as tar:
+                for k in keys:
+                    for ext,b in (('.zst',(packets/(k+'.zst')).read_bytes()),('.magnet.json',tapes[k]),('.json',(packets/(k+'.json')).read_bytes())):
+                        assert 0<len(b)<=32*1024**2
+                        info=tarfile.TarInfo(k+ext);info.size=len(b);info.mode=0o600
+                        tar.addfile(info,io.BytesIO(b))
+            data=buf.getvalue()
+            assert 0<len(data)<=SIZE
+            url=f"{UPLOAD}/releases/{r['id']}/assets?"+urllib.parse.urlencode({'name':name})
+            with request('POST',url,data=data,content_type='application/octet-stream') as res:
+                asset=json.load(res)
+            assert asset['name']==name and asset['state']=='uploaded' and asset['size']==len(data)
+            assert asset['digest']=='sha256:'+hashlib.sha256(data).hexdigest()
     print(f'Shard published three verified waves in {time.monotonic()-start:.3f}s.',flush=True)
 
 def receive(directory,plan):
     r=wait_for(ready_draft)
     g=groups(plan); pending=set(g)
+    p=json.loads(plan.read_bytes())
+    expected={q['task']:[row['name'] for row in q['rows']] for q in p['packets']}
+    magnet_dir=directory/'magnet';magnet_dir.mkdir()
     dst=directory/'packets';dst.mkdir(parents=True,exist_ok=True)
     start=time.monotonic()
     def fetch(asset):
@@ -183,15 +195,24 @@ def receive(directory,plan):
         assert type(asset['id']) is int and asset['id']>0 and 0<asset['size']<=SIZE
         body=read_binary(f"/releases/assets/{asset['id']}")
         assert len(body)==asset['size'] and asset['digest']=='sha256:'+hashlib.sha256(body).hexdigest()
-        names=[k+ext for k in g[name] for ext in ('.zst','.json')]
+        names=[k+ext for k in g[name] for ext in ('.zst','.magnet.json','.json')]
         with tarfile.open(fileobj=io.BytesIO(body),mode='r:') as t:
             members=t.getmembers()
             assert [m.name for m in members]==names
             assert all(m.isfile() and 0<m.size<=32*1024**2 for m in members)
             for m in members:
+                data=t.extractfile(m).read()
+                if m.name.endswith('.magnet.json'):
+                    tape=json.loads(data)
+                    keys=expected[m.name.removesuffix('.magnet.json')]
+                    assert set(tape)==set(keys)
+                    for key in keys:
+                        with (magnet_dir/key.removesuffix('.gz')).open('x') as o:
+                            json.dump(tape[key],o,separators=(',',':'))
+                    continue
                 part=dst/(m.name+'.part')
                 with part.open('xb') as w:
-                    w.write(t.extractfile(m).read())
+                    w.write(data)
                 part.replace(dst/m.name)
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         futures=[]

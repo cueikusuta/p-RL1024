@@ -106,6 +106,9 @@ if [[ "$role" == actor ]]; then
   exit 0
 fi
 phase=receive-and-learn
+export LEAGUE_MAGNET_TAPE_DIR="$work/cloud/magnet"
+LEAGUE_FROZEN_MAGNET_SHA="$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["magnet_sha256"])' "$boot/generation-manifest.json")"
+export LEAGUE_FROZEN_MAGNET_SHA
 env HANDOFF_TOKEN="$token" python -u "$here/speed-relay-live.py" receive "$work/cloud" "$work/plan.json" &
 relay_pid=$!
 timeout --kill-after=4s 260s python -u "$here/speed-sharded-generation.py" "$work" "$boot" &

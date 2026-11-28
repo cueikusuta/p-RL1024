@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 from scripts.rnad import shared_league_learner as l, shared_league_staging as st, shared_league_parallel as par
+from speed_magnet_tape import ReplayMagnet
 _W=None
 _T=None
 def init(model,target,magnet,flat,active,spans):
@@ -43,7 +44,11 @@ def gradient(job):
     record=orjson.loads(b)
     parsed=time.monotonic_ns()
     model.zero_grad(set_to_none=True)
-    loss,ratio=l._match_loss(model,target,magnet,record,role=role)
+    side=orjson.loads((Path(os.environ['LEAGUE_MAGNET_TAPE_DIR'])/Path(path).name).read_bytes())
+    assert side['accepted_sha']==sha and side['magnet_sha']==os.environ['LEAGUE_FROZEN_MAGNET_SHA']
+    replay=ReplayMagnet(side)
+    loss,ratio=l._match_loss(model,target,replay,record,role=role)
+    replay.done()
     forward=time.monotonic_ns()
     (loss/32).backward()
     backward=time.monotonic_ns()
