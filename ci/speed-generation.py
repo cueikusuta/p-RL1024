@@ -1,6 +1,6 @@
 """One isolated fresh-generation timing run; nothing is promoted."""
 from pathlib import Path
-import hashlib,os,subprocess,sys,json,threading,time,shutil,signal
+import hashlib,os,subprocess,sys,json,threading,time,shutil,signal,traceback
 from concurrent.futures import ProcessPoolExecutor,wait,FIRST_COMPLETED
 from multiprocessing import get_context
 from scoped_receive import verify_packet,envelope,digest
@@ -131,4 +131,10 @@ def main():
         if cloud and cloud.poll() is None:
             cloud.terminate()
             cloud.wait(timeout=3)
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:
+        main()
+    except Exception as exc:
+        marks=' '.join(f'{Path(x.filename).name}:{x.lineno}' for x in traceback.extract_tb(exc.__traceback__)[-5:])
+        print(f'Benchmark Python diagnostic: {type(exc).__name__} {marks}', file=sys.stderr)
+        raise

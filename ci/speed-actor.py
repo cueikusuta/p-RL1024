@@ -45,11 +45,19 @@ def run(plan_path,where,epoch):
         args=[x if n%2==0 else str(root/x.removeprefix('bootstrap/')) for n,x in enumerate(args)]
         cmd=base+['--meta',str(metas[i]),'--main',str(root/'actor'),'--magnet',str(root/'magnet'),
             '--audit-dir',str(job/'audit'),'--batch-jobs',str(pick)]+args
-        spec=job/'pack.json';spec.write_text(json.dumps(specs))
         begun=now()
-        with (job/'actor.log').open('xb') as log:
-            subprocess.run(cmd,cwd=frozen,env=env,stdout=log,stderr=log,check=True,timeout=125 if len(keys)==2 else 200)
-            subprocess.run(['node',str(here/'priority/pack_raw_lease_window.mjs'),str(job),str(where/'packets'),str(spec)],stdout=log,stderr=log,check=True,timeout=15 if len(keys)==2 else 45)
+        def execute(cmd,cwd,timeout,stage):
+            try:
+                with (job/'actor.log').open('ab') as log:
+                    subprocess.run(cmd,cwd=cwd,env=env,stdout=log,stderr=log,check=True,timeout=timeout)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                code=exc.returncode if isinstance(exc,subprocess.CalledProcessError) else 'timeout'
+                print(f'Benchmark Actor diagnostic: {stage} {code}',file=sys.stderr,flush=True)
+                raise
+        execute(cmd,frozen,125 if len(keys)==2 else 200,'simulate')
+        for k in range(0,len(specs),2):
+            spec=job/f'pack-{k}.json';spec.write_text(json.dumps(specs[k:k+2]))
+            execute(['node',str(here/'priority/pack_raw_lease_window.mjs'),str(job),str(where/'packets'),str(spec)],None,15,'pack')
         return {'lease':keys[0],'packets':keys,'started_epoch_ms':begun,'sealed_epoch_ms':now()}
     time.sleep(max(0,(epoch-now())/1000))
     begin=now()

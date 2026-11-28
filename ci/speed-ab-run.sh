@@ -77,7 +77,11 @@ mkdir "$work"
 phase=plan
 python "$here/long_state.py" plan "$boot" "$safe/work/plan.json" "$work/plan.json" "$g" "$session"
 phase=train
-timeout --kill-after=4s 830s python -u "$here/speed-generation.py" "$work" "$boot"
+if ! timeout --kill-after=4s 830s python -u "$here/speed-generation.py" "$work" "$boot"; then
+  grep -E '^Benchmark Python diagnostic: [A-Za-z]+( [A-Za-z0-9_.-]+:[0-9]+)+$' "$safe/private.log" >&4 || true
+  grep -E '^Benchmark Actor diagnostic: (simulate|pack) (-?[0-9]+|timeout)$' "$work/cloud.log" >&4 || true
+  exit 1
+fi
 phase=report
 mkdir "$safe/report"
 python - "$work" "$safe/report/metrics.json" "$arm" "$run_id" <<'PY'
