@@ -91,7 +91,7 @@ printf 'Pinned speed test input checked; no production update.\n' >&3
 
 phase=inspect
 mkdir "$safe/inspect"
-for p in shared_league_learner.py shared_league_staging.py shared_league_parallel.py; do
+for p in integrated_policy_v1.py neural.py two_player.py shared_league_batched.py; do
   source="$safe/work/engine/scripts/rnad/$p"
   [[ -f "$source" && ! -L "$source" ]]
   size="$(stat -c %s "$source")"
