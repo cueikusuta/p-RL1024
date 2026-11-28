@@ -3,8 +3,8 @@ from pathlib import Path
 import hashlib,os,subprocess,sys,json,threading,time,shutil,signal
 from concurrent.futures import ProcessPoolExecutor,wait,FIRST_COMPLETED
 from multiprocessing import get_context
-from scoped_receive import verify_packet,envelope,digest
-from exact_lowmem_learner import train
+from speed_profile_receive import verify_packet,envelope,digest
+from speed_profile_learner import train
 from scripts.rnad import shared_league_learner as l
 from scripts.rnad.shared_league_contract import _opponent,verify_manifest
 import torch
@@ -68,14 +68,15 @@ def main():
         try:results.append(train(boot,here,broker,m,rows))
         except Exception as e:errs.append(e)
     op=None;cloud=None;wave={};submitted=set();done=set();vs={};ready_at={}; queue={}
-    rank={k:i for i,(_,a,b) in enumerate(p['prioritizedLeases']) for k in (a,b)}
+    ordered_rank={v:i for i,v in enumerate(ordered)}
+    rank={k:min(ordered_rank[r['name'].removesuffix('.json.gz')] for r in by[k]['rows']) for k in by}
     try:
         vm_ready_ms=now()
         def admit(vpool,k,b,h):
             assert k not in submitted and k in allowed[h]
             submitted.add(k)
             queue[k]=b
-        with ProcessPoolExecutor(2,mp_context=get_context('spawn')) as vpool:
+        with ProcessPoolExecutor(3,mp_context=get_context('spawn')) as vpool:
             while not results:
                 assert now()<=epoch+850000 and not (here/'inbox/abort').exists()
                 if errs:raise errs[0]
@@ -88,7 +89,7 @@ def main():
                     base=here/'cloud/packets';j1=base/(k+'.json')
                     if k not in submitted and j1.exists():
                         admit(vpool,k,(j1.read_bytes(),(base/(k+'.zst')).read_bytes()),'cloud')
-                while queue and len(vs)<4:
+                while queue and len(vs)<6:
                     k=min(queue,key=rank.__getitem__);b=queue.pop(k)
                     vs[vpool.submit(verify_packet,k,by[k],m,p,*b,here)]=k
                 for f in [f for f in vs if f.done()]:
