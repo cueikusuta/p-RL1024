@@ -161,3 +161,5 @@ test "$(gs -C "$safe/result" ls-remote --heads "$remote" "$ref" | cut -f1)" = "$
 printf 'Exact 1280 matches, audits and 40 updates. Private durable checkpoint verified at epoch-ms %s.\n' "$(date +%s%3N)" >&3
 
 # Retry the isolated proof with an independent no-auth visibility check.
+
+# Preserve scalar tensors in the exact trial tape codec.

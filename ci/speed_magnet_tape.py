@@ -43,7 +43,7 @@ def pack_tensor(t):
 
 def unpack_tensor(value):
     shape,b64=value
-    assert isinstance(shape,list) and 1<=len(shape)<=3 and all(type(n) is int and 0<n<=4096 for n in shape)
+    assert isinstance(shape,list) and len(shape)<=6 and all(type(n) is int and 0<=n<=65536 for n in shape)
     size=math.prod(shape)
     assert size<=65536 and len(b64)<=349528
     raw=base64.b64decode(b64,validate=True)
