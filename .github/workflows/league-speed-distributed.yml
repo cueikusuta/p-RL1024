@@ -75,10 +75,6 @@ jobs:
           python-version: '3.12'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: {node-version: '24.22.3'}
-      - name: Install pinned CPU dependencies
-        run: |
-          python -m pip -q install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
-          python -m pip -q install numpy==1.26.4 orjson==3.13.0 zstandard==0.25.0
       - name: Normalize the signing PEM to PKCS8 without logging it
         id: pem
         env:

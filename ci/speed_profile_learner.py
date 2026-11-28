@@ -5,34 +5,29 @@ import orjson
 import torch
 import torch.multiprocessing as mp
 from scripts.rnad import shared_league_learner as l, shared_league_staging as st, shared_league_parallel as par
-from scripts.rnad.shared_league_batched import batched_match_losses
 _W=None
 def init(model,target,magnet,flat,active,spans):
     global _W
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
     _W=model,target,magnet,flat,active,spans
-def gradient(jobs):
+def gradient(job):
+    i,path,role,sha=job
     model,target,magnet,flat,active,spans=_W
-    assert len(jobs)==4
     tick=time.monotonic_ns()
-    loaded=[]
-    for i,path,role,sha in jobs:
-        b=Path(path).read_bytes()
-        if hashlib.sha256(b).hexdigest()!=sha:raise ValueError('Receipt changed')
-        loaded.append((orjson.loads(b),role))
-    picked=jobs[0][0]
+    b=Path(path).read_bytes()
+    if hashlib.sha256(b).hexdigest()!=sha:raise ValueError('Receipt changed')
+    record=orjson.loads(b)
     parsed=time.monotonic_ns()
     model.zero_grad(set_to_none=True)
-    r=batched_match_losses(model,target,magnet,loaded)
-    assert len(r)==len(jobs)
+    loss,ratio=l._match_loss(model,target,magnet,record,role=role)
     forward=time.monotonic_ns()
-    (sum(loss for loss,_ in r)/32).backward()
+    (loss/32).backward()
     backward=time.monotonic_ns()
     for j,(p,(x,y)) in enumerate(zip(model.parameters(),spans,strict=True)):
-        active[picked,j]=p.grad is not None
-        if p.grad is not None:flat[picked,x:y].copy_(p.grad.reshape(-1))
-    return picked,[(i,float(loss.detach()),ratio) for (i,*_),(loss,ratio) in zip(jobs,r,strict=True)],((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward)
+        active[i,j]=p.grad is not None
+        if p.grad is not None:flat[i,x:y].copy_(p.grad.reshape(-1))
+    return i,float(loss.detach()),ratio,((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward)
 def train(root,where,broker,manifest,rows):
     src=Path(l.__file__).read_text()
     profile=[]
@@ -75,13 +70,10 @@ def train(root,where,broker,manifest,rows):
             if self.n==2 and broker.vm_actors_done:
                 self.pool.close();self.pool.join()
                 self.n=min(8,len(os.sched_getaffinity(0)));self.pool=self.spawn(self.n)
-            canonical=sorted(t)
-            groups=[canonical[i:i+4] for i in range(0,len(canonical),4)]
-            r=sorted(self.pool.map(gradient,groups,chunksize=1))
+            r=sorted(self.pool.map(gradient,t,chunksize=1))
             mapped=time.monotonic_ns()
-            assert [row[0] for row in r]==list(range(0,32,4))
-            for i in range(0,32,4):
-                flags=self.active[i].tolist()
+            assert [row[0] for row in r]==list(range(32))
+            for i,flags in enumerate(self.active.tolist()):
                 a=[];b=[]
                 for enabled,p,(x,y) in zip(flags,self.params,self.spans,strict=True):
                     if not enabled:continue
@@ -89,10 +81,8 @@ def train(root,where,broker,manifest,rows):
                     if p.grad is None:p.grad=g.clone()
                     else:a.append(p.grad);b.append(g)
                 if a:torch._foreach_add_(a,b)
-            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[2][i] for row in r) for i in range(4)]))
-            rows_out=[v for _,chunk,_ in r for v in chunk]
-            assert [v[0] for v in rows_out]==list(range(32))
-            return [x[1] for x in rows_out],[x[2] for x in rows_out]
+            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[3][i] for row in r) for i in range(4)]))
+            return [x[1] for x in r],[x[2] for x in r]
         def __enter__(self):return self
         def __exit__(self,k,v,t):
             if k:self.pool.terminate()

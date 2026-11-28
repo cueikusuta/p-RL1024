@@ -142,12 +142,19 @@ def groups(plan):
     p=json.loads(plan.read_bytes())
     leases=p['prioritizedLeases']
     assert len(leases)==80 and {a for _,x,y in leases for a in (x,y)}=={x['task'] for x in p['packets']}
+    first32=set(p['optimizer_order'][:32])
+    packet_names={z['task']:{row['name'].removesuffix('.json.gz') for row in z['rows']} for z in p['packets']}
+    hot=sum(bool(first32 & (packet_names[a] | packet_names[b])) for _,a,b in leases)
+    first=(hot+SHARDS-1)//SHARDS
+    assert 1<=first<=4
+    mid=(first+10)//2
     out={}
     for shard in range(SHARDS):
         v=leases[shard::SHARDS]
         assert len(v)==10
         for wave in range(WAVES):
-            batch=v[wave*4:(wave+1)*4]
+            lo,hi=((0,first),(first,mid),(mid,10))[wave]
+            batch=v[lo:hi]
             out[f's{shard}-w{wave}.tar']=[key for _,x,y in batch for key in (x,y)]
     assert sorted(x for m in out.values() for x in m)==sorted(x['task'] for x in p['packets'])
     assert all(re.fullmatch(r'[A-Za-z0-9_-]{1,60}',x) for m in out.values() for x in m)

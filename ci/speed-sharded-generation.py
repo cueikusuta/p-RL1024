@@ -40,7 +40,7 @@ def main():
     allowed={'cloud':by}
     rows=[{'match_id':r['name'].removesuffix('.json.gz'),'role':_opponent(m,x['actor'])[0]} for x in by.values() for r in x['rows']]
     ordered=[v['match_id'] for v in l._order(rows)]
-    assert len(set(ordered))==1280
+    assert len(set(ordered))==1280 and p['optimizer_order']==ordered
     class Broker:
         def __init__(self):
             self.cv=threading.Condition()
