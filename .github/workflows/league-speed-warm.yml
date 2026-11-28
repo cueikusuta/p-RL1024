@@ -1,0 +1,225 @@
+name: Isolated warm runner exact replay
+on:
+  push:
+    branches: [perf/league-private-handoff-synthetic-20261127]
+    paths: [ci/speed-warm-run.sh]
+permissions:
+  contents: read
+concurrency:
+  group: league-isolated-warm-replay
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Normalize the signing PEM to PKCS8 without logging it
+        id: pem
+        env:
+          RAW_HANDOFF_PEM: ${{ secrets.LEAGUE_HANDOFF_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, subprocess
+          pem = os.environ.pop("RAW_HANDOFF_PEM").strip().lstrip("\ufeff").strip()
+          pem = pem.replace("\\r\\n", "\n").replace("\\n", "\n")
+          m = re.search(r"-----BEGIN (RSA PRIVATE KEY|PRIVATE KEY)-----[\s\S]+?-----END \1-----", pem)
+          if not m:
+              raise SystemExit("Signing secret does not contain a complete private-key PEM.")
+          p = subprocess.run(["openssl", "pkcs8", "-topk8", "-nocrypt", "-outform", "PEM"],
+              input=m.group(0).encode()+b"\n", stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+          if p.returncode:
+              raise SystemExit("Signing secret does not decode as an unencrypted private key.")
+          key = p.stdout.decode("ascii").rstrip("\n")
+          mask = lambda s: s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::add-mask::"+mask(key), flush=True)
+          for line in key.splitlines()[1:-1]:
+              print("::add-mask::"+mask(line), flush=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("HANDOFF_NORMALIZED_PEM<<HANDOFF_APP_PEM_END\n"+key+"\nHANDOFF_APP_PEM_END\n")
+          PY
+      - name: Mint scoped short-lived token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
+        id: scoped
+        with:
+          client-id: ${{ vars.LEAGUE_HANDOFF_APP_CLIENT_ID }}
+          private-key: ${{ steps.pem.outputs.HANDOFF_NORMALIZED_PEM }}
+          owner: cueikusuta
+          repositories: p-rl1024-handoff-private
+          permission-contents: write
+      - name: prepare
+        env:
+          HANDOFF_TOKEN: ${{ steps.scoped.outputs.token }}
+        run: bash ci/speed-warm-control.sh prepare
+  actor:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    if: github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '24.22.3'}
+      - name: Normalize the signing PEM to PKCS8 without logging it
+        id: pem
+        env:
+          RAW_HANDOFF_PEM: ${{ secrets.LEAGUE_HANDOFF_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, subprocess
+          pem = os.environ.pop("RAW_HANDOFF_PEM").strip().lstrip("\ufeff").strip()
+          pem = pem.replace("\\r\\n", "\n").replace("\\n", "\n")
+          m = re.search(r"-----BEGIN (RSA PRIVATE KEY|PRIVATE KEY)-----[\s\S]+?-----END \1-----", pem)
+          if not m:
+              raise SystemExit("Signing secret does not contain a complete private-key PEM.")
+          p = subprocess.run(["openssl", "pkcs8", "-topk8", "-nocrypt", "-outform", "PEM"],
+              input=m.group(0).encode()+b"\n", stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+          if p.returncode:
+              raise SystemExit("Signing secret does not decode as an unencrypted private key.")
+          key = p.stdout.decode("ascii").rstrip("\n")
+          mask = lambda s: s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::add-mask::"+mask(key), flush=True)
+          for line in key.splitlines()[1:-1]:
+              print("::add-mask::"+mask(line), flush=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("HANDOFF_NORMALIZED_PEM<<HANDOFF_APP_PEM_END\n"+key+"\nHANDOFF_APP_PEM_END\n")
+          PY
+      - name: Mint scoped short-lived token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
+        id: scoped
+        with:
+          client-id: ${{ vars.LEAGUE_HANDOFF_APP_CLIENT_ID }}
+          private-key: ${{ steps.pem.outputs.HANDOFF_NORMALIZED_PEM }}
+          owner: cueikusuta
+          repositories: p-rl1024-handoff-private
+          permission-contents: write
+      - name: actor
+        env:
+          HANDOFF_TOKEN: ${{ steps.scoped.outputs.token }}
+          LEAGUE_SPEED_ROLE: actor
+          LEAGUE_SPEED_SHARD: ${{ matrix.shard }}
+        run: bash ci/speed-warm-run.sh ci/longprod-dispatch.json
+  learner:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '24.22.3'}
+      - name: Install pinned CPU dependencies
+        run: |
+          python -m pip -q install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          python -m pip -q install numpy==1.26.4 orjson==3.13.0 zstandard==0.25.0
+      - name: Normalize the signing PEM to PKCS8 without logging it
+        id: pem
+        env:
+          RAW_HANDOFF_PEM: ${{ secrets.LEAGUE_HANDOFF_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, subprocess
+          pem = os.environ.pop("RAW_HANDOFF_PEM").strip().lstrip("\ufeff").strip()
+          pem = pem.replace("\\r\\n", "\n").replace("\\n", "\n")
+          m = re.search(r"-----BEGIN (RSA PRIVATE KEY|PRIVATE KEY)-----[\s\S]+?-----END \1-----", pem)
+          if not m:
+              raise SystemExit("Signing secret does not contain a complete private-key PEM.")
+          p = subprocess.run(["openssl", "pkcs8", "-topk8", "-nocrypt", "-outform", "PEM"],
+              input=m.group(0).encode()+b"\n", stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+          if p.returncode:
+              raise SystemExit("Signing secret does not decode as an unencrypted private key.")
+          key = p.stdout.decode("ascii").rstrip("\n")
+          mask = lambda s: s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::add-mask::"+mask(key), flush=True)
+          for line in key.splitlines()[1:-1]:
+              print("::add-mask::"+mask(line), flush=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("HANDOFF_NORMALIZED_PEM<<HANDOFF_APP_PEM_END\n"+key+"\nHANDOFF_APP_PEM_END\n")
+          PY
+      - name: Mint scoped short-lived token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
+        id: scoped
+        with:
+          client-id: ${{ vars.LEAGUE_HANDOFF_APP_CLIENT_ID }}
+          private-key: ${{ steps.pem.outputs.HANDOFF_NORMALIZED_PEM }}
+          owner: cueikusuta
+          repositories: p-rl1024-handoff-private
+          permission-contents: write
+      - name: learner
+        env:
+          HANDOFF_TOKEN: ${{ steps.scoped.outputs.token }}
+          LEAGUE_SPEED_ROLE: learner
+        run: bash ci/speed-warm-run.sh ci/longprod-dispatch.json
+  cleanup:
+    needs: [prepare, actor, learner]
+    if: always() && github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
+    environment: league-synthetic-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Normalize the signing PEM to PKCS8 without logging it
+        id: pem
+        env:
+          RAW_HANDOFF_PEM: ${{ secrets.LEAGUE_HANDOFF_APP_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, subprocess
+          pem = os.environ.pop("RAW_HANDOFF_PEM").strip().lstrip("\ufeff").strip()
+          pem = pem.replace("\\r\\n", "\n").replace("\\n", "\n")
+          m = re.search(r"-----BEGIN (RSA PRIVATE KEY|PRIVATE KEY)-----[\s\S]+?-----END \1-----", pem)
+          if not m:
+              raise SystemExit("Signing secret does not contain a complete private-key PEM.")
+          p = subprocess.run(["openssl", "pkcs8", "-topk8", "-nocrypt", "-outform", "PEM"],
+              input=m.group(0).encode()+b"\n", stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+          if p.returncode:
+              raise SystemExit("Signing secret does not decode as an unencrypted private key.")
+          key = p.stdout.decode("ascii").rstrip("\n")
+          mask = lambda s: s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::add-mask::"+mask(key), flush=True)
+          for line in key.splitlines()[1:-1]:
+              print("::add-mask::"+mask(line), flush=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("HANDOFF_NORMALIZED_PEM<<HANDOFF_APP_PEM_END\n"+key+"\nHANDOFF_APP_PEM_END\n")
+          PY
+      - name: Mint scoped short-lived token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
+        id: scoped
+        with:
+          client-id: ${{ vars.LEAGUE_HANDOFF_APP_CLIENT_ID }}
+          private-key: ${{ steps.pem.outputs.HANDOFF_NORMALIZED_PEM }}
+          owner: cueikusuta
+          repositories: p-rl1024-handoff-private
+          permission-contents: write
+      - name: cleanup
+        env:
+          HANDOFF_TOKEN: ${{ steps.scoped.outputs.token }}
+        run: bash ci/speed-warm-control.sh cleanup
