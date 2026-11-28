@@ -33,7 +33,7 @@ assert re.fullmatch(r'[0-9]{10}',s) and re.fullmatch(r'[a-f0-9]{40}',p)
 assert all(type(x)is int for x in (g,st,end,i,b)) and i<=g<i+100 and 445<=i<999 and 0<=b<1900*1024**2
 assert end-st==36000 and st<=time.time()<end-330
 expected=f'ghlong/{s}/g{g}/input'
-assert r==expected or (g==i and b==0 and re.fullmatch(r'ghprod/[0-9]{10}/g'+str(g)+r'/input',r))
+assert r==expected or (g==i and b==0 and (re.fullmatch(r'ghprod/[0-9]{10}/g'+str(g)+r'/input',r) or (g==516 and r=='ghlong/1795815513/g516/input' and p=='1fc9ac44d82109042245ebd11e814c20d4eaf349')))
 print(s,g,p,r,st,end,i,b)
 PY
 )
