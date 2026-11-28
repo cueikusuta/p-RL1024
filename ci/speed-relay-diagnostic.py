@@ -1,4 +1,4 @@
-"""Bounded private synthetic relay diagnostic ahead of streamed-gradient timing; never uses real league input."""
+"""Bounded private synthetic relay diagnostic ahead of true warm native generation timing; never uses real league input."""
 import concurrent.futures
 import hashlib
 import json
