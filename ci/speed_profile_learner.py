@@ -2,16 +2,62 @@ import time,os,hashlib,json
 from pathlib import Path
 from collections import Counter
 import orjson
+import inspect
+import textwrap
+import numpy as np
 import torch
 import torch.multiprocessing as mp
 from scripts.rnad import shared_league_learner as l, shared_league_staging as st, shared_league_parallel as par
 _W=None
+_LAST_CODES=None
+_LAST_VERSION=None
+_CHECKS=0
+_CHECK_NS=0
+
+def _check_unique_draft(codes):
+    global _LAST_CODES,_LAST_VERSION,_CHECKS,_CHECK_NS
+    stamp=time.monotonic_ns()
+    version=codes._version
+    # The three policy networks receive the same input tensor in one event.
+    # Check once per object/version, after the unchanged shape/type/bounds checks.
+    if codes is _LAST_CODES and version==_LAST_VERSION:
+        return True
+    arr=codes.detach().numpy()
+    ordered=np.sort(arr,axis=1)
+    valid=bool(np.all(ordered[:,1:] != ordered[:,:-1]))
+    if valid:
+        _LAST_CODES=codes
+        _LAST_VERSION=version
+    _CHECKS+=1
+    _CHECK_NS+=time.monotonic_ns()-stamp
+    return valid
+
+def _install_draft_validator():
+    from scripts.rnad import integrated_policy_v1 as policy
+    cls=policy.IntegratedPolicyV1
+    src=textwrap.dedent(inspect.getsource(cls.forward))
+    old='all(len(set(row)) == 6 for row in codes.tolist())'
+    assert src.count(old)==1
+    # Replace only how uniqueness is checked; no numeric kernels or outputs change.
+    scope=dict(vars(policy),_check_unique_draft=_check_unique_draft)
+    patched=src.replace(old,'_check_unique_draft(codes)')
+    exec(compile(patched,policy.__file__,'exec'),scope)
+    sample=torch.tensor([[0,1,2,3,4,5],[9,8,7,6,5,4]],dtype=torch.long)
+    assert _check_unique_draft(sample)
+    assert _check_unique_draft(sample)
+    sample[0,0]=1
+    assert not _check_unique_draft(sample)
+    cls.forward=scope['forward']
 def init(model,target,magnet,flat,active,spans):
     global _W
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
+    _install_draft_validator()
     _W=model,target,magnet,flat,active,spans
 def gradient(job):
+    global _CHECKS,_CHECK_NS,_LAST_CODES,_LAST_VERSION
+    _CHECKS=_CHECK_NS=0
+    _LAST_CODES=_LAST_VERSION=None
     i,path,role,sha=job
     model,target,magnet,flat,active,spans=_W
     tick=time.monotonic_ns()
@@ -27,7 +73,7 @@ def gradient(job):
     for j,(p,(x,y)) in enumerate(zip(model.parameters(),spans,strict=True)):
         active[i,j]=p.grad is not None
         if p.grad is not None:flat[i,x:y].copy_(p.grad.reshape(-1))
-    return i,float(loss.detach()),ratio,((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward)
+    return i,float(loss.detach()),ratio,((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward,_CHECK_NS,_CHECKS)
 def train(root,where,broker,manifest,rows):
     src=Path(l.__file__).read_text()
     profile=[]
@@ -81,7 +127,7 @@ def train(root,where,broker,manifest,rows):
                     if p.grad is None:p.grad=g.clone()
                     else:a.append(p.grad);b.append(g)
                 if a:torch._foreach_add_(a,b)
-            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[3][i] for row in r) for i in range(4)]))
+            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[3][i] for row in r) for i in range(6)]))
             return [x[1] for x in r],[x[2] for x in r]
         def __enter__(self):return self
         def __exit__(self,k,v,t):
