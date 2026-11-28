@@ -92,7 +92,21 @@ printf 'Pinned speed test input checked; no production update.\n' >&3
 
 
 phase=synthetic-frozen-magnet
-python "$here/speed-magnet-value.py" > "$safe/safe-magnet-result.json"
+python - "$here/speed-magnet-value.py" > "$safe/safe-magnet-result.json" 3>&3 <<'PY'
+import os,runpy,sys,traceback
+try:
+    runpy.run_path(sys.argv[1],run_name='__main__')
+except Exception as e:
+    permitted={'speed-magnet-value.py','shared_league_learner.py','integrated_policy_v1.py',
+               'selection_ab.py','train_draft_deepsets.py','rnad_targets.py','neural.py',
+               '<synthetic-frozen-magnet>'}
+    known={'AssertionError','KeyError','TypeError','ValueError','RuntimeError','IndexError',
+           'AttributeError','ImportError','ModuleNotFoundError'}
+    t=type(e).__name__
+    places=[f"{os.path.basename(p.filename)}:{p.lineno}" for p in traceback.extract_tb(e.__traceback__) if os.path.basename(p.filename) in permitted]
+    os.write(3,('Synthetic fixture failure: '+(t if t in known else 'Other')+' '+','.join(places[-7:])+'\n').encode())
+    raise SystemExit(1)
+PY
 python - "$safe/safe-magnet-result.json" <<'PY' >&3
 import json,sys
 o=json.load(open(sys.argv[1])); assert set(o)=={'synthetic_only','bit_exact','baseline_us','guarded_us','fixtures'}
