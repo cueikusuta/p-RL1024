@@ -31,7 +31,7 @@ OPENER = urllib.request.build_opener(NoRedirect())
 def request(method, url, *, auth=True, accept='application/vnd.github+json', data=None, content_type=None):
     headers = {'Accept': accept, 'User-Agent':'league-speed-relay', 'X-GitHub-Api-Version':'2022-11-28'}
     if auth:
-        assert url.startswith((API+'/', UPLOAD+'/'))
+        assert url==API or url.startswith((API+'/', UPLOAD+'/'))
         headers['Authorization'] = 'Bearer ' + TOKEN
     if content_type:
         headers['Content-Type'] = content_type
@@ -61,18 +61,44 @@ def wait_for(pred, seconds=225):
         time.sleep(2)
     raise TimeoutError('relay deadline')
 
+READY='readiness.json'
+
 def anonymous_404(path):
-    try:
-        with request('GET',API+path,auth=False) as res:
-            raise AssertionError('private endpoint accessible without auth')
-    except urllib.error.HTTPError as e:
-        assert e.code==404
+    for i in range(3):
+        try:
+            with request('GET',API+path,auth=False):
+                raise AssertionError('private endpoint accessible without auth')
+        except urllib.error.HTTPError as e:
+            if e.code==404: return
+            if e.code not in (403,429) or i==2: raise
+        time.sleep(2**i)
 
 def create():
+    repo=obj('GET','')
+    assert repo['private'] is True and repo['visibility']=='private' and repo['full_name']==REPO
     assert lookup() is None
     r=own(obj('POST','/releases',dict(tag_name=TAG,name=TITLE,draft=True,body='Temporary scoped development benchmark packets. Never publish.')))
     anonymous_404('/releases/'+str(r['id']))
-    print('Private draft verified; anonymous request returned 404.',flush=True)
+    assert r['upload_url']==f"{UPLOAD}/releases/{r['id']}/assets"+"{?name,label}"
+    data=json.dumps({'run':RUN,'draft':r['id'],'private':True}).encode()
+    url=f"{UPLOAD}/releases/{r['id']}/assets?"+urllib.parse.urlencode({'name':READY})
+    with request('POST',url,data=data,content_type='application/json') as res:
+        asset=json.load(res)
+    assert asset['name']==READY and asset['state']=='uploaded' and asset['digest']=='sha256:'+hashlib.sha256(data).hexdigest()
+    print('Private draft verified; anonymous request returned 404, and readiness marker committed.',flush=True)
+
+def ready_draft():
+    r=lookup()
+    if r is None: return None
+    markers=[a for a in r.get('assets',[]) if a['name']==READY and a['state']=='uploaded']
+    assert len(markers)<=1
+    if not markers: return None
+    a=markers[0]
+    assert type(a['id']) is int and a['id']>0 and a['size']<512
+    body=read_binary(f"/releases/assets/{a['id']}")
+    assert len(body)==a['size'] and a['digest']=='sha256:'+hashlib.sha256(body).hexdigest()
+    assert json.loads(body)=={'run':RUN,'draft':r['id'],'private':True}
+    return r
 
 def read_binary(path):
     try:
@@ -124,7 +150,7 @@ def groups(plan):
 
 def upload(directory,plan,shard):
     assert 0<=shard<SHARDS
-    r=wait_for(lookup)
+    r=wait_for(ready_draft)
     assert r['upload_url']==f"{UPLOAD}/releases/{r['id']}/assets"+"{?name,label}"
     start=time.monotonic()
     for name,keys in groups(plan).items():
@@ -148,7 +174,7 @@ def upload(directory,plan,shard):
     print(f'Shard published three verified waves in {time.monotonic()-start:.3f}s.',flush=True)
 
 def receive(directory,plan):
-    r=wait_for(lookup)
+    r=wait_for(ready_draft)
     g=groups(plan); pending=set(g)
     dst=directory/'packets';dst.mkdir(parents=True,exist_ok=True)
     start=time.monotonic()
@@ -174,7 +200,7 @@ def receive(directory,plan):
             for f in futures:
                 if f.done(): f.result()
             assets=obj('GET',f"/releases/{r['id']}/assets?per_page=100")
-            assert all(a['name'] in g for a in assets)
+            assert all(a['name'] in g or a['name']==READY for a in assets)
             for a in assets:
                 if a['state']=='uploaded' and a['name'] in pending:
                     pending.remove(a['name']); futures.append(pool.submit(fetch,a))
