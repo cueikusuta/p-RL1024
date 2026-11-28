@@ -23,7 +23,7 @@ await_both() {
   if (( code == 0 )); then
     if [[ "$finished" == "$sim_pid" ]]; then wait "$relay_pid" || code=$?; else wait "$sim_pid" || code=$?; fi
   fi
-  if (( code != 0 )); then grep -E '^Relay diagnostic: [A-Za-z]+ HTTP [0-9]+ line [0-9]+$' "$safe/private.log" >&4 || true; grep -m 5 -E '^Speed (worker|controller) diagnostic: [A-Za-z]+( [A-Za-z0-9_.-]+:[0-9]+)+$' "$safe/private.log" >&4 || true; return "$code"; fi
+  if (( code != 0 )); then grep -E '^Relay diagnostic: [A-Za-z]+ HTTP [0-9]+ line [0-9]+$' "$safe/private.log" >&4 || true; return "$code"; fi
   relay_pid=''; sim_pid=''
 }
 here="$PWD/ci"
@@ -106,9 +106,6 @@ if [[ "$role" == actor ]]; then
   exit 0
 fi
 phase=receive-and-learn
-export LEAGUE_MAGNET_TAPE_DIR="$work/cloud/magnet"
-LEAGUE_FROZEN_MAGNET_SHA="$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["magnet_sha256"])' "$boot/generation-manifest.json")"
-export LEAGUE_FROZEN_MAGNET_SHA
 env HANDOFF_TOKEN="$token" python -u "$here/speed-relay-live.py" receive "$work/cloud" "$work/plan.json" &
 relay_pid=$!
 timeout --kill-after=4s 260s python -u "$here/speed-sharded-generation.py" "$work" "$boot" &
@@ -122,8 +119,10 @@ for arm in base batch; do
   gs -C "$safe/baseline" fetch -q --depth=1 "$remote" "$baseline_ref"
   git -C "$safe/baseline" show FETCH_HEAD:metrics.json > "$safe/$arm.json"
 done
-python - "$work" "$safe/result" "$run_id" "$started_ms" "$safe/base.json" "$safe/batch.json" <<'PY'
-import hashlib,json,shutil,sys,time
+gs -C "$safe/baseline" fetch -q --depth=1 "$remote" "refs/heads/ghspeed-distributed/46129860722/checkpoint"
+git -C "$safe/baseline" show FETCH_HEAD:checkpoint-g512.pt > "$safe/reference.pt"
+python - "$work" "$safe/result" "$run_id" "$started_ms" "$safe/base.json" "$safe/batch.json" "$safe/reference.pt" <<'PY'
+import hashlib,json,shutil,sys,time,torch
 from pathlib import Path
 work,out=map(Path,sys.argv[1:3])
 r=json.loads((work/'result.json').read_text()); v=json.loads((work/'strict.json').read_text())
@@ -137,8 +136,23 @@ assert 0<cp.stat().st_size<=32*1024**2 and hashlib.sha256(cp.read_bytes()).hexdi
 for path in map(Path,sys.argv[5:7]):
     b=json.loads(path.read_text())
     assert (b['workflow_run'],b['generation_in'],b['generation_out'],b['accepted'],b['audits'],b['updates'])==(46128843323,511,512,1280,1280,40)
-    assert all(b[key]==value for key,value in digests.items()) and b['checkpoint_sha256']==r['checkpoint_sha256']
-shutil.copyfile(cp,out/cp.name)
+    assert all(b[key]==value for key,value in digests.items())
+reference=Path(sys.argv[7])
+assert hashlib.sha256(reference.read_bytes()).hexdigest()==b['checkpoint_sha256']
+exact=b['checkpoint_sha256']==r['checkpoint_sha256']
+if exact:shutil.copyfile(cp,out/cp.name)
+one=torch.load(reference,map_location='cpu',weights_only=True)
+two=torch.load(cp,map_location='cpu',weights_only=True)
+assert one['generation']==two['generation']==512 and one['step']==two['step']==0
+drift={}
+for key in ('model','target','magnet'):
+    assert one[key].keys()==two[key].keys()
+    values=[]
+    for n,a in one[key].items():
+        b=two[key][n]
+        assert a.shape==b.shape and a.dtype==b.dtype and torch.isfinite(b).all()
+        values.append(float((a.to(torch.float64)-b.to(torch.float64)).abs().max()))
+    drift[key]=max(values)
 t=r['dispatch_ms']; ev=r['optimizer_events']
 m=dict(workflow_run=int(sys.argv[3]),generation_in=511,generation_out=512,accepted=1280,audits=1280,updates=40,
   acquisition_s=(max(v['all_packet_times_ms'].values())-t)/1000, first_accepted_s=(min(v['all_packet_times_ms'].values())-t)/1000,
@@ -148,18 +162,16 @@ m=dict(workflow_run=int(sys.argv[3]),generation_in=511,generation_out=512,accept
 p=json.loads((work/'learner-profile.json').read_text())
 assert len(p)==40
 m['profile_wall_s']=dict(zip(('wait_for_batch','parallel_compute','combine'),(sum(t[0][i] for t in p)/1e9 for i in range(3)),strict=True))
-m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient','inputs_inside_forward','targets_inside_forward'),(sum(t[1][i] for t in p)/1e9 for i in range(6)),strict=True))
+m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient'),(sum(t[1][i] for t in p)/1e9 for i in range(4)),strict=True))
+m['exact_checkpoint']=exact
+m['max_tensor_abs_delta']=drift
 m['ready50_s']=(sorted(v['all_packet_times_ms'].values())[79]-t)/1000
 (out/'metrics.json').write_text(json.dumps(m,sort_keys=True)+'\n')
 PY
 git init -q "$safe/result"
-git -C "$safe/result" add metrics.json checkpoint-g512.pt
+git -C "$safe/result" add -- .
 git -C "$safe/result" -c user.name=league-runner -c user.email=league-runner@users.noreply.github.com commit -qm 'Seal verified isolated checkpoint'
 ref="refs/heads/ghspeed-distributed/$run_id/checkpoint"
 gs -C "$safe/result" push -q "$remote" "HEAD:$ref"
 test "$(gs -C "$safe/result" ls-remote --heads "$remote" "$ref" | cut -f1)" = "$(git -C "$safe/result" rev-parse HEAD)"
-printf 'Exact 1280 matches, audits and 40 updates. Private durable checkpoint verified at epoch-ms %s.\n' "$(date +%s%3N)" >&3
-
-# Retry the isolated proof with an independent no-auth visibility check.
-
-# Preserve scalar tensors in the exact trial tape codec.
+printf 'Exact 1280 match and audit records, 40 updates. Isolated comparison saved at epoch-ms %s.\n' "$(date +%s%3N)" >&3

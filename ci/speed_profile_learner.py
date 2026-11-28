@@ -1,69 +1,38 @@
-import time,os,hashlib,json,sys,traceback
+import time,os,hashlib,json
 from pathlib import Path
 from collections import Counter
 import orjson
-import numpy as np
 import torch
 import torch.multiprocessing as mp
 from scripts.rnad import shared_league_learner as l, shared_league_staging as st, shared_league_parallel as par
-from speed_magnet_tape import ReplayMagnet
+from scripts.rnad.shared_league_batched import batched_match_losses
 _W=None
-_T=None
 def init(model,target,magnet,flat,active,spans):
-    original=l._inputs
-    def faster(phase, payload):
-        if phase=='draft':
-            obs={k:torch.from_numpy(np.asarray(payload[k],dtype=np.float32)) for k in ('pool','extra')}
-            return obs,torch.from_numpy(np.asarray(payload['codes'],dtype=np.int64))
-        if phase=='battle':
-            return ({'state':torch.from_numpy(np.asarray(payload['state'],dtype=np.float32)).unsqueeze(0)},
-                    torch.from_numpy(np.asarray(payload['actions'],dtype=np.float32)).unsqueeze(0))
-        return original(phase,payload)
-    original_targets=l.rnad_targets
-    def timed(fn, slot):
-        def checked(*a,**kw):
-            start=time.monotonic_ns()
-            out=fn(*a,**kw)
-            if _T is not None:_T[slot]+=time.monotonic_ns()-start
-            return out
-        return checked
-    l._inputs=timed(faster,0)
-    l.rnad_targets=timed(original_targets,1)
     global _W
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
     _W=model,target,magnet,flat,active,spans
-def gradient(job):
-    try:
-        return _gradient(job)
-    except Exception as exc:
-        points=' '.join(f'{Path(t.filename).name}:{t.lineno}' for t in traceback.extract_tb(exc.__traceback__)[-6:])
-        print(f'Speed worker diagnostic: {type(exc).__name__} {points}',file=sys.stderr,flush=True)
-        raise
-
-def _gradient(job):
-    global _T
-    i,path,role,sha=job
-    _T=[0,0]
+def gradient(jobs):
     model,target,magnet,flat,active,spans=_W
+    assert len(jobs)==4
     tick=time.monotonic_ns()
-    b=Path(path).read_bytes()
-    if hashlib.sha256(b).hexdigest()!=sha:raise ValueError('Receipt changed')
-    record=orjson.loads(b)
+    loaded=[]
+    for i,path,role,sha in jobs:
+        b=Path(path).read_bytes()
+        if hashlib.sha256(b).hexdigest()!=sha:raise ValueError('Receipt changed')
+        loaded.append((orjson.loads(b),role))
+    picked=jobs[0][0]
     parsed=time.monotonic_ns()
     model.zero_grad(set_to_none=True)
-    side=orjson.loads((Path(os.environ['LEAGUE_MAGNET_TAPE_DIR'])/Path(path).name).read_bytes())
-    assert side['accepted_sha']==sha and side['magnet_sha']==os.environ['LEAGUE_FROZEN_MAGNET_SHA']
-    replay=ReplayMagnet(side)
-    loss,ratio=l._match_loss(model,target,replay,record,role=role)
-    replay.done()
+    r=batched_match_losses(model,target,magnet,loaded)
+    assert len(r)==len(jobs)
     forward=time.monotonic_ns()
-    (loss/32).backward()
+    (sum(loss for loss,_ in r)/32).backward()
     backward=time.monotonic_ns()
     for j,(p,(x,y)) in enumerate(zip(model.parameters(),spans,strict=True)):
-        active[i,j]=p.grad is not None
-        if p.grad is not None:flat[i,x:y].copy_(p.grad.reshape(-1))
-    return i,float(loss.detach()),ratio,((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward,*_T)
+        active[picked,j]=p.grad is not None
+        if p.grad is not None:flat[picked,x:y].copy_(p.grad.reshape(-1))
+    return picked,[(i,float(loss.detach()),ratio) for (i,*_),(loss,ratio) in zip(jobs,r,strict=True)],((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward)
 def train(root,where,broker,manifest,rows):
     src=Path(l.__file__).read_text()
     profile=[]
@@ -106,10 +75,13 @@ def train(root,where,broker,manifest,rows):
             if self.n==2 and broker.vm_actors_done:
                 self.pool.close();self.pool.join()
                 self.n=min(8,len(os.sched_getaffinity(0)));self.pool=self.spawn(self.n)
-            r=sorted(self.pool.map(gradient,t,chunksize=1))
+            canonical=sorted(t)
+            groups=[canonical[i:i+4] for i in range(0,len(canonical),4)]
+            r=sorted(self.pool.map(gradient,groups,chunksize=1))
             mapped=time.monotonic_ns()
-            assert [row[0] for row in r]==list(range(32))
-            for i,flags in enumerate(self.active.tolist()):
+            assert [row[0] for row in r]==list(range(0,32,4))
+            for i in range(0,32,4):
+                flags=self.active[i].tolist()
                 a=[];b=[]
                 for enabled,p,(x,y) in zip(flags,self.params,self.spans,strict=True):
                     if not enabled:continue
@@ -117,8 +89,10 @@ def train(root,where,broker,manifest,rows):
                     if p.grad is None:p.grad=g.clone()
                     else:a.append(p.grad);b.append(g)
                 if a:torch._foreach_add_(a,b)
-            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[3][i] for row in r) for i in range(6)]))
-            return [x[1] for x in r],[x[2] for x in r]
+            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[2][i] for row in r) for i in range(4)]))
+            rows_out=[v for _,chunk,_ in r for v in chunk]
+            assert [v[0] for v in rows_out]==list(range(32))
+            return [x[1] for x in rows_out],[x[2] for x in rows_out]
         def __enter__(self):return self
         def __exit__(self,k,v,t):
             if k:self.pool.terminate()
