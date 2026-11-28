@@ -97,8 +97,10 @@ g=$((initial_g+round-1))
 boot="$initial_boot"
 export LEAGUE_WARM_ROUND="$round"
 phase=gate
+gate_started_ms="$(date +%s%3N)"
 if (( round > 1 )); then
   env HANDOFF_TOKEN="$token" python -u "$here/speed-chain-relay.py" gate
+  gate_ready_ms="$(date +%s%3N)"
   phase=resume
   prior="$safe/resume-$round"
   git init -q "$prior"
@@ -110,6 +112,7 @@ if (( round > 1 )); then
   git -C "$prior" checkout -q --detach FETCH_HEAD
   boot="$prior/boot"
   python "$here/speed-chain-state.py" verify "$prior" "$g" "$run_id"
+  printf 'Chain round %s: gate wait %sms, resume hydration %sms.\n' "$round" "$((gate_ready_ms-gate_started_ms))" "$(( $(date +%s%3N)-gate_ready_ms ))" >&3
 fi
 work="$safe/speed-$round"
 output="$safe/result-$round"
@@ -150,44 +153,55 @@ if (( round == 1 )); then
   done
 fi
 python "$here/speed-chain-state.py" next "$boot" "$work/output" "$output/boot" "$g" "$run_id" "$safe"
-python - "$work" "$output" "$run_id" "$round_started_ms" "$safe/base.json" "$safe/batch.json" "$round" "$g" <<'PY'
-import hashlib,json,shutil,sys,time
-from pathlib import Path
-work,out=map(Path,sys.argv[1:3])
-r=json.loads((work/'result.json').read_text()); v=json.loads((work/'strict.json').read_text())
-g=int(sys.argv[8]);round=int(sys.argv[7]);assert g==510+round
-assert r['generation']==g and r['accepted']==v['accepted']==r['audits']==v['audits']==1280
-assert r['actual_ordered_updates']==40 and all('updated_ms' in x for x in r['optimizer_events'])
-assert len(v['pairs'])==1280 and len(v['all_packet_times_ms'])==160 and r['cloud']['waves']==24
-digests={k:hashlib.sha256(json.dumps({n:p[i] for n,p in v['pairs'].items()},sort_keys=True).encode()).hexdigest()
-         for i,k in enumerate(('matches_sha256','audits_sha256'))}
-cp=work/'output'/f'checkpoint-g{g+1}.pt'
-assert 0<cp.stat().st_size<=32*1024**2 and hashlib.sha256(cp.read_bytes()).hexdigest()==r['checkpoint_sha256']
-if round==1:
-    for path in map(Path,sys.argv[5:7]):
-        b=json.loads(path.read_text())
-        assert (b['workflow_run'],b['generation_in'],b['generation_out'],b['accepted'],b['audits'],b['updates'])==(46128843323,511,512,1280,1280,40)
-        assert all(b[key]==value for key,value in digests.items()) and b['checkpoint_sha256']==r['checkpoint_sha256']
-boot=out/'boot'
-index=json.loads((boot/'checkpoint-index.json').read_text())
-assert index['prior_generation_checkpoint_sha256']==r['checkpoint_sha256'] and index['generation']==g+1
-mbytes=sum(z.stat().st_size for z in boot.rglob('*') if z.is_file())
-assert 0<mbytes<=90*1024**2
-(out/'checkpoint-index.json').write_bytes((work/'output'/f'generation{g+1}-index.json').read_bytes())
-t=r['dispatch_ms']; ev=r['optimizer_events']
-m=dict(workflow_run=int(sys.argv[3]),generation_in=g,generation_out=g+1,resume_bytes=mbytes,bootstrap_checkpoint_sha256=index['sha256'],accepted=1280,audits=1280,updates=40,
-  acquisition_s=(max(v['all_packet_times_ms'].values())-t)/1000, first_accepted_s=(min(v['all_packet_times_ms'].values())-t)/1000,
-  receipt_s=(r['cloud']['end']-t)/1000, release_40_s=(ev[-1]['released_ms']-t)/1000,
-  update_40_s=(ev[-1]['updated_ms']-t)/1000, verified_checkpoint_s=r['active_elapsed_s'],
-  started_ms=int(sys.argv[4]), before_push_ms=int(time.time()*1000), checkpoint_sha256=r['checkpoint_sha256'],**digests)
-p=json.loads((work/'learner-profile.json').read_text())
-assert len(p)==40
-m['profile_wall_s']=dict(zip(('wait_for_batch','parallel_compute','combine'),(sum(t[0][i] for t in p)/1e9 for i in range(3)),strict=True))
-m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient'),(sum(t[1][i] for t in p)/1e9 for i in range(4)),strict=True))
-m['round']=int(sys.argv[7])
-m['ready50_s']=(sorted(v['all_packet_times_ms'].values())[79]-t)/1000
-(out/'metrics.json').write_text(json.dumps(m,sort_keys=True)+'\n')
+if ! python - "$work" "$output" "$run_id" "$round_started_ms" "$safe/base.json" "$safe/batch.json" "$round" "$g" <<'PY'
+import hashlib,json,shutil,sys,time,traceback
+try:
+    from pathlib import Path
+    work,out=map(Path,sys.argv[1:3])
+    r=json.loads((work/'result.json').read_text()); v=json.loads((work/'strict.json').read_text())
+    g=int(sys.argv[8]);round=int(sys.argv[7]);assert g==510+round
+    assert r['generation']==g and r['accepted']==v['accepted']==r['audits']==v['audits']==1280
+    assert r['actual_ordered_updates']==40 and all('updated_ms' in x for x in r['optimizer_events'])
+    assert len(v['pairs'])==1280 and len(v['all_packet_times_ms'])==160 and r['cloud']['waves']==24
+    digests={k:hashlib.sha256(json.dumps({n:p[i] for n,p in v['pairs'].items()},sort_keys=True).encode()).hexdigest()
+             for i,k in enumerate(('matches_sha256','audits_sha256'))}
+    cp=work/'output'/f'checkpoint-g{g+1}.pt'
+    assert 0<cp.stat().st_size<=32*1024**2 and hashlib.sha256(cp.read_bytes()).hexdigest()==r['checkpoint_sha256']
+    if round==1:
+        for path in map(Path,sys.argv[5:7]):
+            b=json.loads(path.read_text())
+            assert (b['workflow_run'],b['generation_in'],b['generation_out'],b['accepted'],b['audits'],b['updates'])==(46128843323,511,512,1280,1280,40)
+            assert all(b[key]==value for key,value in digests.items()), 'match-or-audit-parity'
+            assert b['checkpoint_sha256']==r['checkpoint_sha256'], 'reference-checkpoint-parity'
+    boot=out/'boot'
+    index=json.loads((boot/'checkpoint-index.json').read_text())
+    assert index['prior_generation_checkpoint_sha256']==r['checkpoint_sha256'] and index['generation']==g+1
+    mbytes=sum(z.stat().st_size for z in boot.rglob('*') if z.is_file())
+    assert 0<mbytes<=90*1024**2
+    (out/'checkpoint-index.json').write_bytes((work/'output'/f'generation{g+1}-index.json').read_bytes())
+    t=r['dispatch_ms']; ev=r['optimizer_events']
+    m=dict(workflow_run=int(sys.argv[3]),generation_in=g,generation_out=g+1,resume_bytes=mbytes,bootstrap_checkpoint_sha256=index['sha256'],accepted=1280,audits=1280,updates=40,
+      acquisition_s=(max(v['all_packet_times_ms'].values())-t)/1000, first_accepted_s=(min(v['all_packet_times_ms'].values())-t)/1000,
+      receipt_s=(r['cloud']['end']-t)/1000, release_40_s=(ev[-1]['released_ms']-t)/1000,
+      update_40_s=(ev[-1]['updated_ms']-t)/1000, verified_checkpoint_s=r['active_elapsed_s'],
+      started_ms=int(sys.argv[4]), before_push_ms=int(time.time()*1000), checkpoint_sha256=r['checkpoint_sha256'],**digests)
+    p=json.loads((work/'learner-profile.json').read_text())
+    assert len(p)==40
+    m['profile_wall_s']=dict(zip(('wait_for_batch','parallel_compute','combine'),(sum(t[0][i] for t in p)/1e9 for i in range(3)),strict=True))
+    m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient'),(sum(t[1][i] for t in p)/1e9 for i in range(4)),strict=True))
+    m['round']=int(sys.argv[7])
+    m['ready50_s']=(sorted(v['all_packet_times_ms'].values())[79]-t)/1000
+    (out/'metrics.json').write_text(json.dumps(m,sort_keys=True)+'\n')
+except Exception as e:
+    loc=traceback.extract_tb(e.__traceback__)[-1].lineno
+    label=str(e) if str(e) in ('match-or-audit-parity','reference-checkpoint-parity') else 'private'
+    print(f'Chain checkpoint diagnostic: {type(e).__name__} line {loc} {label}',file=sys.stderr,flush=True)
+    raise
 PY
+then
+  grep -m 2 -E '^Chain checkpoint diagnostic: [A-Za-z]+ line [0-9]+ (private|match-or-audit-parity|reference-checkpoint-parity)$' "$safe/private.log" >&4 || true
+  exit 1
+fi
 git init -q "$output"
 if (( round > 1 )); then
   git -C "$output" fetch -q --no-tags "$safe/result-$((round-1))" HEAD
