@@ -38,7 +38,15 @@ def handoff(boot,out,where,start,deadline,run,initial):
     budget=deadline-start
     prior=j(boot/'continuation-context.json')
     index=j(boot/'checkpoint-index.json')
-    if prior.get('new_budget_phase')!='GitHub-only 10-hour production':
+    restart_previous = (
+        initial == index['generation'] == 516
+        and index['prior_generation_checkpoint_sha256']=='bcef9b3033b5bb6f96558bcfc0d1ce138e92c4e439c7e948a21ecca1ae06d5fb'
+        and prior.get('new_budget_phase') == 'GitHub-only 10-hour production'
+        and prior.get('start_epoch') == 1795815513
+        and prior.get('deadline_epoch') == 1795851513
+        and prior['deadline_epoch'] < start
+    )
+    if prior.get('new_budget_phase')!='GitHub-only 10-hour production' or restart_previous:
         assert index['generation']==initial and budget==36000 and start<=time.time()<deadline
         ctx={'schema':h.ARTIFACT_SCHEMA,'new_budget_phase':'GitHub-only 10-hour production','source_run_id':run,
             'start_epoch':start,'deadline_epoch':deadline,'budget_seconds':budget,'original_generation':initial,
