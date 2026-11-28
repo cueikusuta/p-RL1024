@@ -63,7 +63,7 @@ def fixture(seed):
         logit,_,mem=magnet(phase,obs,acts,memories[seat])
         if phase=='battle':memories[seat]=mem
         pi=torch.softmax(logit,-1).tolist()
-        events.append(dict(phase=phase,actor=seat,phase_input=p,reward=reward,
+        events.append(dict(phase=phase,actor=seat,phase_input=p,reward=(-reward,reward),
             behavior_prob=pi[0],action_index=0,magnet_pi=pi,policy_pi=pi,predicted_value=0.))
     for seat in (0,1):
         count=20+seed*2

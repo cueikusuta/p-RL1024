@@ -98,7 +98,7 @@ try:
     runpy.run_path(sys.argv[1],run_name='__main__')
 except Exception as e:
     permitted={'speed-magnet-value.py','shared_league_learner.py','integrated_policy_v1.py',
-               'selection_ab.py','train_draft_deepsets.py','rnad_targets.py','neural.py',
+               'selection_ab.py','train_draft_deepsets.py','rnad_targets.py','two_player.py','neural.py',
                '<synthetic-frozen-magnet>'}
     known={'AssertionError','KeyError','TypeError','ValueError','RuntimeError','IndexError',
            'AttributeError','ImportError','ModuleNotFoundError'}
