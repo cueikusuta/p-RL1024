@@ -1,0 +1,34 @@
+name: Synthetic standard runner timing
+on:
+  push:
+    branches: [perf/league-private-handoff-synthetic-20261127]
+    paths: [ci/speed-standard-runners.py]
+permissions:
+  contents: read
+concurrency:
+  group: league-standard-runner-synthetic
+  cancel-in-progress: false
+jobs:
+  benchmark:
+    if: github.repository == 'cueikusuta/p-RL1024' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-26.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - if: runner.os != 'macOS'
+        run: python -m pip -q install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+      - if: runner.os == 'macOS'
+        run: python -m pip -q install torch==2.5.1
+      - run: python ci/speed-standard-runners.py
