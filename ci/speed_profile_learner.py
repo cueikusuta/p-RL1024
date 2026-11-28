@@ -2,17 +2,40 @@ import time,os,hashlib,json
 from pathlib import Path
 from collections import Counter
 import orjson
+import numpy as np
 import torch
 import torch.multiprocessing as mp
 from scripts.rnad import shared_league_learner as l, shared_league_staging as st, shared_league_parallel as par
 _W=None
+_T=None
 def init(model,target,magnet,flat,active,spans):
+    original=l._inputs
+    def faster(phase, payload):
+        if phase=='draft':
+            obs={k:torch.from_numpy(np.asarray(payload[k],dtype=np.float32)) for k in ('pool','extra')}
+            return obs,torch.from_numpy(np.asarray(payload['codes'],dtype=np.int64))
+        if phase=='battle':
+            return ({'state':torch.from_numpy(np.asarray(payload['state'],dtype=np.float32)).unsqueeze(0)},
+                    torch.from_numpy(np.asarray(payload['actions'],dtype=np.float32)).unsqueeze(0))
+        return original(phase,payload)
+    original_targets=l.rnad_targets
+    def timed(fn, slot):
+        def checked(*a,**kw):
+            start=time.monotonic_ns()
+            out=fn(*a,**kw)
+            if _T is not None:_T[slot]+=time.monotonic_ns()-start
+            return out
+        return checked
+    l._inputs=timed(faster,0)
+    l.rnad_targets=timed(original_targets,1)
     global _W
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
     _W=model,target,magnet,flat,active,spans
 def gradient(job):
+    global _T
     i,path,role,sha=job
+    _T=[0,0]
     model,target,magnet,flat,active,spans=_W
     tick=time.monotonic_ns()
     b=Path(path).read_bytes()
@@ -27,7 +50,7 @@ def gradient(job):
     for j,(p,(x,y)) in enumerate(zip(model.parameters(),spans,strict=True)):
         active[i,j]=p.grad is not None
         if p.grad is not None:flat[i,x:y].copy_(p.grad.reshape(-1))
-    return i,float(loss.detach()),ratio,((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward)
+    return i,float(loss.detach()),ratio,((parsed-tick),(forward-parsed),(backward-forward),time.monotonic_ns()-backward,*_T)
 def train(root,where,broker,manifest,rows):
     src=Path(l.__file__).read_text()
     profile=[]
@@ -81,7 +104,7 @@ def train(root,where,broker,manifest,rows):
                     if p.grad is None:p.grad=g.clone()
                     else:a.append(p.grad);b.append(g)
                 if a:torch._foreach_add_(a,b)
-            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[3][i] for row in r) for i in range(4)]))
+            profile.append(([released-begun,mapped-released,time.monotonic_ns()-mapped], [sum(row[3][i] for row in r) for i in range(6)]))
             return [x[1] for x in r],[x[2] for x in r]
         def __enter__(self):return self
         def __exit__(self,k,v,t):

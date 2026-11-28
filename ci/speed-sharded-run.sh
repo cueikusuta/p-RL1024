@@ -145,7 +145,7 @@ m=dict(workflow_run=int(sys.argv[3]),generation_in=511,generation_out=512,accept
 p=json.loads((work/'learner-profile.json').read_text())
 assert len(p)==40
 m['profile_wall_s']=dict(zip(('wait_for_batch','parallel_compute','combine'),(sum(t[0][i] for t in p)/1e9 for i in range(3)),strict=True))
-m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient'),(sum(t[1][i] for t in p)/1e9 for i in range(4)),strict=True))
+m['profile_worker_s']=dict(zip(('read_and_parse','forward','backward','copy_gradient','inputs_inside_forward','targets_inside_forward'),(sum(t[1][i] for t in p)/1e9 for i in range(6)),strict=True))
 m['ready50_s']=(sorted(v['all_packet_times_ms'].values())[79]-t)/1000
 (out/'metrics.json').write_text(json.dumps(m,sort_keys=True)+'\n')
 PY
