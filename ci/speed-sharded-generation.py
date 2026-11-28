@@ -1,6 +1,6 @@
 """One isolated fresh-generation timing run; nothing is promoted."""
 from pathlib import Path
-import hashlib,os,subprocess,sys,json,threading,time,shutil,signal
+import hashlib,os,subprocess,sys,json,threading,time,shutil,signal,traceback
 from concurrent.futures import ProcessPoolExecutor,wait,FIRST_COMPLETED
 from multiprocessing import get_context
 from speed_profile_receive import verify_packet,envelope,digest
@@ -135,4 +135,10 @@ def main():
         if cloud and cloud.poll() is None:
             cloud.terminate()
             cloud.wait(timeout=3)
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:
+        main()
+    except Exception as exc:
+        points=' '.join(f'{Path(t.filename).name}:{t.lineno}' for t in traceback.extract_tb(exc.__traceback__)[-6:])
+        print(f'Speed controller diagnostic: {type(exc).__name__} {points}',file=sys.stderr,flush=True)
+        raise

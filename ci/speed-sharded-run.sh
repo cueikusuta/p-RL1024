@@ -23,7 +23,7 @@ await_both() {
   if (( code == 0 )); then
     if [[ "$finished" == "$sim_pid" ]]; then wait "$relay_pid" || code=$?; else wait "$sim_pid" || code=$?; fi
   fi
-  if (( code != 0 )); then grep -E '^Relay diagnostic: [A-Za-z]+ HTTP [0-9]+ line [0-9]+$' "$safe/private.log" >&4 || true; return "$code"; fi
+  if (( code != 0 )); then grep -E '^Relay diagnostic: [A-Za-z]+ HTTP [0-9]+ line [0-9]+$' "$safe/private.log" >&4 || true; grep -m 5 -E '^Speed (worker|controller) diagnostic: [A-Za-z]+( [A-Za-z0-9_.-]+:[0-9]+)+$' "$safe/private.log" >&4 || true; return "$code"; fi
   relay_pid=''; sim_pid=''
 }
 here="$PWD/ci"

@@ -1,4 +1,4 @@
-import time,os,hashlib,json
+import time,os,hashlib,json,sys,traceback
 from pathlib import Path
 from collections import Counter
 import orjson
@@ -34,6 +34,14 @@ def init(model,target,magnet,flat,active,spans):
     torch.set_num_interop_threads(1)
     _W=model,target,magnet,flat,active,spans
 def gradient(job):
+    try:
+        return _gradient(job)
+    except Exception as exc:
+        points=' '.join(f'{Path(t.filename).name}:{t.lineno}' for t in traceback.extract_tb(exc.__traceback__)[-6:])
+        print(f'Speed worker diagnostic: {type(exc).__name__} {points}',file=sys.stderr,flush=True)
+        raise
+
+def _gradient(job):
     global _T
     i,path,role,sha=job
     _T=[0,0]
